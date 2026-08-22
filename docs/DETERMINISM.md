@@ -322,130 +322,109 @@ identical integer deposit counts over a full supertile on two different
 implementations — and its error against the native f64 evaluation is
 stated.
 
-#### Measured 2026-08-22 — met between GPUs, and llvmpipe ruled out
+#### MET between GPUs, 2026-08-22 — 50 of 50, and llvmpipe ruled out
 
-Emitted plates run over **65,536** fixed input bits on four stacks,
-with the same positives emitted **unpinned as the control**. Position,
+Emitted plates over **65,536** fixed input bits on four stacks, with the
+same positives emitted **unpinned as the control**. Position,
 bit-identical:
 
-| pair | pinned | ignoring signed zero | control (unpinned) | colour too |
-|---|---|---|---|---|
-| iris ↔ radeonsi | 48/50 | **49/50** | 13/50 | 44/50 |
-| NVIDIA ↔ iris | 47/50 | **49/50** | 11/50 | 40/50 |
-| NVIDIA ↔ radeonsi | 47/50 | **48/50** | 10/50 | 43/50 |
-| anything ↔ **llvmpipe** | 15–17/50 | 17/50 | 8–12/50 | 6–8/50 |
+| pair | pinned | ignoring signed zero | control |
+|---|---|---|---|
+| NVIDIA ↔ radeonsi | 49/50 | **50/50** | 10/50 |
+| iris ↔ radeonsi | 49/50 | **50/50** | 13/50 |
+| NVIDIA ↔ iris | 48/50 | **50/50** | 11/50 |
+| anything ↔ **llvmpipe** | 15–17/50 | 17/50 | 8–12/50 |
 
-The control separates by a factor of four, which is what makes the
-agreement evidence rather than a coincidence of dull plates.
+Colour, which goes through `pal`, reaches 40–46/50 from 15–21 before the
+pinned header twins.
 
-**And it is not sample-limited.** Run at 16,384 samples and again at
-65,536, the GPU pairs give the same counts on the same plates. Only
-llvmpipe moves, by one, which is expected of a stack that diverges
-broadly anyway.
+**The bar is met for GPUs.** The two plates still listed under the
+strict column, `lyap` and `arnold`, differ *only* in the sign of a
+zero — which deposits into the same pixel and which the census, hashing
+accumulated counts, cannot see at all.
 
-**Signed zero is a hash difference and not a numerical one.** `lyap`
-looked like a disagreement; dumped and compared as bits, every one of
-its 16,384 differing words is `y = -0.0` on NVIDIA against `+0.0` on
-radeonsi, with **not one value differing otherwise**. Both deposit into
-the same pixel, so the census — which hashes accumulated counts —
-cannot see it, while this harness — which hashes returned floats —
-fails on it. Both figures are reported rather than one being chosen.
+It took four things, and each was found rather than designed:
 
-That diff was nearly wrong in the other direction: `a != b` treats
-`-0.0` and `+0.0` as **equal**, so the first comparison said zero
-samples differed while the hashes disagreed. The bits had to be
-compared as bits.
+1. **`precise` on every declared local** — 12/50 → 46/50.
+2. **Operand hoisting**, because `precise` on the destination does not
+   stop radeonsi cancelling `(A - level) - (B - level)` into `A - B`.
+   That closed `tpms`.
+3. **Pinned twins for the registry's shared header** — `det_pal`,
+   `det_cmul`, `det_cdiv`, `det_cinv`, `det_csqrt` — so an emitted
+   plate no longer reaches an unpinned `cos()` at one remove. 38 of 54
+   positives did.
+4. **Hoisting inside ternary branches too**, which closed `mirage`.
+   It costs: a bound branch is computed whether or not it is selected,
+   `tpms` pays for four of them, and `mirage`'s emitted source roughly
+   doubles. Correctness over speed is what the `pin` flag is for.
 
-**llvmpipe is out, for a reason under the plates.** One stack out of
-step against every partner is not a plate property, so the det library
-itself was hashed on all four: `tools/detbits.py` finds **16 of 23
-det_ functions differ on llvmpipe** while the three GPUs agree
-exactly, including the pinned reference hashes `27c0f355…` for
-`det_sin` and `a71fe904…` for `det_cos`.
+And then the last plate found a defect in the det library itself. See
+below.
 
-The cause is a conformance failure, isolated by `fmaprobe.py` in the
-darkroom: **llvmpipe does not single-round `fma()` even under
-`precise`.** Put `precise fma(a,b,c)` beside `precise a*b + c` on the
-same inputs — NVIDIA, radeonsi and iris differ on 49,632 of 262,144;
-llvmpipe gives bit-identical results for both, on all of them. The test
-needs no reference, so it cannot be measuring one: it asks only whether
-a stack can tell one rounding from two.
+**llvmpipe is out, for a reason under the plates.** `tools/detbits.py`
+finds **16 of 23 det_ functions differ on llvmpipe** while the three
+GPUs agree exactly. The cause, isolated by `fmaprobe.py`: **llvmpipe
+does not single-round `fma()` even under `precise`** — it returns
+bit-for-bit the two-rounding `a*b + c` on all 262,144 inputs, where the
+GPUs differ from that form on 49,632. Scoped further: radeonsi's *LLVM*
+backend is correct, and llvmpipe fails identically on Mesa 24.0.5/LLVM
+17 and 26.1.7/LLVM 20. It is llvmpipe's own lowering, so no GPU is at
+risk. Bug report drafted in the darkroom at
+`docs/bug-reports/mesa-llvmpipe-fma-not-single-rounded.md`.
 
-Scoped further, so the blast radius is known rather than feared:
-radeonsi's **LLVM** backend single-rounds correctly, and llvmpipe fails
-identically on Mesa 24.0.5 / LLVM 17 and Mesa 26.1.7 / LLVM 20. It is
-llvmpipe's own lowering — not LLVM, not a Mesa version — so no GPU is
-at risk.
-
-Every det transcendental is a Horner chain of `precise float t =
-fma(...)`, so no change to the library can make llvmpipe agree. Taken
-with Phase 1 the picture is consistent and slightly perverse:
-**llvmpipe has by far the best transcendentals and cannot hold
-bit-parity.** It is not the reference, and its accuracy was never the
-reason. The 7 det functions that *are* identical everywhere are exactly
-the `detpre` helpers — `precise` locals, plain `*` and `+`, no `fma` —
-which suggests an fma-free library would be portable at a cost in speed
-and accuracy. Not attempted, and not recommended: it would fork the
-corpus into two incompatible hash sets.
-
-**What is not yet met.** It is the **shape function over 65,536
-samples**, not integer deposit counts over a full supertile — stronger
+**What is still not met.** This is the shape function over 65,536
+samples, not integer deposit counts over a full supertile — stronger
 per sample, weaker in coverage; the supertile run belongs with Phase 4.
-And **the error against the native f64 evaluation is not stated**: the
-machinery exists (`shapeprobe.py` scores against float64) but has been
-pointed at darkroom plates, not emitted ones.
+And the error against the native f64 evaluation is still not stated.
 
-**The two that remain, and what they look like.** `hyper` differs only
-on pairs involving radeonsi; `mirage` only on pairs involving NVIDIA —
-so each has one stack out of step rather than a shared cause. `mirage`
-was dumped: **14 differing words of 49,152**, all in the z component,
-and *large* — 0.033 against −0.375 — with identical cull counts. That
-is not last-place arithmetic, it is a branch taken differently, which
-means a sub-ULP difference exists somewhere invisible and becomes
-visible only where it crosses a decision boundary.
+#### The two that resisted, and what each one was
 
-Which is the honest caveat on the whole table: a plate whose outputs
-are bit-identical over these samples may still carry a sub-ULP
-difference that no sampled input happens to expose. Quadrupling the
-samples did not find one, but that is evidence rather than proof.
+Both were chased to a named cause. Neither was in the plan.
 
-#### `precise` on the destination does not pin an inline expression
+**`tpms` — `precise` on the destination does not pin an inline
+expression.** Two hypotheses died first and both deserved to: the cull
+boundaries agree exactly (12,623 culled on both stacks, zero
+disagreement), and every decimal literal in the corpus parses to the
+same bits on all three stacks (26 of 26, `litprobe.py`), so `TAU =
+6.28318530718` in the shared header is not the culprit either.
 
-Two hypotheses died first, and both deserved to: the cull boundaries
-(`abs(fres) > 0.08`) agree exactly — 12,623 samples culled on both
-stacks, zero disagreement — and every decimal literal in the corpus
-parses to the same bits on NVIDIA, radeonsi and llvmpipe (26 of 26,
-`litprobe.py`), so `TAU = 6.28318530718` in the shared header is not
-the culprit either.
+Bisecting put the boundary between `f` (identical) and `gx`
+(differing). Three spellings of the same central difference, on
+radeonsi:
 
-Bisecting the shader put the boundary between `f` (bit-identical) and
-`gx` (differing). Three spellings of the same `gx`, on radeonsi:
-
-| how the central difference is written | radeonsi |
+| how `(A - level) - (B - level)` is written | radeonsi |
 |---|---|
 | argument bound to a local, results inline | differs |
 | **results bound to `precise` locals** | **agrees** |
-| fully inline — what the emitter writes today | differs |
+| fully inline — what the emitter wrote | differs |
 
-The expression is `(A - level) - (B - level)`. Written inline, radeonsi
-is free to cancel it to `A - B`, and does; the rounding changes. **The
-`precise` qualifier on the destination does not prevent that. `precise`
-on the intermediates does.**
-
-This is the darkroom's own rule, arrived at from the other end — the
-comment above `pal()` in `shader.py` reads *"never hand a compound
+Written inline, radeonsi cancels it to `A - B` and the rounding
+changes. `precise` on the destination does not prevent that; `precise`
+on the intermediates does. Which is the darkroom's own rule arrived at
+from the other end — `shader.py` says *"never hand a compound
 expression to a function the bake will rename. Bind it to a local
-first."* Same hazard, wider than the bake: it applies to any compound
-subexpression, not only arguments.
+first."*
 
-**So Phase 2's fourth item is still not fully done.** Qualifying the
-declared locals took the GPU pairs from 12/50 to 46/50; qualifying the
-*intermediates* is what the last few need. The emitter builds one
-enormous nested expression per statement — `tpms` fits its whole
-surface function, four times over, on a single line — and it must hoist
-sub-expressions into named `precise` temporaries instead. That is the
-next concrete change, and it is likely to close `hyper`, `lyap` and
-`mirage` as well.
+**`hyper` — the det library was missing `precise` on its own `fma`.**
+`tools/firstdiff.py` instruments every `precise float` declaration in
+an emitted plate to write itself to an output slot, runs it on two
+stacks, and names the first slot whose bits differ. On `hyper` that was
+`psiv_29 = det_acos(cpsiv_28)`, differing on all 4,096 samples while
+its input agreed.
+
+`det_acos` and `det_mod` were written as one-liners whose `fma` result
+carried **no qualifier** — and an unqualified `fma` is single-rounded
+on NVIDIA and iris and is not on radeonsi. The guarantee the whole
+library rests on, left off two of the library's own functions.
+Measured: `det_mod` on radeonsi differed from the qualified form on
+27,871 of 65,536 inputs.
+
+The fix is **hash-preserving on NVIDIA and iris** — both already
+single-round an unqualified `fma`, so no `det_` hash moved on either,
+`det_sin` still `27c0f355e6837dd5`. Every census in the darkroom was
+taken on NVIDIA and remains valid. Fixed at source in
+`gendetlib.py`; the template here was re-extracted and byte-identity
+against the regenerated library still holds.
 
 ### Phase 4 — across the matrix
 

@@ -65,12 +65,17 @@ CALLS = [
     ("det_len3v", "det_len3v(vec3(a, b, a - b))"),
 ]
 
+# PI and TAU come from the registry's shared header, and detpre's
+# det_pal needs TAU. Declared here so this probe compiles the same
+# library the plates do rather than a subset of it.
 HEAD = """#version 430
 layout(local_size_x = 128) in;
 layout(std430, binding = 0) readonly  buffer In  { float x[]; };
 layout(std430, binding = 1) readonly  buffer In2 { float y[]; };
 layout(std430, binding = 2) writeonly buffer Out { float o[]; };
 uniform uint uN;
+const float PI  = 3.14159265359;
+const float TAU = 6.28318530718;
 """
 
 

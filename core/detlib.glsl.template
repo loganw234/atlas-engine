@@ -322,8 +322,26 @@ float det_tan(float x){ float s, c; det_sincos(x, s, c);
                         return det_div(s, c); }
 float det_pow(float x, float y){
   return det_exp2(y * det_log2(x)); }
+/* AND THE COMPOSITES CARRY `precise` TOO, which they did not until
+   2026-08-22. Written as one-liners, `fma(-x, x, 1.0)` here and
+   `fma(-y, q, x)` in det_mod had NO qualifier on their results - and an
+   unqualified fma is single-rounded on NVIDIA and iris and is NOT on
+   radeonsi and llvmpipe. That is the one guarantee this whole library
+   is built on, left off two of its own functions.
+   Measured: det_mod on radeonsi differed from the qualified form on
+   27,871 of 65,536 inputs. det_acos agreed in a small probe and
+   disagreed inside `hyper`, which is the context dependence contraction
+   has everywhere else - so it is a latent hazard rather than a
+   sometimes-correct function.
+   THE FIX IS HASH-PRESERVING ON NVIDIA AND IRIS: both already
+   single-round an unqualified fma, so every det_ hash on those stacks
+   is unchanged, det_sin still 27c0f355 and det_cos still a71fe904.
+   What changes is that radeonsi now agrees with them. */
 float det_acos(float x){
-  return det_atan(det_sqrt(fma(-x, x, 1.0)), x); }
+  precise float t = fma(-x, x, 1.0);
+  precise float r = det_sqrt(t);
+  return det_atan(r, x); }
 float det_mod(float x, float y){
   precise float q = floor(det_div(x, y));
-  return fma(-y, q, x); }
+  precise float r = fma(-y, q, x);
+  return r; }

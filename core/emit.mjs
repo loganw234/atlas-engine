@@ -290,10 +290,6 @@ export function emitWalk(pos, opts = {}) {
 
   let vn = 0;
 
-  // Depth of ternary nesting, so hoisting can stay out of branches it
-  // would make unconditional. See the note in case "cond".
-  let inCond = 0;
-
   /** Bind a compound float expression to its own `precise` temporary.
    *
    *  Only compound ones: a bare name, a literal, a swizzle or a lever
@@ -304,7 +300,14 @@ export function emitWalk(pos, opts = {}) {
    *  compiler removes; if it misses something that did, a plate stops
    *  agreeing across vendors, which is far more expensive. */
   function bindPrecise(code) {
-    if (inCond) return code;
+    // NOTE: hoisting DOES descend into ternary branches. Binding a
+    // branch computes it whether or not it is selected - harmless,
+    // since draws are already refused there and every det_ function
+    // is total - but tpms has four branches of six det_ calls each
+    // and pays for all of them, and mirage's emitted source roughly
+    // doubles. That is the price of the last plates: with the
+    // exemption in place mirage disagreed between vendors, and
+    // without it every GPU pair reaches 50/50.
     if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(code)) return code;        // name
     if (/^[A-Za-z_][A-Za-z0-9_]*\.[xyzw]$/.test(code)) return code; // swizzle
     if (/^-?[0-9.]+(e-?[0-9]+)?$/.test(code)) return code;          // literal
@@ -408,14 +411,7 @@ export function emitWalk(pos, opts = {}) {
       case "cond": {
         if (effectful(n.a) || effectful(n.b))
           err("a stream draw inside a ternary branch would diverge across backends; hoist the draw", n.line);
-        // NO HOISTING INSIDE A TERNARY. Binding a branch to a named
-        // temporary would compute it whether or not it is selected -
-        // harmless numerically, since the emitter already refuses side
-        // effects here, but tpms has four branches of six det_ calls
-        // each and it would pay for all of them every sample.
-        inCond++;
         const c = emit(n.c), a = emit(n.a), b = emit(n.b);
-        inCond--;
         const ty = a.type === "int" && b.type === "int" ? "int" : "float";
         const ca = ty === "float" ? asFloat(a) : a.code;
         const cb = ty === "float" ? asFloat(b) : b.code;
