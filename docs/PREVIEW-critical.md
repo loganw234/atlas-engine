@@ -89,8 +89,10 @@ unsorted, totals 1.000.
 - The positive's two evaluators agree at cell level, measured by the
   probe rig pattern (project cells, read pixels, compare against the
   CPU evaluator's accumulation; rim and canvas-edge exclusions apply).
-- Against the plate, agreement is statistical: same percolation law,
-  same budget behaviour, compared as distributions at equal levers.
-  Not hash-exact - the positive draws its own chains.
+- Against the plate, the bar depends on the chains. As previewed the
+  positive drew its own chains and owed only the law, as
+  distributions at equal levers; with the plate's chains pinned (see
+  the drift section) it owes the plate's world itself, survivors and
+  trails identical at address level and the picture cell for cell.
 - Bit-identity stays with the darkroom, which pins whatever program a
   print run uses. Not a constraint on this stage (operator's ruling).
