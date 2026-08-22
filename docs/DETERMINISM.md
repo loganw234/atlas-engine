@@ -324,27 +324,37 @@ stated.
 
 #### Measured 2026-08-22 — met between GPUs, and llvmpipe ruled out
 
-Emitted plates run over 16,384 fixed input bits on four stacks, with
-the **same positives emitted unpinned as the control**. Bit-identity of
-the deposited position:
+Emitted plates run over **65,536** fixed input bits on four stacks,
+with the same positives emitted **unpinned as the control**. Position,
+bit-identical:
 
-| pair | pinned | unpinned (control) |
-|---|---|---|
-| iris ↔ radeonsi | **48 / 50** | 13 / 50 |
-| NVIDIA ↔ radeonsi | **46 / 50** | 10 / 50 |
-| NVIDIA ↔ iris | 44 / 50 | 11 / 50 |
-| anything ↔ **llvmpipe** | 16–18 / 50 | 8–12 / 50 |
+| pair | pinned | ignoring signed zero | control (unpinned) | colour too |
+|---|---|---|---|---|
+| iris ↔ radeonsi | 48/50 | **49/50** | 13/50 | 44/50 |
+| NVIDIA ↔ iris | 47/50 | **49/50** | 11/50 | 40/50 |
+| NVIDIA ↔ radeonsi | 47/50 | **48/50** | 10/50 | 43/50 |
+| anything ↔ **llvmpipe** | 15–17/50 | 17/50 | 8–12/50 | 6–8/50 |
 
-The control separates decisively, which is what makes the agreement
-evidence rather than a coincidence of dull plates.
+The control separates by a factor of four, which is what makes the
+agreement evidence rather than a coincidence of dull plates.
 
-**The first run failed, and the failure was the useful part.** Pinning
-every builtin moved the worst pair from 8/50 to 10/50 — nowhere near
-the bar. Phase 2 had shipped three of its four items and skipped
-`precise` on the accumulation chain; an unqualified `a*b + c` in the
-walk is free to become an fma, and whether it does depends on the rest
-of the shader. Adding the qualifier took the GPU pairs from 12/50 to
-46/50. The det functions were never the binding constraint.
+**And it is not sample-limited.** Run at 16,384 samples and again at
+65,536, the GPU pairs give the same counts on the same plates. Only
+llvmpipe moves, by one, which is expected of a stack that diverges
+broadly anyway.
+
+**Signed zero is a hash difference and not a numerical one.** `lyap`
+looked like a disagreement; dumped and compared as bits, every one of
+its 16,384 differing words is `y = -0.0` on NVIDIA against `+0.0` on
+radeonsi, with **not one value differing otherwise**. Both deposit into
+the same pixel, so the census — which hashes accumulated counts —
+cannot see it, while this harness — which hashes returned floats —
+fails on it. Both figures are reported rather than one being chosen.
+
+That diff was nearly wrong in the other direction: `a != b` treats
+`-0.0` and `+0.0` as **equal**, so the first comparison said zero
+samples differed while the hashes disagreed. The bits had to be
+compared as bits.
 
 **llvmpipe is out, for a reason under the plates.** One stack out of
 step against every partner is not a plate property, so the det library
@@ -361,34 +371,43 @@ llvmpipe gives bit-identical results for both, on all of them. The test
 needs no reference, so it cannot be measuring one: it asks only whether
 a stack can tell one rounding from two.
 
+Scoped further, so the blast radius is known rather than feared:
+radeonsi's **LLVM** backend single-rounds correctly, and llvmpipe fails
+identically on Mesa 24.0.5 / LLVM 17 and Mesa 26.1.7 / LLVM 20. It is
+llvmpipe's own lowering — not LLVM, not a Mesa version — so no GPU is
+at risk.
+
 Every det transcendental is a Horner chain of `precise float t =
 fma(...)`, so no change to the library can make llvmpipe agree. Taken
-with Phase 1, the picture is consistent and slightly perverse:
+with Phase 1 the picture is consistent and slightly perverse:
 **llvmpipe has by far the best transcendentals and cannot hold
 bit-parity.** It is not the reference, and its accuracy was never the
-reason.
+reason. The 7 det functions that *are* identical everywhere are exactly
+the `detpre` helpers — `precise` locals, plain `*` and `+`, no `fma` —
+which suggests an fma-free library would be portable at a cost in speed
+and accuracy. Not attempted, and not recommended: it would fork the
+corpus into two incompatible hash sets.
 
-The 7 det functions that *are* identical everywhere are exactly the
-`detpre` helpers written for Phase 2 — `precise` locals, plain `*` and
-`+`, no `fma` at all. Which suggests an fma-free det library would be
-portable to llvmpipe at some cost in speed and accuracy. Not attempted.
+**What is not yet met.** It is the **shape function over 65,536
+samples**, not integer deposit counts over a full supertile — stronger
+per sample, weaker in coverage; the supertile run belongs with Phase 4.
+And **the error against the native f64 evaluation is not stated**: the
+machinery exists (`shapeprobe.py` scores against float64) but has been
+pointed at darkroom plates, not emitted ones.
 
-**What is not yet met.** Two things, stated so this is not read as
-finished:
+**The two that remain, and what they look like.** `hyper` differs only
+on pairs involving radeonsi; `mirage` only on pairs involving NVIDIA —
+so each has one stack out of step rather than a shared cause. `mirage`
+was dumped: **14 differing words of 49,152**, all in the z component,
+and *large* — 0.033 against −0.375 — with identical cull counts. That
+is not last-place arithmetic, it is a branch taken differently, which
+means a sub-ULP difference exists somewhere invisible and becomes
+visible only where it crosses a decision boundary.
 
-- It is the **shape function over 16,384 samples**, not integer deposit
-  counts over a full supertile. Stronger per-sample, weaker in
-  coverage; the supertile run belongs with Phase 4.
-- **The error against the native f64 evaluation is not stated.** The
-  machinery exists (`shapeprobe.py` scores against float64) but has
-  been pointed at darkroom plates, not emitted ones.
-
-And the residue: `hyper`, `lyap`, `mirage`, `tpms` still differ between
-NVIDIA and radeonsi. Four of the five stragglers across both pairs call
-unpinned shared-header functions (`hyper` 13 times), which is the known
-gap from Phase 2 — but `tpms` calls none and has no unpinned builtin
-either. Chased, and it turned out to be the most useful thing in the
-phase.
+Which is the honest caveat on the whole table: a plate whose outputs
+are bit-identical over these samples may still carry a sub-ULP
+difference that no sampled input happens to expose. Quadrupling the
+samples did not find one, but that is evidence rather than proof.
 
 #### `precise` on the destination does not pin an inline expression
 

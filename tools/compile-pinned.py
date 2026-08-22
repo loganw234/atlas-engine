@@ -44,7 +44,7 @@ PINNED = ROOT / "build" / "pinned"
 UNPINNED = ROOT / "build" / "unpinned"
 DARKROOM = pathlib.Path(os.environ.get("DARKROOM", ROOT.parent /
                                        "atlas-darkroom"))
-NRUN = 1 << 14
+NRUN = 1 << 16
 
 
 def prelude():
