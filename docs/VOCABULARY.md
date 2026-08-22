@@ -151,9 +151,18 @@ and diffed. It does not make them.
    (stream, address, budget, depth-biased draw, slab, tint). Written
    as a new positive beside the plate, never replacing it; the plate
    is the reference implementation.
-4. **Second positive: restate LXVI The Nested Rule**, the cleanest
-   windowed descent, to force window, descent and theorem into the
-   core.
+4. **Second positive: restate LXVI The Nested Rule** - DONE
+   (2026-08-22): the windowed layer is in the core. `s.window` holds
+   the loupe and the integer-exactness discipline in one place;
+   `digitTriangle` is the first theorem domain, its weighted descent
+   emitted as the plate's own verified machinery; `s.decline()` is
+   the cull; `stain` joins the grade. Verified: 4,202 cells bit-exact
+   against direct Pascal iteration at p=2 and p=3, 134 cells
+   bit-exact against Lucas at row ~16.5M through the deep window,
+   two evaluators at r 0.9930, and the whole picture against the
+   plate at MAGNIFY 0: r 0.9939, totals 1.000. One bench lesson
+   joined the pile: never requestAnimationFrame - an occluded window
+   starves it, and a measurement bench must run occluded.
 5. **Then stop and judge.** If the two positives read better than
    their GLSL and verified cheaper, grow the vocabulary toward the
    toll plates and the register. Syntax beyond combinators only when

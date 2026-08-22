@@ -233,6 +233,7 @@ export function emitWalk(pos) {
 
   let vn = 0;
   const fresh = (base) => `${base}_${++vn}`;
+  const helpers = new Set();
 
   const leverIx = {};
   pos.leverNames.forEach((n, i) => leverIx[n] = i);
@@ -356,6 +357,22 @@ export function emitWalk(pos) {
       if (n.name === "scale") return { type: "float", code: o.sc };
       return { kind: "cellmethod", base: o, name: n.name };
     }
+    if (o.kind === "levels") {
+      if (n.name === "L") return { type: "int", code: o.sym.L, staticMax: 24 };
+      if (n.name === "R") return { type: "int", code: o.sym.R };
+      err(`levels has no ${n.name}`);
+    }
+    if (o.kind === "window") {
+      return { kind: "windowmethod", base: o.sym, name: n.name };
+    }
+    if (o.kind === "wdescend") {
+      if (n.name === "n") return { type: "int", code: o.sym.n };
+      if (n.name === "k") return { type: "int", code: o.sym.k };
+      if (n.name === "v") return { type: "int", code: o.sym.v };
+      if (n.name === "dead") return { type: "bool", code: o.sym.dead };
+      if (n.name === "sig") return { kind: "addr", h: o.sym.lin };
+      err(`weighted descend result has no ${n.name}`);
+    }
     if (o.kind === "addr") return { kind: "addrmethod", base: o, name: n.name };
     if (o.t === "id" && o.n === "Math") return { kind: "mathfn", name: n.name };
     if (o.isP) {
@@ -405,15 +422,55 @@ export function emitWalk(pos) {
       if (a.t === "num") return { kind: "grid2", b: a.v };
       err("grid2 wants a lever or an integer literal");
     }
+    // prime(P.nth): the nth prime, 2 3 5 7
+    if (c.t === "id" && c.n === "prime") {
+      const a = n.args[0];
+      if (!(a.t === "member" && a.o.t === "id" && a.o.n === P)) err("prime wants a lever");
+      const iv = intLeverVar(a.name);
+      const v = fresh("prm");
+      put(`int ${v} = (${iv} <= 1) ? 2 : (${iv} == 2) ? 3 : (${iv} == 3) ? 5 : 7;`);
+      return { type: "int", code: v };
+    }
+    // stain(col, amount): rotation about grey, emitted as a helper
+    if (c.t === "id" && c.n === "stain") {
+      const colV = emit(n.args[0]);
+      const amt = asFloat(emit(n.args[1]));
+      if (colV.type !== "vec3") err("stain wants a vec3 first");
+      helpers.add("stain");
+      return { type: "vec3", code: `stain_${pos.id}(${colV.code}, ${amt})` };
+    }
+    if (c.t === "id" && c.n === "digitTriangle")
+      err("digitTriangle only lives inside s.descend(...)");
+    if (c.t === "id" && c.n === "levels")
+      err("levels must be bound directly: const g = levels(p, P.depth)");
     const target = c.t === "member" ? emitMember(c) : null;
     if (!target) err("unsupported call");
 
     if (target.kind === "mathfn") {
+      // Math.trunc of an int/int quotient is GLSL integer division
+      if (target.name === "trunc") {
+        const a = n.args[0];
+        if (a && a.t === "bin" && a.op === "/") {
+          const l = emit(a.l), r = emit(a.r);
+          if (l.type === "int" && r.type === "int")
+            return { type: "int", code: `((${l.code}) / (${r.code}))` };
+        }
+        err("Math.trunc is only in the subset as trunc(int / int)");
+      }
       const MAP = { max: "max", min: "min", abs: "abs", pow: "pow", sqrt: "sqrt",
                     floor: "floor", sin: "sin", cos: "cos", atan2: "atan", exp: "exp", log: "log" };
       if (!(target.name in MAP)) err(`Math.${target.name} is not in the subset`);
       const args = n.args.map(a => asFloat(emit(a)));
       return { type: "float", code: `${MAP[target.name]}(${args.join(", ")})` };
+    }
+
+    if (target.kind === "windowmethod") {
+      if (target.name === "seat") {
+        const [ax, ay, jx, jy] = n.args.map(a => emit(a));
+        return { type: "vec2",
+          code: `((vec2(ivec2(${asInt(ax)}, ${asInt(ay)}) - ${target.base.wc}) + vec2(${asFloat(jx)}, ${asFloat(jy)})) * ${target.base.km})` };
+      }
+      err(`window has no ${target.name} in the subset`);
     }
 
     if (target.kind === "streamfn") return emitStreamCall(target.name, n);
@@ -426,6 +483,8 @@ export function emitWalk(pos) {
       }
       if (target.name === "chebyshev")
         return { type: "float", code: `max(abs(${base}.x), abs(${base}.y))` };
+      if (target.name === "flipY")
+        return { type: "vec2", code: `(${base} * vec2(1.0, -1.0))` };
       err(`vec2 has no ${target.name} in the subset`);
     }
 
@@ -600,12 +659,181 @@ export function emitWalk(pos) {
     return v.code;
   }
 
+  // ---- declaration special forms ----
+  // levels(p, P.depth): the smallest p^L reaching 2^DEPTH
+  function emitLevels(name, call) {
+    const pE = emit(call.args[0]);
+    const dA = call.args[1];
+    if (!(dA.t === "member" && dA.o.t === "id" && dA.o.n === P)) err("levels wants a DEPTH lever second");
+    const dv = intLeverVar(dA.name);
+    const L = fresh("lv_L"), R = fresh("lv_R");
+    put(`int ${L} = 0;`);
+    put(`int ${R} = 1;`);
+    put(`{`);
+    indent += "  ";
+    const tg = fresh("lv_t"), pv = fresh("lv_p");
+    put(`int ${tg} = 1 << ${dv};`);
+    put(`int ${pv} = ${asInt(pE)};`);
+    put(`for (int i = 0; i < 24; i++) {`);
+    indent += "  ";
+    put(`if (${R} >= ${tg}) break;`);
+    put(`${R} *= ${pv};`);
+    put(`${L} += 1;`);
+    indent = indent.slice(2);
+    put(`}`);
+    indent = indent.slice(2);
+    put(`}`);
+    syms.set(name, { kind: "levels", L, R });
+  }
+
+  // s.window({span, heart, magnify, unit}): the loupe, integers first
+  function emitWindow(name, call) {
+    const obj = call.args[0];
+    if (!obj || obj.t !== "object") err("s.window wants a config object");
+    const cfg = {};
+    for (const pr of obj.props) cfg[pr.key] = pr.value;
+    if (!cfg.span || cfg.span.t !== "array" || cfg.span.items.length !== 2) err("window wants span: [x, y]");
+    if (!cfg.heart || cfg.heart.t !== "array" || cfg.heart.items.length !== 2) err("window wants heart: [x, y]");
+    if (!(cfg.magnify && cfg.magnify.t === "member" && cfg.magnify.o.t === "id" && cfg.magnify.o.n === P))
+      err("window wants magnify: <lever>");
+    if (!cfg.unit) err("window wants unit: <world per lattice unit>");
+    const sp = cfg.span.items.map(e => asInt(emit(e)));
+    const mg = fresh("mg");
+    put(`float ${mg} = exp2(P[${leverIx[cfg.magnify.name]}]);`);
+    const ctr = fresh("ctr");
+    put(`ivec2 ${ctr} = ivec2((${sp[0]}) / 2, (${sp[1]}) / 2);`);
+    const hx = asInt(emit(cfg.heart.items[0])), hy = asInt(emit(cfg.heart.items[1]));
+    const hrt = fresh("hrt");
+    put(`ivec2 ${hrt} = ivec2(${hx}, ${hy});`);
+    const wc = fresh("wc");
+    put(`ivec2 ${wc} = ${ctr} + ivec2(vec2(${hrt} - ${ctr}) * (1.0 - 1.0 / ${mg}));`);
+    const hw = fresh("hw");
+    put(`ivec2 ${hw} = ivec2(vec2(${ctr}) / ${mg});`);
+    const win = fresh("win");
+    put(`ivec4 ${win} = ivec4(${wc} - ${hw}, ${wc} + ${hw});`);
+    const km = fresh("km");
+    put(`float ${km} = (${asFloat(emit(cfg.unit))}) * ${mg};`);
+    syms.set(name, { kind: "window", win, wc, km });
+  }
+
+  // the weighted descent on the digit-triangle theorem domain
+  function emitWDescend(name, call) {
+    const [domA, levA, cfgA] = call.args;
+    const pE = emit(domA.args[0]);
+    const RE = emit(domA.args[1]);
+    if (!cfgA || cfgA.t !== "object") err("descend wants { within: <window> }");
+    let wSym = null;
+    for (const pr of cfgA.props) {
+      if (pr.key !== "within") err(`digit descend config has no ${pr.key}`);
+      const t = pr.value;
+      if (!(t.t === "id" && syms.get(t.n) && syms.get(t.n).kind === "window")) err("within wants a window");
+      wSym = syms.get(t.n);
+    }
+    if (!wSym) err("digit descend wants within: <window>");
+    const LE = emit(levA);
+    if (LE.type !== "int") err("descend levels must be an int");
+    const N = fresh("wd");
+    const nV = `${N}_n`, kV = `${N}_k`, sV = `${N}_s`, vV = `${N}_v`, linV = `${N}_lin`, deadV = `${N}_dead`;
+    const pV = `${N}_p`, RV = `${N}_R`, LV = `${N}_L`;
+    put(`int ${pV} = ${asInt(pE)};`);
+    put(`int ${RV} = ${asInt(RE)};`);
+    put(`int ${LV} = ${LE.code};`);
+    put(`int ${nV} = 0;`);
+    put(`int ${kV} = 0;`);
+    put(`int ${sV} = ${RV} / ${pV};`);
+    put(`int ${vV} = 1;`);
+    put(`uint ${linV} = 2166136261u;`);
+    put(`bool ${deadV} = false;`);
+    put(`for (int lev = 0; lev < 24; lev++) {`);
+    indent += "  ";
+    put(`if (lev >= ${LV}) break;`);
+    put(`float wts[28];`);
+    put(`float wsum = 0.0;`);
+    put(`for (int a = 0; a < 7; a++) {`);
+    indent += "  ";
+    put(`if (a >= ${pV}) break;`);
+    put(`int ny0 = 2 * (${nV} + a * ${sV});`);
+    put(`int ny1 = ny0 + 2 * ${sV};`);
+    put(`int oy = min(ny1, ${wSym.win}.w) - max(ny0, ${wSym.win}.y);`);
+    put(`for (int b = 0; b < 7; b++) {`);
+    indent += "  ";
+    put(`if (b > a) break;`);
+    put(`int sl = (a * (a + 1)) / 2 + b;`);
+    put(`wts[sl] = 0.0;`);
+    put(`if (oy > 0) {`);
+    indent += "  ";
+    put(`int xlo = 2 * (${kV} + b * ${sV}) + (${RV} - 1) - (${nV} + (a + 1) * ${sV} - 1);`);
+    put(`int xhi = 2 * (${kV} + b * ${sV} + ${sV} - 1) + (${RV} - 1) - (${nV} + a * ${sV});`);
+    put(`int ox = min(xhi + 1, ${wSym.win}.z) - max(xlo, ${wSym.win}.x);`);
+    put(`if (ox > 0) wts[sl] = float(oy) * float(ox);`);
+    indent = indent.slice(2);
+    put(`}`);
+    put(`wsum += wts[sl];`);
+    indent = indent.slice(2);
+    put(`}`);
+    indent = indent.slice(2);
+    put(`}`);
+    put(`if (wsum <= 0.0) { ${deadV} = true; break; }`);
+    put(`pt = hashu(pt);`);
+    put(`float pick = u2f(pt) * wsum;`);
+    put(`float run = 0.0;`);
+    put(`int ca = 0;`);
+    put(`int cb = 0;`);
+    put(`int cc = 1;`);
+    put(`for (int a = 0; a < 7; a++) {`);
+    indent += "  ";
+    put(`if (a >= ${pV}) break;`);
+    put(`for (int b = 0; b < 7; b++) {`);
+    indent += "  ";
+    put(`if (b > a) break;`);
+    put(`int sl = (a * (a + 1)) / 2 + b;`);
+    put(`run += wts[sl];`);
+    put(`if (pick < run && pick >= run - wts[sl] && wts[sl] > 0.0) {`);
+    indent += "  ";
+    put(`ca = a;`);
+    put(`cb = b;`);
+    put(`cc = (sl == 0) ? 1 : (sl == 1) ? 1 : (sl == 2) ? 1`);
+    put(`   : (sl == 3) ? 1 : (sl == 4) ? 2 : (sl == 5) ? 1`);
+    put(`   : (sl == 6) ? 1 : (sl == 7) ? 3 : (sl == 8) ? 3 : (sl == 9) ? 1`);
+    put(`   : (sl == 10) ? 1 : (sl == 11) ? 4 : (sl == 12) ? 6 : (sl == 13) ? 4 : (sl == 14) ? 1`);
+    put(`   : (sl == 15) ? 1 : (sl == 16) ? 5 : (sl == 17) ? 10 : (sl == 18) ? 10 : (sl == 19) ? 5 : (sl == 20) ? 1`);
+    put(`   : (sl == 21) ? 1 : (sl == 22) ? 6 : (sl == 23) ? 15 : (sl == 24) ? 20 : (sl == 25) ? 15 : (sl == 26) ? 6 : 1;`);
+    indent = indent.slice(2);
+    put(`}`);
+    indent = indent.slice(2);
+    put(`}`);
+    indent = indent.slice(2);
+    put(`}`);
+    put(`${vV} = (${vV} * cc) % ${pV};`);
+    put(`${nV} += ca * ${sV};`);
+    put(`${kV} += cb * ${sV};`);
+    put(`${linV} = hashu(${linV} ^ (uint(ca * 7 + cb) + 1u) * 2654435761u);`);
+    put(`${sV} /= ${pV};`);
+    indent = indent.slice(2);
+    put(`}`);
+    syms.set(name, { kind: "wdescend", n: nV, k: kV, v: vV, lin: linV, dead: deadV });
+  }
+
   // ---- statements ----
   function stmt(st) {
     if (st.t === "decl") {
-      // descend is a special form
+      if (st.e.t === "call" && st.e.callee.t === "id" && st.e.callee.n === "levels") {
+        emitLevels(st.name, st.e);
+        return;
+      }
+      if (st.e.t === "call" && st.e.callee.t === "member" &&
+          st.e.callee.o.t === "id" && st.e.callee.o.n === S && st.e.callee.name === "window") {
+        emitWindow(st.name, st.e);
+        return;
+      }
+      // descend is a special form; the domain picks the shape
       if (st.e.t === "call" && st.e.callee.t === "member" &&
           st.e.callee.o.t === "id" && st.e.callee.o.n === S && st.e.callee.name === "descend") {
+        const dom = st.e.args[0];
+        if (dom && dom.t === "call" && dom.callee.t === "id" && dom.callee.n === "digitTriangle") {
+          emitWDescend(st.name, st.e);
+          return;
+        }
         emitDescend(st.name, st.e);
         return;
       }
@@ -648,9 +876,16 @@ export function emitWalk(pos) {
     }
     if (st.t === "return") {
       const e = st.e;
+      const isDecline = e.t === "call" && e.callee.t === "member" &&
+        e.callee.o.t === "id" && e.callee.o.n === S && e.callee.name === "decline";
+      if (isDecline) {
+        put(`col = vec3(0.0);`);
+        put(`return vec3(0.0, -20000.0, 0.0);`);
+        return;
+      }
       const isDeposit = e.t === "call" && e.callee.t === "member" &&
         e.callee.o.t === "id" && e.callee.o.n === S && e.callee.name === "deposit";
-      if (!isDeposit) err("the walk must end with return s.deposit({...})", st.line);
+      if (!isDeposit) err("the walk must end with return s.deposit({...}) or decline", st.line);
       const obj = e.args[0];
       if (!obj || obj.t !== "object") err("s.deposit wants an object literal");
       const parts = {};
@@ -686,6 +921,13 @@ export function emitWalk(pos) {
   // ---- assemble the shape function ----
   const salt = ((fnv1a(pos.id) | 1) >>> 0);
   const head = [];
+  if (helpers.has("stain")) {
+    head.push(`vec3 stain_${pos.id}(vec3 c, float a){`);
+    head.push(`  float cs = cos(a), sn = sin(a);`);
+    head.push(`  vec3 k = vec3(0.57735027);`);
+    head.push(`  return c * cs + cross(k, c) * sn + k * dot(k, c) * (1.0 - cs);`);
+    head.push(`}`);
+  }
   head.push(`vec3 shape_${pos.id}(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){`);
   head.push(`  uint pt = hashu(seed ^ hashu(floatBitsToUint(q.x))`);
   head.push(`                       ^ hashu(floatBitsToUint(q.y) * ${salt}u));`);

@@ -116,7 +116,7 @@ export class WS {
       this.sendFrame(JSON.stringify({ id, method, params }));
       setTimeout(() => {
         if (this.handlers.has(id)) { this.handlers.delete(id); reject(new Error("CDP timeout: " + method)); }
-      }, 120000);
+      }, 300000);
     });
   }
 

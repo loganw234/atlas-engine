@@ -89,6 +89,7 @@ export class Step extends Address {
 export class Vec2 {
   constructor(x, y) { this.x = x; this.y = y; }
   scale(k) { return new Vec2(this.x * k, this.y * k); }
+  flipY() { return new Vec2(this.x, -this.y); }
   chebyshev() { return Math.max(Math.abs(this.x), Math.abs(this.y)); }
 }
 // a b-ary square subdivision domain, centred on the origin, unit size
@@ -104,6 +105,40 @@ export class Cell {
       this.scale / b, b);
   }
   at(j) { return new Vec2(this.x + j.x * this.scale, this.y + j.y * this.scale); }
+}
+
+// ---- the windowed vocabulary ---------------------------------------
+// the nth prime, for levers that walk 2, 3, 5, 7
+export function prime(nth) {
+  const i = Math.round(nth);
+  return i <= 1 ? 2 : i === 2 ? 3 : i === 3 ? 5 : 7;
+}
+// rows R = p^L, the smallest power of p reaching 2^depth
+export function levels(p, depth) {
+  const target = 1 << Math.round(depth);
+  let L = 0, R = 1;
+  for (let i = 0; i < 24; i++) {
+    if (R >= target) break;
+    R *= p; L += 1;
+  }
+  return { L, R };
+}
+// the digit-triangle domain: base-p Pascal subdivision under Kummer
+// and Lucas - the THEOREM domain. Only nonzero cells exist (every
+// digit pair b <= a < p gives a unit mod p), and the digit binomial
+// rides the descent as the cell's residue.
+const CAB = [1, 1, 1, 1, 2, 1, 1, 3, 3, 1, 1, 4, 6, 4, 1,
+             1, 5, 10, 10, 5, 1, 1, 6, 15, 20, 15, 6, 1];
+export function digitTriangle(p, R) {
+  return { kind: "digitTriangle", p: Math.round(p), R: Math.round(R) };
+}
+// rotation about grey: the STAIN grade
+export function stain(c, a) {
+  const cs = Math.cos(a), sn = Math.sin(a);
+  const k = 0.57735027;
+  const dot = k * (c[0] + c[1] + c[2]);
+  const cross = [k * (c[2] - c[1]), k * (c[0] - c[2]), k * (c[1] - c[0])];
+  return [0, 1, 2].map(i => c[i] * cs + cross[i] * sn + k * dot * (1 - cs));
 }
 
 // ---- the stream: the point's own consumable budget -----------------
@@ -126,10 +161,33 @@ export class Stream {
     const bias = opts.bias === undefined ? 1.0 : opts.bias;
     return Math.trunc(Math.pow(this.u(), bias) * Math.round(max));
   }
+  // the window: MAGNIFY as the loupe. Integer lattice throughout, the
+  // centre subtracted before the one conversion to float - the
+  // exactness discipline lives here, once, instead of in every plate.
+  window(cfg) {
+    const mg = fr(Math.pow(2, cfg.magnify));
+    const ctr = [Math.trunc(cfg.span[0] / 2), Math.trunc(cfg.span[1] / 2)];
+    const wc = [
+      ctr[0] + Math.trunc(fr(fr(cfg.heart[0] - ctr[0]) * fr(1 - 1 / mg))),
+      ctr[1] + Math.trunc(fr(fr(cfg.heart[1] - ctr[1]) * fr(1 - 1 / mg))),
+    ];
+    const hw = [Math.trunc(fr(ctr[0]) / mg), Math.trunc(fr(ctr[1]) / mg)];
+    const win = [wc[0] - hw[0], wc[1] - hw[1], wc[0] + hw[0], wc[1] + hw[1]];
+    const km = cfg.unit * mg;
+    return {
+      kind: "window", win, wc, km,
+      seat(ix, iy, jx, jy) {
+        return new Vec2(((ix - wc[0]) + jx) * km, ((iy - wc[1]) + jy) * km);
+      },
+    };
+  }
+  // the measure declines this point
+  decline() { return null; }
   // the descent: addressed survival on a subdivision domain. The
   // stream proposes children; the address decides, identically for
   // every point. Stops where the structure dies.
   descend(domain, levels, cfg) {
+    if (domain.kind === "digitTriangle") return this.descendDigits(domain, levels, cfg);
     if (domain.kind !== "grid2") throw new Error("descend: unknown domain");
     const sch = this.chains;
     let cell = new Cell(0, 0, 1, domain.b);
@@ -150,6 +208,54 @@ export class Stream {
       reached += 1;
     }
     return { cell, addr, trail: new Address(trail, sch), reached };
+  }
+  // the weighted descent on the theorem domain: at each level the
+  // candidate digit pairs are weighed by what the window can see
+  // (conservative box of the child's parallelogram), one draw picks,
+  // and the digit binomial multiplies into the residue. Mirrors the
+  // emitted GLSL draw for draw.
+  descendDigits(dom, L, cfg) {
+    const w = cfg.within;
+    const p = dom.p, R = dom.R;
+    let n0 = 0, k0 = 0, sc = Math.trunc(R / p);
+    let v = 1, lineage = 2166136261 >>> 0;
+    let dead = false;
+    for (let lev = 0; lev < L; lev++) {
+      const wts = new Float64Array(28);
+      let wsum = 0;
+      for (let a = 0; a < p; a++) {
+        const ny0 = 2 * (n0 + a * sc), ny1 = ny0 + 2 * sc;
+        const oy = Math.min(ny1, w.win[3]) - Math.max(ny0, w.win[1]);
+        for (let b = 0; b <= a; b++) {
+          const sl = (a * (a + 1)) / 2 + b;
+          if (oy > 0) {
+            const xlo = 2 * (k0 + b * sc) + (R - 1) - (n0 + (a + 1) * sc - 1);
+            const xhi = 2 * (k0 + b * sc + sc - 1) + (R - 1) - (n0 + a * sc);
+            const ox = Math.min(xhi + 1, w.win[2]) - Math.max(xlo, w.win[0]);
+            if (ox > 0) wts[sl] = fr(fr(oy) * fr(ox));
+          }
+          wsum = fr(wsum + wts[sl]);
+        }
+      }
+      if (wsum <= 0) { dead = true; break; }
+      const pick = fr(this.u() * wsum);
+      let run = 0;
+      let ca = 0, cb = 0, cc = 1;
+      for (let a = 0; a < p; a++) {
+        for (let b = 0; b <= a; b++) {
+          const sl = (a * (a + 1)) / 2 + b;
+          run = fr(run + wts[sl]);
+          if (pick < run && pick >= run - wts[sl] && wts[sl] > 0) {
+            ca = a; cb = b; cc = CAB[sl];
+          }
+        }
+      }
+      v = (v * cc) % p;
+      n0 += ca * sc; k0 += cb * sc;
+      lineage = hashu((lineage ^ (Math.imul((ca * 7 + cb) + 1, 2654435761) >>> 0)) >>> 0);
+      sc = Math.trunc(sc / p);
+    }
+    return { n: n0, k: k0, v, sig: new Address(lineage, this.chains), dead };
   }
   deposit(d) {
     const glow = d.glow === undefined ? 1.0 : d.glow;

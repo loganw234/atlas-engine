@@ -10,11 +10,14 @@
 <!-- the atlas core, from the canonical checkout beside this repo -->
 <script src="../../PrettyCloud/atlas/js/core/registry.js"></script>
 <script src="../../PrettyCloud/atlas/js/core/glsl-lib.js"></script>
-<!-- 0: critical, 1: critical_pos, 2: hopf, 3: hopf_pos -->
+<!-- 0: critical, 1: critical_pos, 2: hopf, 3: hopf_pos,
+     4: nested, 5: nested_pos -->
 <script src="../../PrettyCloud/atlas/js/plates/58-critical.js"></script>
 <script src="../build/critical_pos.plate.js"></script>
 <script src="../../PrettyCloud/atlas/js/plates/01-hopf.js"></script>
 <script src="../build/hopf_pos.plate.js"></script>
+<script src="../../PrettyCloud/atlas/js/plates/66-nested.js"></script>
+<script src="../build/nested_pos.plate.js"></script>
 <script src="../../PrettyCloud/atlas/js/core/renderer.js"></script>
 <script>
 "use strict";
@@ -26,39 +29,36 @@ const canvas = document.getElementById("gl");
 window.__ready = Atlas.Renderer.init(canvas, () => { window.__lost = true; });
 const vp = new Float32Array([1/EXT,0,0,0, 0,1/EXT,0,0, 0,0,-0.01,0, 0,0,0,1]);
 
-window.__still = function (idx, levers, frames, N, intensityScale, simT) {
-  return new Promise(res => {
-    // the async link is polled INSIDE render(), so render every frame
-    // and let drew tell us when the program has arrived; waiting on
-    // prepare() before rendering is a deadlock on this bench
-    let failed = false;
-    Atlas.Renderer.prepare([idx], ok => { if (!ok) failed = true; });
-    const PA = new Float32Array(8);
-    (levers || []).forEach((v, i) => PA[i] = v);
-    const { w, h } = Atlas.Renderer.size();
-    // total accumulated energy ~ frames * intensity * N / pixels;
-    // keep the peak modest and invert the curve on the way out
-    const intensity = intensityScale * (w * h) / (N * frames);
-    const gain = Atlas.plates[idx].gain;
-    let f = 0, spins = 0;
-    function step() {
-      if (failed) { res({ ok: false, why: "link failed" }); return; }
-      const drew = Atlas.Renderer.render({
-        vp, simT: simT || 0, morph: 0, modeA: idx, modeB: idx,
-        N, ptSize: 1.0, intensity,
-        gainA: gain, gainB: gain,
-        PA, PB: PA,
-        persist: f === 0 ? 0 : 1.0,     // frame zero clears the sheet
-        exposure: 1.0, gamma: 1.0, hue: 0, sat: 1,
-      });
-      if (drew) f++;
-      spins++;
-      if (f >= frames) { res({ ok: true, w, h, frames: f }); return; }
-      if (spins > 6000) { res({ ok: false, why: "never drew" }); return; }
-      requestAnimationFrame(step);
-    }
-    step();
-  });
+window.__still = async function (idx, levers, frames, N, intensityScale, simT) {
+  // NO requestAnimationFrame anywhere: an occluded window never gets
+  // animation frames and the bench must run occluded. Frames render in
+  // a plain synchronous loop; the only waiting is a timeout poll while
+  // the program links (the async link is polled INSIDE render()).
+  let failed = false;
+  Atlas.Renderer.prepare([idx], ok => { if (!ok) failed = true; });
+  const PA = new Float32Array(8);
+  (levers || []).forEach((v, i) => PA[i] = v);
+  const { w, h } = Atlas.Renderer.size();
+  // total accumulated energy ~ frames * intensity * N / pixels;
+  // keep the peak modest and invert the curve on the way out
+  const intensity = intensityScale * (w * h) / (N * frames);
+  const gain = Atlas.plates[idx].gain;
+  let f = 0, waits = 0;
+  while (f < frames) {
+    if (failed) return { ok: false, why: "link failed" };
+    const drew = Atlas.Renderer.render({
+      vp, simT: simT || 0, morph: 0, modeA: idx, modeB: idx,
+      N, ptSize: 1.0, intensity,
+      gainA: gain, gainB: gain,
+      PA, PB: PA,
+      persist: f === 0 ? 0 : 1.0,       // frame zero clears the sheet
+      exposure: 1.0, gamma: 1.0, hue: 0, sat: 1,
+    });
+    if (drew) { f++; continue; }
+    if (++waits > 150) return { ok: false, why: "never drew" };
+    await new Promise(r => setTimeout(r, 100));
+  }
+  return { ok: true, w, h, frames: f };
 };
 
 // sample LINEARIZED luminance at world points on the z=0 plane.
