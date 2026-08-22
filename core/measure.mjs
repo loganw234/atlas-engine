@@ -335,6 +335,13 @@ export function normalize3(a) {
 }
 export function length3(a) { return Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]); }
 
+// len2/len3 are GLSL length() spelled out: the naive sqrt of a dot
+// product. Math.hypot answers the same question more accurately, by
+// scaling to avoid overflow, and is therefore the WRONG function
+// here - the CPU evaluator's whole job is to say what the GPU says.
+export function len2(x, y) { return Math.sqrt(x * x + y * y); }
+export function len3(x, y, z) { return Math.sqrt(x * x + y * y + z * z); }
+
 // sum(n, k => term): the reduction loop as vocabulary
 export function sum(n, f) {
   let acc = 0;

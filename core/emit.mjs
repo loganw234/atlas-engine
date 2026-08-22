@@ -460,6 +460,13 @@ export function emitWalk(pos) {
       if (vecs.length !== 4) err("pal wants t plus four arrays");
       return { type: "vec3", code: `pal(${asFloat(t)}, ${vecs.join(", ")})` };
     }
+    // len2/len3: GLSL length(), which is what these spell on the CPU
+    if (c.t === "id" && (c.n === "len2" || c.n === "len3")) {
+      const want = c.n === "len2" ? 2 : 3;
+      if (n.args.length !== want) err(`${c.n} wants ${want} arguments`);
+      const xs = n.args.map(a => asFloat(emit(a)));
+      return { type: "float", code: `length(vec${want}(${xs.join(", ")}))` };
+    }
     // grid2(b)
     if (c.t === "id" && c.n === "grid2") {
       const a = n.args[0];
