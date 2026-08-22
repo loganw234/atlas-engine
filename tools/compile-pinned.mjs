@@ -36,8 +36,18 @@ for (const [src, dst] of [["detlib.glsl.template", "detlib.glsl"],
   writeFileSync(join(OUT, dst), substitute(t), "utf8");
 }
 
+// BOTH VARIANTS, because a bit-identity result without a control is
+// not a result. If pinned plates agree across two drivers, the obvious
+// question is whether ANY plate would - maybe the sample set is too
+// small, maybe these plates are arithmetically dull. Emitting the same
+// positives unpinned and running them the same way answers it: the
+// unpinned run must DISAGREE where the pinned run agrees, or the
+// experiment has no power and the agreement means nothing.
+const UNP = join(ROOT, "build", "unpinned");
+mkdirSync(UNP, { recursive: true });
+
 const POS = join(ROOT, "positives");
-let ok = 0, refused = 0;
+let ok = 0, refused = 0, ctrl = 0;
 const skipped = [];
 for (const f of readdirSync(POS).filter(x => x.endsWith(".pos.mjs")).sort()) {
   const pos = (await import(pathToFileURL(resolve(join(POS, f))).href)).default;
@@ -46,12 +56,17 @@ for (const f of readdirSync(POS).filter(x => x.endsWith(".pos.mjs")).sort()) {
     writeFileSync(join(OUT, `${id}.glsl`), emitWalk(pos, { pin: true }),
                   "utf8");
     ok++;
+    // the control only exists for plates the pinned set accepted, so
+    // the two sets are the same plates and the comparison is paired
+    writeFileSync(join(UNP, `${id}.glsl`), emitWalk(pos), "utf8");
+    ctrl++;
   } catch (e) {
     refused++;
     skipped.push(id);
   }
 }
-console.log(`build/pinned: detlib.glsl, detpre.glsl, and ${ok} plates`);
+console.log(`build/pinned:   detlib.glsl, detpre.glsl, and ${ok} plates`);
+console.log(`build/unpinned: ${ctrl} of the same plates, as the control`);
 if (refused)
   console.log(`  ${refused} refused by the pinned set: ${skipped.join(" ")}`);
-console.log("  now: python tools/compile-pinned.py");
+console.log("  now: python tools/compile-pinned.py --run <tag>");

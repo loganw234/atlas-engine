@@ -322,6 +322,73 @@ identical integer deposit counts over a full supertile on two different
 implementations — and its error against the native f64 evaluation is
 stated.
 
+#### Measured 2026-08-22 — met between GPUs, and llvmpipe ruled out
+
+Emitted plates run over 16,384 fixed input bits on four stacks, with
+the **same positives emitted unpinned as the control**. Bit-identity of
+the deposited position:
+
+| pair | pinned | unpinned (control) |
+|---|---|---|
+| iris ↔ radeonsi | **48 / 50** | 13 / 50 |
+| NVIDIA ↔ radeonsi | **46 / 50** | 10 / 50 |
+| NVIDIA ↔ iris | 44 / 50 | 11 / 50 |
+| anything ↔ **llvmpipe** | 16–18 / 50 | 8–12 / 50 |
+
+The control separates decisively, which is what makes the agreement
+evidence rather than a coincidence of dull plates.
+
+**The first run failed, and the failure was the useful part.** Pinning
+every builtin moved the worst pair from 8/50 to 10/50 — nowhere near
+the bar. Phase 2 had shipped three of its four items and skipped
+`precise` on the accumulation chain; an unqualified `a*b + c` in the
+walk is free to become an fma, and whether it does depends on the rest
+of the shader. Adding the qualifier took the GPU pairs from 12/50 to
+46/50. The det functions were never the binding constraint.
+
+**llvmpipe is out, for a reason under the plates.** One stack out of
+step against every partner is not a plate property, so the det library
+itself was hashed on all four: `tools/detbits.py` finds **16 of 23
+det_ functions differ on llvmpipe** while the three GPUs agree
+exactly, including the pinned reference hashes `27c0f355…` for
+`det_sin` and `a71fe904…` for `det_cos`.
+
+The cause is a conformance failure, isolated by `fmaprobe.py` in the
+darkroom: **llvmpipe does not single-round `fma()` even under
+`precise`.** Put `precise fma(a,b,c)` beside `precise a*b + c` on the
+same inputs — NVIDIA, radeonsi and iris differ on 49,632 of 262,144;
+llvmpipe gives bit-identical results for both, on all of them. The test
+needs no reference, so it cannot be measuring one: it asks only whether
+a stack can tell one rounding from two.
+
+Every det transcendental is a Horner chain of `precise float t =
+fma(...)`, so no change to the library can make llvmpipe agree. Taken
+with Phase 1, the picture is consistent and slightly perverse:
+**llvmpipe has by far the best transcendentals and cannot hold
+bit-parity.** It is not the reference, and its accuracy was never the
+reason.
+
+The 7 det functions that *are* identical everywhere are exactly the
+`detpre` helpers written for Phase 2 — `precise` locals, plain `*` and
+`+`, no `fma` at all. Which suggests an fma-free det library would be
+portable to llvmpipe at some cost in speed and accuracy. Not attempted.
+
+**What is not yet met.** Two things, stated so this is not read as
+finished:
+
+- It is the **shape function over 16,384 samples**, not integer deposit
+  counts over a full supertile. Stronger per-sample, weaker in
+  coverage; the supertile run belongs with Phase 4.
+- **The error against the native f64 evaluation is not stated.** The
+  machinery exists (`shapeprobe.py` scores against float64) but has
+  been pointed at darkroom plates, not emitted ones.
+
+And the residue: `hyper`, `lyap`, `mirage`, `tpms` still differ between
+NVIDIA and radeonsi. Four of the five stragglers across both pairs call
+unpinned shared-header functions (`hyper` 13 times), which is the known
+gap from Phase 2 — but **`tpms` calls none and has no unpinned builtin
+either**, so at least one disagreement has no explanation yet.
+
 ### Phase 4 — across the matrix
 
 Planometer already does this. Emitted plates go through the ladder on

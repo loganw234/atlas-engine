@@ -1276,7 +1276,40 @@ export function emitWalk(pos, opts = {}) {
   head.push(`  pt = hashu(pt ^ floatBitsToUint(rnd.x));`);
   for (const nm of usedIntLevers)
     head.push(`  int li_${nm} = int(P[${leverIx[nm]}] + 0.5);`);
-  const glsl = head.join("\n") + "\n" + lines.join("\n") + "\n}";
+  let glsl = head.join("\n") + "\n" + lines.join("\n") + "\n}";
+
+  // `precise` ON THE WHOLE CHAIN, which the pinned set is worth
+  // nothing without.
+  //
+  // Phase 2 shipped three of its four items and this was the missing
+  // one, which Phase 3 then measured: pinning every builtin moved the
+  // worst cross-vendor pair from 8 of 50 bit-identical to 10 of 50.
+  // Nowhere near the bar, and for a reason that has nothing to do with
+  // builtins. An unqualified `a * b + c` in the walk is free to become
+  // an fma, and whether it does was measured on 2026-08-22 to depend
+  // on whether `a * b` is wanted ELSEWHERE in the same shader -
+  // NVIDIA always fuses, llvmpipe never does, radeonsi and iris fuse
+  // until common subexpression elimination gives the product a second
+  // consumer. No amount of det_ functions fixes that; only the
+  // qualifier does.
+  //
+  // Applied to the assembled text rather than at fourteen separate
+  // declaration sites, because one transform with one rule is easier
+  // to check than fourteen that must agree. It qualifies float, vec2
+  // and vec3 locals; ints and uints carry exact arithmetic already and
+  // GLSL does not admit the qualifier on them.
+  //
+  // NOTE FOR PHASE 5: `precise` needs GLSL 4.20, and PrettyCloud is
+  // WebGL2 (GLSL ES 3.00), which has no such qualifier. The darkroom
+  // already solves this by ADDING precise during the bake for exactly
+  // this reason. So pinned-with-precise is the print path's text, not
+  // the browser's, and which one an emitted plate ships as is a
+  // deployment question rather than a numerical one.
+  if (pin) {
+    glsl = glsl.replace(
+      /^(\s+)(float|vec2|vec3)(\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:\[[0-9]+\])?\s*(?:=|;))/gm,
+      (m, indent, ty, rest) => `${indent}precise ${ty}${rest}`);
+  }
   return glsl;
 }
 
