@@ -23,11 +23,9 @@ on a CPU rasteriser.
 """
 import argparse
 import hashlib
-import itertools
 import json
 import os
 import pathlib
-import re
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent

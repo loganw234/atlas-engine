@@ -328,7 +328,7 @@ def level1(rec):
                            f"not in the record")
         dests = set(a["inputs"])
         for step in a["eval"]:
-            dest, op = step[0], step[1]
+            dest = step[0]
             for arg in step[2:]:
                 if arg in dests or arg in rec["constants"]:
                     continue
@@ -554,9 +554,10 @@ def derived_properties(rec):
     res.append((
         "over |x| <= SINCOS_LIM the reduction stays bounded and int32-safe",
         bounded,
-        f"worst |r| = {mp.nstr(worst_in, 8)} (bound pi/2 = "
-        f"{mp.nstr(m_pi / 2, 8)}), worst |k| = {mp.nstr(worst_k, 8)} "
-        f"(bound 2^31). NOTE |r| exceeds the pi/4 the kernel was fitted "
+        f"worst |r| = {mp.nstr(worst_in, 8)} at x = "
+        f"{mp.nstr(at_in, 8)} (bound pi/2 = {mp.nstr(m_pi / 2, 8)}), "
+        f"worst |k| = {mp.nstr(worst_k, 8)} (bound 2^31). NOTE |r| "
+        f"exceeds the pi/4 = {mp.nstr(quarter, 8)} the kernel was fitted "
         f"on: TWO_OVER_PI is off true 2/pi by {mp.nstr(two_pi_rel, 4)}, "
         f"which displaces k by up to {mp.nstr(displace, 4)} at the top of "
         f"the domain. Deterministic, not accurate - see "
