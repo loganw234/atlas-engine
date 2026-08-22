@@ -1,0 +1,53 @@
+vec3 shape_stdmap_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
+  uint pt = hashu(seed ^ hashu(floatBitsToUint(q.x))
+                       ^ hashu(floatBitsToUint(q.y) * 795945165u));
+  pt = hashu(pt ^ floatBitsToUint(rnd.x));
+  int li_iters = int(P[1] + 0.5);
+  float K_1 = P[0];
+  pt = hashu(pt);
+  float jx_2 = u2f(pt) - 0.5;
+  pt = hashu(pt);
+  vec2 jit_3 = vec2(jx_2, u2f(pt) - 0.5);
+  vec2 jt_4 = jit_3;
+  float ex_5 = (jt_4.x + 1.0e-3);
+  float ey_6 = (jt_4.y + 7.0e-4);
+  float en_7 = length(vec2(ex_5, ey_6));
+  float ob_8_th = q.x;
+  float ob_8_p = q.y;
+  float ob_8_ux = (ex_5 / en_7);
+  float ob_8_uy = (ey_6 / en_7);
+  float ob_8_acc = 0.0;
+  int ob_8_count = 0;
+  bool ob_8_esc = false;
+  for (int ok_9 = 0; ok_9 < 400; ok_9++) {
+    if (ok_9 >= li_iters) break;
+    float ob_8_t_10 = fract((ob_8_th + fract((ob_8_p + (((K_1 / TAU)) * sin((TAU * ob_8_th)))))));
+    float ob_8_t_11 = fract((ob_8_p + (((K_1 / TAU)) * sin((TAU * ob_8_th)))));
+    float ob_8_t_12 = (((ob_8_ux + ((ob_8_uy + ((K_1 * cos((TAU * ob_8_th))) * ob_8_ux))))) / length(vec2((ob_8_ux + ((ob_8_uy + ((K_1 * cos((TAU * ob_8_th))) * ob_8_ux)))), (ob_8_uy + ((K_1 * cos((TAU * ob_8_th))) * ob_8_ux)))));
+    float ob_8_t_13 = (((ob_8_uy + ((K_1 * cos((TAU * ob_8_th))) * ob_8_ux))) / length(vec2((ob_8_ux + ((ob_8_uy + ((K_1 * cos((TAU * ob_8_th))) * ob_8_ux)))), (ob_8_uy + ((K_1 * cos((TAU * ob_8_th))) * ob_8_ux)))));
+    float ob_8_t_14 = (ob_8_acc + log((length(vec2((ob_8_ux + ((ob_8_uy + ((K_1 * cos((TAU * ob_8_th))) * ob_8_ux)))), (ob_8_uy + ((K_1 * cos((TAU * ob_8_th))) * ob_8_ux)))) + 1.0e-9)));
+    ob_8_th = ob_8_t_10;
+    ob_8_p = ob_8_t_11;
+    ob_8_ux = ob_8_t_12;
+    ob_8_uy = ob_8_t_13;
+    ob_8_acc = ob_8_t_14;
+    ob_8_count += 1;
+  }
+  float ftle_15 = (ob_8_acc / P[1]);
+  float kk_16 = clamp(P[2], 0.0, 1.0);
+  float fx_17 = (((ob_8_th - 0.5)) * 2.4);
+  float fy_18 = (((ob_8_p - 0.5)) * 2.4);
+  float aa_19 = (TAU * ob_8_th);
+  float bb_20 = (TAU * ob_8_p);
+  float R_21 = 1.2;
+  float rr_22 = 0.5;
+  float tx_23 = (((R_21 + (rr_22 * cos(bb_20)))) * cos(aa_19));
+  float ty_24 = (rr_22 * sin(bb_20));
+  float tz_25 = (((R_21 + (rr_22 * cos(bb_20)))) * sin(aa_19));
+  float dep_c_26 = mix(fx_17, tx_23, kk_16);
+  float dep_c_27 = mix(fy_18, ty_24, kk_16);
+  float dep_c_28 = mix(0.0, tz_25, kk_16);
+  vec3 dep_col_29 = (mix(vec3(0.3, 0.6, 1.0), vec3(1.0, 0.5, 0.2), smoothstep(0.0, 0.6, (ftle_15 * P[3]))) * (0.4 + (0.8 * P[4])));
+  col = dep_col_29;
+  return vec3(dep_c_26, dep_c_27, dep_c_28);
+}

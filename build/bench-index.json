@@ -70,10 +70,25 @@
     "rulespace": 67
   },
   "positives": {
-    "critical_pos": 68,
-    "harm_pos": 69,
-    "hopf_pos": 70,
-    "jong_pos": 71,
-    "nested_pos": 72
+    "bifurc_pos": 68,
+    "buddha_pos": 69,
+    "chladni_pos": 70,
+    "critical_pos": 71,
+    "gibbs_pos": 72,
+    "harm_pos": 73,
+    "hopf_pos": 74,
+    "ifs_pos": 75,
+    "invjulia_pos": 76,
+    "jong_pos": 77,
+    "logz_pos": 78,
+    "lyap_pos": 79,
+    "mand_pos": 80,
+    "modmul_pos": 81,
+    "nested_pos": 82,
+    "newton_pos": 83,
+    "qjulia_pos": 84,
+    "stdmap_pos": 85,
+    "wave_pos": 86,
+    "zeta_pos": 87
   }
 }

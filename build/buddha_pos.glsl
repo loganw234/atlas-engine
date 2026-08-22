@@ -1,0 +1,69 @@
+vec3 shape_buddha_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
+  uint pt = hashu(seed ^ hashu(floatBitsToUint(q.x))
+                       ^ hashu(floatBitsToUint(q.y) * 3170767599u));
+  pt = hashu(pt ^ floatBitsToUint(rnd.x));
+  int li_iters = int(P[0] + 0.5);
+  float K_1 = P[0];
+  pt = hashu(pt);
+  float jx_2 = u2f(pt) - 0.5;
+  pt = hashu(pt);
+  vec2 jit_3 = vec2(jx_2, u2f(pt) - 0.5);
+  vec2 j_4 = jit_3;
+  float cx_5 = (mix((-2.1), 0.9, q.x) + (j_4.x * 0.004));
+  float cy_6 = (mix((-1.35), 1.35, q.y) + (j_4.y * 0.004));
+  float xq_7 = (cx_5 - 0.25);
+  float qb_8 = ((xq_7 * xq_7) + (cy_6 * cy_6));
+  if ((((qb_8 * ((qb_8 + xq_7))) < ((0.25 * cy_6) * cy_6)) || (((((cx_5 + 1.0)) * ((cx_5 + 1.0))) + (cy_6 * cy_6)) < 0.0625))) {
+    col = vec3(0.0);
+    return vec3(0.0, -20000.0, 0.0);
+  }
+  float ob_9_x = 0.0;
+  float ob_9_y = 0.0;
+  int ob_9_count = 0;
+  bool ob_9_esc = false;
+  for (int ok_10 = 0; ok_10 < 400; ok_10++) {
+    if (ok_10 >= li_iters) break;
+    if ((((ob_9_x * ob_9_x) + (ob_9_y * ob_9_y)) > 16.0)) { ob_9_esc = true; break; }
+    float ob_9_t_11 = (cmul(vec2(ob_9_x, ob_9_y), vec2(ob_9_x, ob_9_y)).x + cx_5);
+    float ob_9_t_12 = (cmul(vec2(ob_9_x, ob_9_y), vec2(ob_9_x, ob_9_y)).y + cy_6);
+    ob_9_x = ob_9_t_11;
+    ob_9_y = ob_9_t_12;
+    ob_9_count += 1;
+  }
+  float m2_13 = ((ob_9_x * ob_9_x) + (ob_9_y * ob_9_y));
+  float esc_14 = ((((m2_13 > 16.0))) ? ((float(ob_9_count) - 1.0)) : (-1.0));
+  if (((esc_14 < 0.0) || (esc_14 < P[1]))) {
+    col = vec3(0.0);
+    return vec3(0.0, -20000.0, 0.0);
+  }
+  float mF_15 = (esc_14 + 1.0);
+  pt = hashu(pt);
+  float idx_16 = min(floor((u2f(pt) * mF_15)), (mF_15 - 1.0));
+  float ob_17_x = 0.0;
+  float ob_17_y = 0.0;
+  float ob_17_kx = cx_5;
+  float ob_17_ky = cy_6;
+  int ob_17_count = 0;
+  bool ob_17_esc = false;
+  for (int ok_18 = 0; ok_18 < 400; ok_18++) {
+    if (ok_18 >= li_iters) break;
+    if ((((ob_17_x * ob_17_x) + (ob_17_y * ob_17_y)) > 16.0)) { ob_17_esc = true; break; }
+    float ob_17_t_19 = (cmul(vec2(ob_17_x, ob_17_y), vec2(ob_17_x, ob_17_y)).x + cx_5);
+    float ob_17_t_20 = (cmul(vec2(ob_17_x, ob_17_y), vec2(ob_17_x, ob_17_y)).y + cy_6);
+    float ob_17_t_21 = ((((float(ok_18) == idx_16))) ? ((cmul(vec2(ob_17_x, ob_17_y), vec2(ob_17_x, ob_17_y)).x + cx_5)) : ob_17_kx);
+    float ob_17_t_22 = ((((float(ok_18) == idx_16))) ? ((cmul(vec2(ob_17_x, ob_17_y), vec2(ob_17_x, ob_17_y)).y + cy_6)) : ob_17_ky);
+    ob_17_x = ob_17_t_19;
+    ob_17_y = ob_17_t_20;
+    ob_17_kx = ob_17_t_21;
+    ob_17_ky = ob_17_t_22;
+    ob_17_count += 1;
+  }
+  float tt_23 = clamp((esc_14 / K_1), 0.0, 1.0);
+  float sc_24 = P[2];
+  float dep_c_25 = (((ob_17_kx + 0.5)) * sc_24);
+  float dep_c_26 = (P[3] * ((tt_23 - 0.3)));
+  float dep_c_27 = (ob_17_ky * sc_24);
+  vec3 dep_col_28 = (pal((0.5 + (P[4] * tt_23)), vec3(0.5, 0.42, 0.38), vec3(0.5, 0.46, 0.5), vec3(1.0, 1.0, 1.0), vec3(0.0, 0.18, 0.36)) * (0.45 + (1.0 * tt_23)));
+  col = dep_col_28;
+  return vec3(dep_c_25, dep_c_26, dep_c_27);
+}

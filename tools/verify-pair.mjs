@@ -15,6 +15,11 @@ const BENCH = "file:///" + join(root, "harness", "bench-all.html").replace(/\\/g
 const PROFILE = "C:/Users/logan/AppData/Local/Temp/claude/C--Users-logan-source-repos-PrettyCloud/5bec1cbb-f19f-414e-ada6-4189040214dd/scratchpad/chrome-profile";
 const PORT = 9223;
 const GRID = 96, EXTENT = 1.55, RAD = 3;
+// 2^22 distinct points at 30 frames: frames only re-expose the same
+// point ids, so distinct-point count is what beats per-cell shot noise
+// on volume measures (measured on qjulia: r 0.933 at 2^20, 0.991 at 2^23)
+const fArg = process.argv.indexOf("--frames");
+const FRAMES = fArg > 0 ? parseInt(process.argv[fArg + 1]) : 30;
 
 const index = JSON.parse(readFileSync(join(root, "build", "bench-index.json"), "utf8"));
 const mean = a => a.reduce((s, v) => s + v, 0) / (a.length || 1);
@@ -34,9 +39,9 @@ function corrOf(xs, ys) {
   return d > 0 ? sxy / d : 0;
 }
 
-async function gpuGrid(ws, idx, levers, t) {
+async function gpuGrid(ws, idx, levers, t, frames = 60) {
   const still = await evalIn(ws,
-    `window.__still(${idx}, ${JSON.stringify(levers)}, 60, 1 << 20, 0.05, ${t})`);
+    `window.__still(${idx}, ${JSON.stringify(levers)}, ${frames}, 1 << 22, ${0.05 * 15} / ${frames}, ${t})`);
   if (!still.ok) throw new Error(`still failed for idx ${idx}: ${JSON.stringify(still)}`);
   const pts = [];
   for (let iy = 0; iy < GRID; iy++) for (let ix = 0; ix < GRID; ix++) pts.push(cellWorld(ix, iy));
@@ -65,8 +70,8 @@ async function verifyOne(ws, id, t) {
   })()`);
 
   const levers = await evalIn(ws, `Atlas.plates[${iO}].params.map(p => p.def)`);
-  const A = await gpuGrid(ws, iO, levers, t);
-  const B = await gpuGrid(ws, iP, levers, t);
+  const A = await gpuGrid(ws, iO, levers, t, FRAMES);
+  const B = await gpuGrid(ws, iP, levers, t, FRAMES);
   const xs = [], ys = [];
   let clip = 0;
   for (let i = 0; i < GRID * GRID; i++) {

@@ -1,0 +1,32 @@
+vec3 shape_gibbs_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
+  uint pt = hashu(seed ^ hashu(floatBitsToUint(q.x))
+                       ^ hashu(floatBitsToUint(q.y) * 4261065295u));
+  pt = hashu(pt ^ floatBitsToUint(rnd.x));
+  float x_1 = ((((q.x - 0.5)) * TAU) * 1.05);
+  float nf_2 = (1.0 + (q.y * ((P[0] - 1.0))));
+  float ph_3 = (P[2] * uT);
+  float xi_4 = (mod(((x_1 - ph_3) + PI), TAU) - PI);
+  float A_5 = 0.75;
+  float ob_6_fk = 1.0;
+  float ob_6_sn = 0.0;
+  int ob_6_count = 0;
+  bool ob_6_esc = false;
+  for (int ok_7 = 0; ok_7 < 64; ok_7++) {
+    if ((ob_6_fk > (nf_2 + 1.0))) { ob_6_esc = true; break; }
+    float ob_6_t_8 = (ob_6_fk + 1.0);
+    float ob_6_t_9 = (ob_6_sn + ((clamp(((nf_2 - ob_6_fk) + 1.0), 0.0, 1.0) * mix((((((((fract((ob_6_fk * 0.5)) > 0.25))) ? 1.0 : 0.0)) * (((4.0 * A_5) / PI))) / ob_6_fk), (((((2.0 * A_5) / PI)) * (((((((((((fract((ob_6_fk * 0.5)) > 0.25))) ? 1.0 : 0.0))) > 0.5))) ? 1.0 : (-1.0)))) / ob_6_fk), P[1])) * sin((ob_6_fk * xi_4))));
+    ob_6_fk = ob_6_t_8;
+    ob_6_sn = ob_6_t_9;
+    ob_6_count += 1;
+  }
+  float lim_10 = mix((A_5 * sign(sin(xi_4))), ((A_5 * xi_4) / PI), P[1]);
+  float dev_11 = abs((ob_6_sn - lim_10));
+  float y_12 = ((P[4] * 0.65) * ob_6_sn);
+  vec3 base_13 = mix(vec3(0.10, 0.26, 0.50), vec3(0.55, 0.75, 1.0), (0.5 + (0.55 * ob_6_sn)));
+  float dep_c_14 = (x_1 * 0.42);
+  float dep_c_15 = y_12;
+  float dep_c_16 = ((((q.y - 0.5)) * P[3]) * 0.8);
+  vec3 dep_col_17 = ((base_13 * 0.55) + (vec3(1.0, 0.42, 0.12) * (smoothstep(0.03, 0.28, dev_11) * 1.5)));
+  col = dep_col_17;
+  return vec3(dep_c_14, dep_c_15, dep_c_16);
+}
