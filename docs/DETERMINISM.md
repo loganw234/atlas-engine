@@ -435,51 +435,65 @@ every proven stack.
 iris, NVIDIA and llvmpipe — the case that today only `collatz`, at
 0.166% lit, manages.
 
-#### Attempted 2026-08-22. NOT met — and the residue is not in the plate
+#### MET on one plate, 2026-08-22 — and the first attempt was wrong
 
-Two corrections to the criterion before the result. **llvmpipe is out**
-for a measured reason (it cannot single-round `fma`), so "and llvmpipe"
-is struck. And the bar as written asks for one hash *across the render*,
-which turns out to test the camera as much as the plate.
+One correction to the criterion first: **llvmpipe is struck**, for the
+measured reason in Phase 3. It cannot single-round `fma`, so requiring
+it would make the bar unmeetable for a reason unrelated to this work.
 
 `tools/determinism/bakeemitted.py` in the darkroom bakes a bundle from
 emitted GLSL **without converting it** — the emitted region is
 delimited, the usual conversion runs over the whole shader, and the
-region is put back verbatim. The camera around it still converts,
-because the camera is hand-written and always was. Two variants are
-needed: `vs`/`fs` are `#version 330`, where `precise` is a syntax
-error, so the unpinned emitted GLSL goes to the preview path and the
-pinned one to compute — the division the darkroom has always run.
+region is put back verbatim. The camera around it still converts. Two
+variants are needed: `vs`/`fs` are `#version 330`, where `precise` is a
+syntax error, so the unpinned emitted GLSL goes to the preview path and
+the pinned one to compute.
 
-Three plates chosen *because they already diverge*, censused at the
-`cpu` rung on NVIDIA, radeonsi and iris, against a control of the same
-three from the registry baked the same day by the same tool:
+Three plates chosen *because they already diverge*, at the `cpu` rung,
+against a control of the same three from the registry baked the same
+day by the same tool:
 
-**Nine of nine hashes differ, in both tables. Emission neither helped
-nor hurt.**
-
-The magnitude is what makes this useful. `pixeldiff` on `logz`,
-radeonsi against iris, integer deposit view:
-
-| | emitted | control |
+| plate | emitted | control |
 |---|---|---|
-| lit pixels differing | 1.13% | 1.13% |
-| relative difference, mean | 1.5e-08 | 1.51e-08 |
-| total deposit delta | −9,500 | −9,462 |
-| relative | −1.67e-10 | −1.66e-10 |
+| `hilbert` | **one hash on all three GPUs** | three different hashes |
+| `logz` | NVIDIA = radeonsi, iris differs | NVIDIA = radeonsi, iris differs |
+| `stdmap` | all three differ | all three differ |
 
-The same measurement to three figures — and the totals do **not**
-conserve. One stack drew 9,500 deposits the other did not, out of 56.9
-trillion. A moved deposit conserves the total; a **cull** does not.
+**`hilbert` meets the bar.** An emitted positive produces one hash
+across NVIDIA, radeonsi and iris where the hand-written plate produces
+three. One of three, not a general fix — but the criterion asked for
+one positive and this is one, with a control showing the original
+fails on the same plate.
 
-Phase 3 established the emitted shape functions are bit-identical
-across those three GPUs on all 50 plates. So the function deciding
-*where* a sample lands agrees exactly, and the difference is in whether
-it is deposited at all — in the camera's cull, which is hand-written,
-converted rather than emitted, and outside the engine's reach.
+**The first attempt reported the opposite, and the error is the useful
+part.** `bakeemitted` applied `cas_port` and stopped, where the
+committed bundle's derivation ends with `port_fixed`. A float
+compare-and-swap deposit accumulates through **non-associative
+addition**, so the sum depends on the order warps arrive in — two
+stacks then differ for a reason having nothing to do with the plate,
+the camera, or anything this project can pin. The run measured warp
+arrival order and reported it as a plate result. It also made every
+`pixeldiff` conservation figure meaningless, since that tool reads the
+buffer as integer counts.
 
-That is a far better-specified target than "the census diverges", and
-it is where Phase 4 resumes. Full record in the darkroom at
+A second thing fell out: the control's NVIDIA hashes reproduce the
+**committed census values exactly**, so the det library corrections
+made today are hash-preserving on NVIDIA at the full-render level, not
+just per-function.
+
+**What remains.** `logz` and `stdmap` still differ, and emitted and
+control agree with each other to two figures there — so the residue is
+not in the plate. With a genuine integer count, "not conserved" reads
+properly: one stack deposits about 50 samples of roughly 2.9 billion
+that the other does not. That is a **cull**, not a moved position.
+
+One camera fix was tried and **reverted**: binding every intermediate
+in `px = ivec2(floor(win))`'s chain — the shape that broke `tpms` here
+— changed the delta by exactly zero. It measured nothing and would
+have invalidated the bundle, so it went back. `campath.py` is the
+instrument for the next attempt.
+
+Full record in the darkroom at
 `docs/test-records/2026-08-22d-emitted-plates-through-the-ladder.md`.
 
 ### Phase 5 — adoption
