@@ -14,6 +14,12 @@ export default positive("critical_pos", {
   hull:      lever("HULL BIAS",    0,    1,    0.01,  0.35),
   cam: { dist: 3.0, pitch: 0.34, tgtY: 0.0, rot: 0.0 },
   gain: 0.5, accent: "#7ad9c0",
+  // the plate's own chains, pinned: same inputs must reproduce the
+  // same subject, and the world is part of the subject. Root, child
+  // key and coin are LVIII's exact conventions; with them the
+  // survivors, the cluster tints and the slab heights are the
+  // plate's, cell for cell.
+  chains: { root: 2166136261, childKey: [97, 1], coin: "value" },
 },
 (P, s) => {
   // the budget: coarse levels are honest flat washes, and equal light
@@ -37,15 +43,17 @@ export default positive("critical_pos", {
   if (s.u() < P.hull && rim < 0.62) j = j.scale(0.92 / Math.max(rim, 1e-3));
 
   // the slab: fine structure lies flat, so depth parallax cannot
-  // smear the lace it took levels to reach
-  const z = (fall.addr.u(0x2611) - 0.5 + s.centered() * 0.3)
+  // smear the lace it took levels to reach. The trail - the walk's
+  // whole path, folded - carries the cluster's identity, as it does
+  // on the plate.
+  const z = (fall.trail.u(39916801) - 0.5 + s.centered() * 0.3)
           * P.slab * (0.25 + 3.0 * fall.cell.scale);
 
   const lv = fall.reached / P.depth;
   return s.deposit({
     xy:   fall.cell.at(j).scale(1.9),
     z,
-    col:  pal(0.32 + fall.addr.u(0) * P.tint * 0.5 + lv * 0.12,
+    col:  pal(0.32 + fall.trail.u(0) * P.tint * 0.5 + lv * 0.12,
               [0.45, 0.5, 0.47], [0.42, 0.5, 0.45],
               [0.9, 1.0, 0.85], [0.15, 0.42, 0.6]),
     glow: 0.12 + 1.9 * lv * lv,

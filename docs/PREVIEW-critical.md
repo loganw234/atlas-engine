@@ -63,6 +63,27 @@ repairs, the drift must be argued, not slipped in.
       });
     });
 
+## Drift from the preview, argued
+
+Two changes after approval, both at the operator's direction
+(2026-08-22): "bit identical isn't a requirement, but the general
+subject must be reproducible from the positive given the same
+inputs."
+
+1. **chains**: the positive gains
+   `chains: { root: 2166136261, childKey: [97, 1], coin: "value" }`,
+   pinning LVIII's exact address conventions. The world is part of
+   the subject, so a restatement carries its plate's chains; a new
+   positive omits the field and takes the canonical scheme.
+2. **trail**: tint and slab now hash from `fall.trail` (the walk's
+   path, folded, as the plate's `lineage` does) instead of
+   `fall.addr`, so cluster colours and slab heights reproduce too.
+
+With both, the emitted positive renders the plate's own picture:
+survivors identical over all 6,561 level-4 cells, trails identical
+over all 1,709 survivors, GPU-to-GPU cell correlation r = 0.9925
+unsorted, totals 1.000.
+
 ## The verification contract
 
 - The positive's two evaluators agree at cell level, measured by the

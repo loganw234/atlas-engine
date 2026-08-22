@@ -49,7 +49,7 @@ function plateWalk(i, root) {
 // ---- the positive's walk, instrumented the same way ----------------
 function positiveWalk(i, root) {
   const seed = hashu(hashu((i >>> 0) ^ 0xA5F15EED) ^ Math.imul(i, 2654435761) >>> 0);
-  const s = new Stream(seed, root);
+  const s = new Stream(seed, { ...def.chains, root });
   const d = s.depth(P.depth, { bias: 0.65 });
   const fall = s.descend({ kind: "grid2", b }, d, {
     tries: 6,
@@ -117,6 +117,50 @@ for (let q = 10; q <= 95; q += 5) {
 }
 check("cell-glow distribution agrees", qerr / qn < 0.08,
   `mean quantile error ${(100 * qerr / qn).toFixed(1)}% over ${qn} quantiles (same quantity both sides)`);
+
+// ---- reproduction: with the chains pinned, the plate's world is the
+// positive's world - not statistically, identically. Enumerate every
+// level-4 cell: survival and the trail (which carries tint and slab)
+// must match the plate's own derivation bit for bit.
+{
+  const { Address } = await import("../core/measure.mjs");
+  const GRID4 = 81;
+  let mismatchSurv = 0, mismatchTrail = 0, survivors = 0;
+  for (let iy = 0; iy < GRID4; iy++) for (let ix = 0; ix < GRID4; ix++) {
+    const digs = [];
+    let px = ix, py = iy;
+    for (let l = 3; l >= 0; l--) {
+      const s = Math.pow(b, l);
+      digs.push([Math.trunc(px / s), Math.trunc(py / s)]);
+      px %= s; py %= s;
+    }
+    // the plate's own derivation, transcribed
+    let addr = 2166136261 >>> 0, lineage = 2166136261 >>> 0, aliveP = true;
+    for (const [cx, cy] of digs) {
+      const caddr = hashu((addr ^ (cy * 97 + cx + 1)) >>> 0);
+      if (u2f(caddr) >= P.occupancy) { aliveP = false; break; }
+      addr = caddr; lineage = hashu((lineage ^ caddr) >>> 0);
+    }
+    // the positive's Address type, with its pinned chains
+    let a = new Address(def.chains.root, def.chains);
+    let trail = def.chains.root >>> 0, aliveQ = true;
+    for (const [cx, cy] of digs) {
+      const st = a.child(cx, cy);
+      if (!st.coin(P.occupancy)) { aliveQ = false; break; }
+      a = new Address(st.h, def.chains);
+      trail = hashu((trail ^ st.h) >>> 0);
+    }
+    if (aliveP !== aliveQ) mismatchSurv++;
+    if (aliveP && aliveQ) {
+      survivors++;
+      if (lineage !== trail) mismatchTrail++;
+    }
+  }
+  check("chains reproduce the plate's survivors exactly", mismatchSurv === 0,
+    `${GRID4 * GRID4} level-4 cells, ${survivors} survive, ${mismatchSurv} disagree`);
+  check("chains reproduce the plate's trail exactly", mismatchTrail === 0,
+    `${survivors} surviving trails compared, ${mismatchTrail} differ (tint and slab hang on these)`);
+}
 
 console.log(fails ? `\n${fails} FAILURES` : "\nnative law tests pass");
 process.exit(fails ? 1 : 0);

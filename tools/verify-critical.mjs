@@ -42,7 +42,7 @@ const cellWorld = (ix, iy) => [((ix + 0.5) / GRID - 0.5) * SCALE, ((iy + 0.5) / 
 
 // survival of a level-L cell under the positive's own Address type
 function survives(ix, iy, L) {
-  let a = new Address(def.root);
+  let a = new Address(def.chains.root, def.chains);
   let px = ix, py = iy;
   const digs = [];
   for (let l = L - 1; l >= 0; l--) {
@@ -53,7 +53,7 @@ function survives(ix, iy, L) {
   for (const [cx, cy] of digs) {
     const st = a.child(cx, cy);
     if (!st.coin(P.occupancy)) return false;
-    a = new Address(st.h);
+    a = new Address(st.h, def.chains);
   }
   return true;
 }
@@ -164,16 +164,20 @@ function survives(ix, iy, L) {
       const s0 = await evalIn(ws, `window.__sample(${JSON.stringify(pts)}, ${RAD})`);
       const pl = new Float64Array(GRID * GRID);
       s0.out.forEach((o, i) => { pl[i] = o[2] < 0 ? 0 : o[2]; });
-      const sp = [...gpu].sort((a, b) => a - b), sq = [...pl].sort((a, b) => a - b);
-      const tp = sp.reduce((a, b) => a + b, 0), tq = sq.reduce((a, b) => a + b, 0);
-      let qerr = 0, qn = 0;
-      for (let q = 30; q <= 95; q += 5) {
-        const i = Math.trunc(q / 100 * sp.length);
-        if (sq[i] / tq > 1e-9) { qerr += Math.abs(sp[i] / tp - sq[i] / tq) / (sq[i] / tq); qn++; }
+      // with the chains pinned this is ONE world twice: compare cell
+      // for cell, unsorted - the same-picture bar
+      const mx = mean([...gpu]), my = mean([...pl]);
+      let sxy = 0, sxx = 0, syy = 0;
+      for (let i = 0; i < gpu.length; i++) {
+        sxy += (gpu[i] - mx) * (pl[i] - my);
+        sxx += (gpu[i] - mx) * (gpu[i] - mx);
+        syy += (pl[i] - my) * (pl[i] - my);
       }
-      report("C same law as the plate, loosely", qerr / qn < 0.45,
-        `sorted-cell quantile error ${(100 * qerr / qn).toFixed(1)}% (single worlds; the pooled native test holds the law at 0.4%)`);
-      report("C2 total light comparable", tp / tq > 0.8 && tp / tq < 1.25,
+      const corr = sxy / Math.sqrt(sxx * syy);
+      const tp = [...gpu].reduce((a, b) => a + b, 0), tq = [...pl].reduce((a, b) => a + b, 0);
+      report("C same world as the plate, cell for cell", corr > 0.985,
+        `Pearson r = ${corr.toFixed(4)} unsorted over ${gpu.length} cells`);
+      report("C2 total light matches", tp / tq > 0.9 && tp / tq < 1.11,
         `positive/plate linearized totals ${(tp / tq).toFixed(3)}`);
     }
   }

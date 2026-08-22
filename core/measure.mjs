@@ -43,27 +43,45 @@ export function positive(id, meta, walk) {
     else rest[k] = v;
   }
   if (levers.length > 8) throw new Error(id + ": max 8 levers");
+  // chains: the world's identity. Same inputs must reproduce the same
+  // subject (operator's rule), so a positive that restates a plate
+  // pins the plate's own conventions here - root, child-key packing,
+  // and coin - and a new positive takes the canonical defaults.
+  const c = rest.chains || {};
+  const chains = {
+    root: (c.root === undefined ? fnv1a(id) : c.root) >>> 0,
+    childKey: c.childKey || null,          // [mult, add] or null = spread
+    coin: c.coin || "salted",              // "salted" | "value"
+  };
+  delete rest.chains;
   return { kind: "positive", id, levers, leverNames, meta: rest, walk,
-           root: fnv1a(id) };
+           chains, root: chains.root };
 }
 
 // ---- the two kinds of randomness -----------------------------------
 // Address: pure. The same address answers the same for every point
-// that ever asks - structure hashes from here and only here.
+// that ever asks - structure hashes from here and only here. The
+// scheme (from the positive's chains) decides how children derive
+// and what a coin is, so a restatement can speak its plate's exact
+// chains while a new positive takes the canonical ones.
+export const CANONICAL = { root: 0, childKey: null, coin: "salted" };
 export class Address {
-  constructor(h) { this.h = h >>> 0; }
-  // one child step on a 2D grid; the packing keeps (cx, cy) pairs
-  // distinct for any sane grid arity
+  constructor(h, scheme = CANONICAL) { this.h = h >>> 0; this.scheme = scheme; }
   child(cx, cy) {
-    const key = Math.imul((cy * 1031 + cx + 1) | 0, 2654435761) >>> 0;
-    return new Step(hashu((this.h ^ key) >>> 0), cx | 0, cy | 0);
+    const key = this.scheme.childKey
+      ? ((cy | 0) * this.scheme.childKey[0] + (cx | 0) + this.scheme.childKey[1]) >>> 0
+      : Math.imul((cy * 1031 + cx + 1) | 0, 2654435761) >>> 0;
+    return new Step(hashu((this.h ^ key) >>> 0), cx | 0, cy | 0, this.scheme);
   }
   u(salt = 0) { return u2f(hashu((this.h ^ (salt >>> 0)) >>> 0)); }
-  coin(p, salt = 0xC01F) { return this.u(salt) < p; }
+  coin(p, salt = 0xC01F) {
+    if (this.scheme.coin === "value") return u2f(this.h) < p;
+    return this.u(salt) < p;
+  }
 }
 // Step: an address plus the grid move that reached it
 export class Step extends Address {
-  constructor(h, cx, cy) { super(h); this.cx = cx; this.cy = cy; }
+  constructor(h, cx, cy, scheme) { super(h, scheme); this.cx = cx; this.cy = cy; }
 }
 
 // ---- geometry ------------------------------------------------------
@@ -89,7 +107,12 @@ export class Cell {
 
 // ---- the stream: the point's own consumable budget -----------------
 export class Stream {
-  constructor(seed, root) { this.state = seed >>> 0; this.rootH = root >>> 0; }
+  constructor(seed, chains) {
+    this.state = seed >>> 0;
+    this.chains = chains && chains.root !== undefined
+      ? chains
+      : { root: (chains >>> 0) || 0, childKey: null, coin: "salted" };
+  }
   u() { this.state = hashu(this.state); return u2f(this.state); }
   centered() { return this.u() - 0.5; }
   pick(n) {
@@ -107,8 +130,10 @@ export class Stream {
   // every point. Stops where the structure dies.
   descend(domain, levels, cfg) {
     if (domain.kind !== "grid2") throw new Error("descend: unknown domain");
+    const sch = this.chains;
     let cell = new Cell(0, 0, 1, domain.b);
-    let addr = new Address(this.rootH);
+    let addr = new Address(sch.root, sch);
+    let trail = sch.root >>> 0;            // the path, folded
     let reached = 0;
     const tries = cfg.tries === undefined ? 1 : cfg.tries;
     for (let l = 0; l < levels; l++) {
@@ -119,10 +144,11 @@ export class Stream {
       }
       if (!kept) break;
       cell = cell.into(kept.cx, kept.cy);
-      addr = new Address(kept.h);
+      addr = new Address(kept.h, sch);
+      trail = hashu((trail ^ kept.h) >>> 0);
       reached += 1;
     }
-    return { cell, addr, reached };
+    return { cell, addr, trail: new Address(trail, sch), reached };
   }
   deposit(d) {
     const glow = d.glow === undefined ? 1.0 : d.glow;
@@ -149,6 +175,6 @@ export function leverDefaults(pos) {
 }
 export function evaluate(pos, P, i) {
   const seed = hashu(hashu((i >>> 0) ^ 0xA5F15EED) ^ Math.imul(i, 2654435761) >>> 0);
-  const s = new Stream(seed, pos.root);
+  const s = new Stream(seed, pos.chains);
   return pos.walk(P, s);
 }

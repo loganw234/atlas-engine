@@ -113,6 +113,15 @@ appearing exactly once - the subject-specific dials. The language
 should type these tiers: grade belongs to the engine, family dials to
 the construct that implies them, singletons to the positive.
 
+**chains** - added at the operator's direction after the first
+positive: the world's identity as an explicit option. Root, child-key
+packing, and coin convention travel with the positive; a restatement
+pins its plate's exact chains (and colours from the `trail`, the
+walk's folded path) so the same inputs reproduce the same subject,
+cell for cell - while a new positive takes the canonical scheme and
+its world is its own. Bit-identity stays downstream with the
+darkroom; what chains buy is subject-identity.
+
 ## What stays authored
 
 The survey also measures what the language must *not* try to own: 223

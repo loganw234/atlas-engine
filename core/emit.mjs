@@ -337,6 +337,10 @@ export function emitWalk(pos) {
     if (o.kind === "descend") {
       if (n.name === "cell") return { kind: "cell", xy: o.sym.xy, sc: o.sym.sc, b: o.sym.b };
       if (n.name === "addr") return { kind: "addr", h: o.sym.adr };
+      if (n.name === "trail") {
+        if (!o.sym.trail) err("this walk never folds a trail (internal)");
+        return { kind: "addr", h: o.sym.trail };
+      }
       if (n.name === "reached") return { type: "int", code: o.sym.reached };
       err(`descend result has no ${n.name}`);
     }
@@ -504,9 +508,12 @@ export function emitWalk(pos) {
 
     const xy = fresh("dc_xy"), sc = fresh("dc_sc"), adr = fresh("dc_adr"), rc = fresh("dc_n");
     const bI = dom.b;
+    const wantTrail = pos.walk.toString().includes(".trail");
+    const tr = wantTrail ? fresh("dc_tr") : null;
     put(`vec2 ${xy} = vec2(0.0);`);
     put(`float ${sc} = 1.0;`);
-    put(`uint ${adr} = ${(pos.root >>> 0)}u;`);
+    put(`uint ${adr} = ${(pos.chains.root >>> 0)}u;`);
+    if (tr) put(`uint ${tr} = ${(pos.chains.root >>> 0)}u;`);
     put(`int ${rc} = 0;`);
     const dVar = fresh("dlim");
     put(`int ${dVar} = ${lev.code};`);
@@ -523,7 +530,14 @@ export function emitWalk(pos) {
     const cyV = fresh("cy");
     put(`int ${cyV} = ${asInt(ey)};`);
     const cand = fresh("cand");
-    put(`uint ${cand} = hashu(${adr} ^ (uint(${cyV} * 1031 + ${cxV} + 1) * 2654435761u));`);
+    // child derivation follows the positive's chains: a pinned plate
+    // convention (small additive key) or the canonical spread
+    if (pos.chains.childKey) {
+      const [mu, ad] = pos.chains.childKey;
+      put(`uint ${cand} = hashu(${adr} ^ uint(${cyV} * ${mu} + ${cxV} + ${ad}));`);
+    } else {
+      put(`uint ${cand} = hashu(${adr} ^ (uint(${cyV} * 1031 + ${cxV} + 1) * 2654435761u));`);
+    }
     // keep body with the candidate bound
     const cName = keepArrow.params[0];
     syms.set(cName, { kind: "candidate", h: cand });
@@ -535,6 +549,7 @@ export function emitWalk(pos) {
     put(`     - vec2(${sc} * 0.5 * (1.0 - 1.0 / float(${bI})));`);
     put(`${sc} /= float(${bI});`);
     put(`${adr} = ${cand};`);
+    if (tr) put(`${tr} = hashu(${tr} ^ ${cand});`);
     put(`${rc} += 1;`);
     put(`moved = true;`);
     put(`break;`);
@@ -545,7 +560,7 @@ export function emitWalk(pos) {
     put(`if (!moved) break;`);
     indent = indent.slice(2);
     put(`}`);
-    syms.set(name, { kind: "descend", xy, sc, adr, reached: rc, b: bI });
+    syms.set(name, { kind: "descend", xy, sc, adr, trail: tr, reached: rc, b: bI });
   }
 
   // keep bodies: boolean expressions over the candidate
@@ -556,6 +571,8 @@ export function emitWalk(pos) {
       if (sym && sym.kind === "candidate") {
         if (n.callee.name === "coin") {
           const pE = emit(n.args[0]);
+          if (pos.chains.coin === "value")
+            return `(u2f(${cand}) < ${asFloat(pE)})`;
           const salt = n.args[1] ? emit(n.args[1]).code : "0xC01F";
           return `(u2f(hashu(${cand} ^ uint(${salt}))) < ${asFloat(pE)})`;
         }
