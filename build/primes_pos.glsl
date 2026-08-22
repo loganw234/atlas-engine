@@ -1,0 +1,78 @@
+vec3 shape_primes_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
+  uint pt = hashu(seed ^ hashu(floatBitsToUint(q.x))
+                       ^ hashu(floatBitsToUint(q.y) * 2211791961u));
+  pt = hashu(pt ^ floatBitsToUint(rnd.x));
+  float md_1 = floor((P[0] + 0.5));
+  float N_2 = P[1];
+  float sx_3 = 0.0;
+  float sz_4 = 0.0;
+  vec3 tint_5 = vec3(0.0, 0.0, 0.0);
+  if ((md_1 < 2.0)) {
+    float n_6 = (floor((q.x * N_2)) + 2.0);
+    float ob_7_d = 3.0;
+    float ob_7_comp = 0.0;
+    int ob_7_count = 0;
+    bool ob_7_esc = false;
+    for (int ok_8 = 0; ok_8 < 159; ok_8++) {
+      if ((((ob_7_d * ob_7_d) > n_6) || (ob_7_comp > 0.5))) { ob_7_esc = true; break; }
+      float ob_7_t_9 = (ob_7_d + 2.0);
+      float ob_7_t_10 = ((((mod(n_6, ob_7_d) < 0.5))) ? 1.0 : ob_7_comp);
+      ob_7_d = ob_7_t_9;
+      ob_7_comp = ob_7_t_10;
+      ob_7_count += 1;
+    }
+    float isp_11 = ((((n_6 < 2.0))) ? 0.0 : ((((n_6 < 4.0))) ? 1.0 : ((((mod(n_6, 2.0) < 0.5))) ? 0.0 : ((1.0 - ob_7_comp)))));
+    if ((isp_11 < 0.5)) {
+      col = vec3(0.0);
+      return vec3(0.0, -20000.0, 0.0);
+    }
+    float r_12 = sqrt(n_6);
+    float ang_13 = ((((md_1 == 0.0))) ? (TAU * sqrt(n_6)) : (n_6 * 2.39996323));
+    sx_3 = (((r_12 * cos(ang_13)) * P[2]) * 0.06);
+    sz_4 = (((r_12 * sin(ang_13)) * P[2]) * 0.06);
+    tint_5 = pal((fract(((sqrt(n_6) * 0.1) * P[3])) + 0.1), vec3(0.5, 0.45, 0.4), vec3(0.5, 0.45, 0.45), vec3(1.0, 0.95, 0.85), vec3(0.1, 0.3, 0.5));
+  } else {
+    float Mx_14 = sqrt(N_2);
+    float ux_15 = (floor(((q.x * 2.0) * Mx_14)) - Mx_14);
+    float uy_16 = (floor(((q.y * 2.0) * Mx_14)) - Mx_14);
+    float ga_17 = (sign(ux_15) * floor(abs(ux_15)));
+    float gb_18 = (sign(uy_16) * floor(abs(uy_16)));
+    float norm_19 = ((ga_17 * ga_17) + (gb_18 * gb_18));
+    bool onax_20 = ((ga_17 == 0.0) || (gb_18 == 0.0));
+    float mm_21 = ((((ga_17 == 0.0))) ? abs(gb_18) : abs(ga_17));
+    float nn_22 = ((onax_20) ? mm_21 : norm_19);
+    float ob_23_d = 3.0;
+    float ob_23_comp = 0.0;
+    int ob_23_count = 0;
+    bool ob_23_esc = false;
+    for (int ok_24 = 0; ok_24 < 159; ok_24++) {
+      if ((((ob_23_d * ob_23_d) > nn_22) || (ob_23_comp > 0.5))) { ob_23_esc = true; break; }
+      float ob_23_t_25 = (ob_23_d + 2.0);
+      float ob_23_t_26 = ((((mod(nn_22, ob_23_d) < 0.5))) ? 1.0 : ob_23_comp);
+      ob_23_d = ob_23_t_25;
+      ob_23_comp = ob_23_t_26;
+      ob_23_count += 1;
+    }
+    float isp_27 = ((((nn_22 < 2.0))) ? 0.0 : ((((nn_22 < 4.0))) ? 1.0 : ((((mod(nn_22, 2.0) < 0.5))) ? 0.0 : ((1.0 - ob_23_comp)))));
+    float gp_28 = 0.0;
+    if (onax_20) {
+      gp_28 = (((((isp_27 > 0.5) && (mod(mm_21, 4.0) == 3.0)))) ? 1.0 : 0.0);
+    } else {
+      gp_28 = isp_27;
+    }
+    if ((gp_28 < 0.5)) {
+      col = vec3(0.0);
+      return vec3(0.0, -20000.0, 0.0);
+    }
+    sx_3 = ((ga_17 * P[2]) * 0.05);
+    sz_4 = ((gb_18 * P[2]) * 0.05);
+    tint_5 = pal((fract(((norm_19 * 0.01) * P[3])) + 0.1), vec3(0.5, 0.5, 0.5), vec3(0.5, 0.5, 0.5), vec3(1.0, 1.0, 1.0), vec3(0.0, 0.33, 0.67));
+  }
+  float dep_c_29 = sx_3;
+  float dep_c_30 = 0.0;
+  float dep_c_31 = sz_4;
+  vec3 dep_col_32 = tint_5;
+  float dep_glow_33 = (0.5 + (0.7 * P[4]));
+  col = dep_col_32 * dep_glow_33;
+  return vec3(dep_c_29, dep_c_30, dep_c_31);
+}

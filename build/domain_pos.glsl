@@ -1,0 +1,110 @@
+vec3 shape_domain_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
+  uint pt = hashu(seed ^ hashu(floatBitsToUint(q.x))
+                       ^ hashu(floatBitsToUint(q.y) * 2598582177u));
+  pt = hashu(pt ^ floatBitsToUint(rnd.x));
+  float fn_1 = floor((P[0] + 0.5));
+  float wnx_2 = (q.x - 0.5);
+  float wny_3 = (q.y - 0.5);
+  pt = hashu(pt);
+  float jx_4 = u2f(pt) - 0.5;
+  pt = hashu(pt);
+  vec2 jit_5 = vec2(jx_4, u2f(pt) - 0.5);
+  vec2 j_6 = jit_5;
+  float zx_7 = ((P[2] + (wnx_2 * ((6.0 / P[1])))) + (j_6.x * 0.004));
+  float zy_8 = ((P[3] + (wny_3 * ((6.0 / P[1])))) + (j_6.y * 0.004));
+  float wr_9 = 0.0;
+  float wi_10 = 0.0;
+  if ((fn_1 == 0.0)) {
+    vec2 z3_11 = cmul(cmul(vec2(zx_7, zy_8), vec2(zx_7, zy_8)), vec2(zx_7, zy_8));
+    wr_9 = (z3_11.x - 1.0);
+    wi_10 = z3_11.y;
+  } else {
+    if ((fn_1 == 1.0)) {
+      vec2 z2_12 = cmul(vec2(zx_7, zy_8), vec2(zx_7, zy_8));
+      vec2 rat_13 = cdiv(vec2((z2_12.x - 1.0), z2_12.y), vec2((z2_12.x + 1.0), z2_12.y));
+      wr_9 = rat_13.x;
+      wi_10 = rat_13.y;
+    } else {
+      if ((fn_1 == 2.0)) {
+        bool refl_14 = (zx_7 < 0.5);
+        float gx_15 = zx_7;
+        float gy_16 = zy_8;
+        if (refl_14) {
+          gx_15 = (1.0 - zx_7);
+          gy_16 = (-zy_8);
+        }
+        gx_15 = (gx_15 - 1.0);
+        vec2 c1_17 = cinv(vec2((gx_15 + 1.0), gy_16));
+        vec2 c2_18 = cinv(vec2((gx_15 + 2.0), gy_16));
+        vec2 c3_19 = cinv(vec2((gx_15 + 3.0), gy_16));
+        vec2 c4_20 = cinv(vec2((gx_15 + 4.0), gy_16));
+        vec2 c5_21 = cinv(vec2((gx_15 + 5.0), gy_16));
+        vec2 c6_22 = cinv(vec2((gx_15 + 6.0), gy_16));
+        vec2 c7_23 = cinv(vec2((gx_15 + 7.0), gy_16));
+        vec2 c8_24 = cinv(vec2((gx_15 + 8.0), gy_16));
+        float ar_25 = 0.99999999999980993;
+        float ai_26 = 0.0;
+        ar_25 += (676.5203681218851 * c1_17.x);
+        ai_26 += (676.5203681218851 * c1_17.y);
+        ar_25 += ((-1259.1392167224028) * c2_18.x);
+        ai_26 += ((-1259.1392167224028) * c2_18.y);
+        ar_25 += (771.32342877765313 * c3_19.x);
+        ai_26 += (771.32342877765313 * c3_19.y);
+        ar_25 += ((-176.61502916214059) * c4_20.x);
+        ai_26 += ((-176.61502916214059) * c4_20.y);
+        ar_25 += (12.507343278686905 * c5_21.x);
+        ai_26 += (12.507343278686905 * c5_21.y);
+        ar_25 += ((-0.13857109526572012) * c6_22.x);
+        ai_26 += ((-0.13857109526572012) * c6_22.y);
+        ar_25 += (9.9843695780195716e-6 * c7_23.x);
+        ai_26 += (9.9843695780195716e-6 * c7_23.y);
+        ar_25 += (1.5056327351493116e-7 * c8_24.x);
+        ai_26 += (1.5056327351493116e-7 * c8_24.y);
+        float tzx_27 = (gx_15 + 7.5);
+        float tzy_28 = gy_16;
+        float lgr_29 = log((length(vec2(tzx_27, tzy_28)) + 1.0e-30));
+        float lgi_30 = atan(tzy_28, tzx_27);
+        vec2 pw_31 = cmul(vec2((gx_15 + 0.5), gy_16), vec2(lgr_29, lgi_30));
+        float pe_32 = exp(pw_31.x);
+        float ee_33 = exp((-tzx_27));
+        vec2 m1_34 = cmul(vec2((pe_32 * cos(pw_31.y)), (pe_32 * sin(pw_31.y))), vec2((ee_33 * cos((-tzy_28))), (ee_33 * sin((-tzy_28)))));
+        vec2 m2_35 = cmul(vec2(m1_34.x, m1_34.y), vec2(ar_25, ai_26));
+        wr_9 = (2.5066282746310002 * m2_35.x);
+        wi_10 = (2.5066282746310002 * m2_35.y);
+        if (refl_14) {
+          vec2 dn_36 = cmul(vec2((sin((PI * zx_7)) * cosh((PI * zy_8))), (cos((PI * zx_7)) * sinh((PI * zy_8)))), vec2(wr_9, wi_10));
+          vec2 rf_37 = cdiv(vec2(PI, 0.0), vec2(dn_36.x, dn_36.y));
+          wr_9 = rf_37.x;
+          wi_10 = rf_37.y;
+        }
+      } else {
+        vec2 s0_38 = cinv(cmul(vec2(zx_7, zy_8), vec2(zx_7, zy_8)));
+        float ob_39_sr = s0_38.x;
+        float ob_39_si = s0_38.y;
+        int ob_39_count = 0;
+        bool ob_39_esc = false;
+        for (int ok_40 = 0; ok_40 < 25; ok_40++) {
+          float ob_39_t_41 = ((((((((ok_40) / (5)) - 2) == 0) && (((ok_40 % 5) - 2) == 0)))) ? ob_39_sr : (ob_39_sr + ((cinv(cmul(vec2((zx_7 - float(((((ok_40) / (5)) - 2)))), (zy_8 - float((((ok_40 % 5) - 2))))), vec2((zx_7 - float(((((ok_40) / (5)) - 2)))), (zy_8 - float((((ok_40 % 5) - 2))))))).x - cinv(cmul(vec2(float((((ok_40) / (5)) - 2)), float(((ok_40 % 5) - 2))), vec2(float((((ok_40) / (5)) - 2)), float(((ok_40 % 5) - 2))))).x))));
+          float ob_39_t_42 = ((((((((ok_40) / (5)) - 2) == 0) && (((ok_40 % 5) - 2) == 0)))) ? ob_39_si : (ob_39_si + ((cinv(cmul(vec2((zx_7 - float(((((ok_40) / (5)) - 2)))), (zy_8 - float((((ok_40 % 5) - 2))))), vec2((zx_7 - float(((((ok_40) / (5)) - 2)))), (zy_8 - float((((ok_40 % 5) - 2))))))).y - cinv(cmul(vec2(float((((ok_40) / (5)) - 2)), float(((ok_40 % 5) - 2))), vec2(float((((ok_40) / (5)) - 2)), float(((ok_40 % 5) - 2))))).y))));
+          ob_39_sr = ob_39_t_41;
+          ob_39_si = ob_39_t_42;
+          ob_39_count += 1;
+        }
+        wr_9 = ob_39_sr;
+        wi_10 = ob_39_si;
+      }
+    }
+  }
+  float mag_43 = length(vec2(wr_9, wi_10));
+  float arg_44 = atan(wi_10, wr_9);
+  float hh_45 = (clamp(log((mag_43 + 1.0e-4)), (-4.0), 4.0) * P[4]);
+  float hue_46 = ((arg_44 / TAU) + 0.5);
+  float band_47 = (0.5 + (0.5 * cos(((TAU * log((mag_43 + 1.0e-4))) * P[5]))));
+  float dep_c_48 = (wnx_2 * 2.4);
+  float dep_c_49 = hh_45;
+  float dep_c_50 = (wny_3 * 2.4);
+  vec3 dep_col_51 = pal(fract(hue_46), vec3(0.5, 0.5, 0.5), vec3(0.5, 0.5, 0.5), vec3(1.0, 1.0, 1.0), vec3(0.0, 0.33, 0.67));
+  float dep_glow_52 = (0.4 + (0.95 * band_47));
+  col = dep_col_51 * dep_glow_52;
+  return vec3(dep_c_48, dep_c_49, dep_c_50);
+}

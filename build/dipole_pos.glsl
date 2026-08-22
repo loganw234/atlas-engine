@@ -1,0 +1,79 @@
+vec3 shape_dipole_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
+  uint pt = hashu(seed ^ hashu(floatBitsToUint(q.x))
+                       ^ hashu(floatBitsToUint(q.y) * 3825101125u));
+  pt = hashu(pt ^ floatBitsToUint(rnd.x));
+  int li_newton = int(P[2] + 0.5);
+  float rng_1 = max(P[0], 2.0);
+  float tt_2 = (uT * P[4]);
+  float rho0_3 = mix(0.6, rng_1, q.x);
+  float th0_4 = mix(0.05, (PI - 0.05), q.y);
+  if ((abs(sin(th0_4)) < 0.05)) {
+    col = vec3(0.0);
+    return vec3(0.0, -20000.0, 0.0);
+  }
+  float nC_5 = max(floor((P[1] + 0.5)), 1.0);
+  pt = hashu(pt);
+  float fj_6 = min(floor((u2f(pt) * nC_5)), (nC_5 - 1.0));
+  float cj_7 = ((-0.9) + ((1.8 * ((fj_6 + 0.5))) / nC_5));
+  if ((abs(cj_7) < 1.0e-4)) {
+    cj_7 = (0.9 / nC_5);
+  }
+  float ob_8_rho = rho0_3;
+  float ob_8_th = th0_4;
+  int ob_8_count = 0;
+  bool ob_8_esc = false;
+  for (int ok_9 = 0; ok_9 < 4; ok_9++) {
+    if (ok_9 >= li_newton) break;
+    float ob_8_t_10 = clamp((ob_8_rho - (((((((sin(ob_8_th) * sin(ob_8_th))) * (((cos((ob_8_rho - tt_2)) * ((1.0 / ob_8_rho))) + sin((ob_8_rho - tt_2))))) - cj_7)) / (((((((sin(ob_8_th) * sin(ob_8_th))) * (((((-sin((ob_8_rho - tt_2))) * ((1.0 / ob_8_rho))) - ((cos((ob_8_rho - tt_2)) * ((1.0 / ob_8_rho))) * ((1.0 / ob_8_rho)))) + cos((ob_8_rho - tt_2))))) * ((((sin(ob_8_th) * sin(ob_8_th))) * (((((-sin((ob_8_rho - tt_2))) * ((1.0 / ob_8_rho))) - ((cos((ob_8_rho - tt_2)) * ((1.0 / ob_8_rho))) * ((1.0 / ob_8_rho)))) + cos((ob_8_rho - tt_2))))))) + (((((2.0 * sin(ob_8_th)) * cos(ob_8_th)) * (((cos((ob_8_rho - tt_2)) * ((1.0 / ob_8_rho))) + sin((ob_8_rho - tt_2)))))) * ((((2.0 * sin(ob_8_th)) * cos(ob_8_th)) * (((cos((ob_8_rho - tt_2)) * ((1.0 / ob_8_rho))) + sin((ob_8_rho - tt_2)))))))) + 1.0e-6))) * ((((sin(ob_8_th) * sin(ob_8_th))) * (((((-sin((ob_8_rho - tt_2))) * ((1.0 / ob_8_rho))) - ((cos((ob_8_rho - tt_2)) * ((1.0 / ob_8_rho))) * ((1.0 / ob_8_rho)))) + cos((ob_8_rho - tt_2)))))))), 0.35, (rng_1 + 0.8));
+    float ob_8_t_11 = (ob_8_th - (((((((sin(ob_8_th) * sin(ob_8_th))) * (((cos((ob_8_rho - tt_2)) * ((1.0 / ob_8_rho))) + sin((ob_8_rho - tt_2))))) - cj_7)) / (((((((sin(ob_8_th) * sin(ob_8_th))) * (((((-sin((ob_8_rho - tt_2))) * ((1.0 / ob_8_rho))) - ((cos((ob_8_rho - tt_2)) * ((1.0 / ob_8_rho))) * ((1.0 / ob_8_rho)))) + cos((ob_8_rho - tt_2))))) * ((((sin(ob_8_th) * sin(ob_8_th))) * (((((-sin((ob_8_rho - tt_2))) * ((1.0 / ob_8_rho))) - ((cos((ob_8_rho - tt_2)) * ((1.0 / ob_8_rho))) * ((1.0 / ob_8_rho)))) + cos((ob_8_rho - tt_2))))))) + (((((2.0 * sin(ob_8_th)) * cos(ob_8_th)) * (((cos((ob_8_rho - tt_2)) * ((1.0 / ob_8_rho))) + sin((ob_8_rho - tt_2)))))) * ((((2.0 * sin(ob_8_th)) * cos(ob_8_th)) * (((cos((ob_8_rho - tt_2)) * ((1.0 / ob_8_rho))) + sin((ob_8_rho - tt_2)))))))) + 1.0e-6))) * ((((2.0 * sin(ob_8_th)) * cos(ob_8_th)) * (((cos((ob_8_rho - tt_2)) * ((1.0 / ob_8_rho))) + sin((ob_8_rho - tt_2))))))));
+    ob_8_rho = ob_8_t_10;
+    ob_8_th = ob_8_t_11;
+    ob_8_count += 1;
+  }
+  float ta_12 = (ob_8_rho - tt_2);
+  float sn_13 = sin(ob_8_th);
+  float cs_14 = cos(ob_8_th);
+  float s2_15 = (sn_13 * sn_13);
+  float ct_16 = cos(ta_12);
+  float st_17 = sin(ta_12);
+  float ir_18 = (1.0 / ob_8_rho);
+  float base_19 = ((ct_16 * ir_18) + st_17);
+  float F_20 = (s2_15 * base_19);
+  float gr_21 = (s2_15 * (((((-st_17) * ir_18) - ((ct_16 * ir_18) * ir_18)) + ct_16)));
+  float gth_22 = (((2.0 * sn_13) * cs_14) * base_19);
+  if ((abs((F_20 - cj_7)) > 0.02)) {
+    col = vec3(0.0);
+    return vec3(0.0, -20000.0, 0.0);
+  }
+  float snth_23 = sin(ob_8_th);
+  if ((abs(snth_23) < 0.05)) {
+    col = vec3(0.0);
+    return vec3(0.0, -20000.0, 0.0);
+  }
+  if (((ob_8_rho < 0.5) || (ob_8_rho > rng_1))) {
+    col = vec3(0.0);
+    return vec3(0.0, -20000.0, 0.0);
+  }
+  pt = hashu(pt);
+  float az_24 = ((u2f(pt) * TAU) * P[3]);
+  pt = hashu(pt);
+  float cn_25 = u2f(pt);
+  float mir_26 = ((((cn_25 < 0.5))) ? 1.0 : (-1.0));
+  float scl_27 = (1.4 / rng_1);
+  float rs_28 = (((ob_8_rho * snth_23) * mir_26) * scl_27);
+  float gm_29 = length(vec2(gr_21, gth_22));
+  float heat_30 = (1.0 - exp(((-0.8) * gm_29)));
+  vec3 colv_31 = vec3(1.0, 0.60, 0.30);
+  if ((cj_7 > 0.0)) {
+    colv_31 = vec3(0.32, 0.58, 1.0);
+  }
+  colv_31 = (colv_31 * (0.55 + (0.75 * heat_30)));
+  colv_31 = mix(colv_31, vec3(1.0, 0.97, 0.90), ((0.30 * heat_30) * heat_30));
+  colv_31 = (colv_31 * (0.55 + (0.9 * P[5])));
+  float dep_c_32 = (rs_28 * cos(az_24));
+  float dep_c_33 = ((ob_8_rho * cos(ob_8_th)) * scl_27);
+  float dep_c_34 = (rs_28 * sin(az_24));
+  vec3 dep_col_35 = colv_31;
+  col = dep_col_35;
+  return vec3(dep_c_32, dep_c_33, dep_c_34);
+}
