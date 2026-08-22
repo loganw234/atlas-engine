@@ -1,0 +1,122 @@
+/* Pinned helpers the ENGINE owns, built on detlib.
+   Kept in a separate file on purpose: detlib.glsl must stay
+   byte-identical to the library the darkroom already runs and whose
+   cross-vendor hashes are the pinned reference, so nothing new is ever
+   added to it. This is where new pinned forms go instead.
+
+   Each of these replaces a GLSL builtin the emitter used to write
+   directly. They are NOT drop-in equivalents - a pinned form computes a
+   different (and deterministic) value from the builtin it replaces, and
+   that is the whole trade. What they share with the builtin is the
+   mathematical definition; what they add is a fixed association and a
+   fixed rounding at every step.
+
+   `precise` on every intermediate, and that is not decoration. Measured
+   2026-08-22 on five stacks: whether a compiler folds `a*b + c` into an
+   fma depends on whether `a*b` is needed ELSEWHERE in the same shader -
+   radeonsi and iris contract it until a second consumer of the product
+   appears, at which point common subexpression elimination shares the
+   product and the fusion is gone. So an unqualified expression's
+   rounding is a function of code that is not near it. `precise` is the
+   only thing in the sweep that behaved identically in every
+   configuration on every stack. */
+
+/* length(), which is sqrt(dot(v,v)) - and dot() is a sum of products
+   whose order and contraction the compiler chooses. Named squares,
+   named sum, det_sqrt on top. */
+float det_len2(float x, float y){
+  precise float xx = x * x;
+  precise float yy = y * y;
+  precise float s = xx + yy;
+  return det_sqrt(s);
+}
+
+/* Three terms need their association stated as well as their rounding:
+   (xx + yy) + zz, never xx + (yy + zz). */
+float det_len3(float x, float y, float z){
+  precise float xx = x * x;
+  precise float yy = y * y;
+  precise float zz = z * z;
+  precise float a = xx + yy;
+  precise float s = a + zz;
+  return det_sqrt(s);
+}
+
+float det_len3v(vec3 v){ return det_len3(v.x, v.y, v.z); }
+
+/* mix(x, y, a) is SPECIFIED as x*(1-a) + y*a, so the definition is not
+   in doubt - only the association and the fusion are. Written out with
+   both pinned; deliberately not folded into an fma, because the spec's
+   form is two roundings and a reader comparing this against the
+   builtin should find the same shape. */
+float det_mix(float a, float b, float t){
+  precise float u = 1.0 - t;
+  precise float p = a * u;
+  precise float q = b * t;
+  precise float r = p + q;
+  return r;
+}
+
+/* smoothstep: the clamped ratio through the exact divide, then the
+   Hermite polynomial with its own rounding pinned. clamp is an exact
+   selection and needs nothing. */
+float det_smoothstep(float e0, float e1, float x){
+  precise float num = x - e0;
+  precise float den = e1 - e0;
+  precise float t = clamp(det_div(num, den), 0.0, 1.0);
+  precise float t2 = t * t;
+  precise float w = fma(-2.0, t, 3.0);
+  precise float r = t2 * w;
+  return r;
+}
+
+/* vec2 and vec3 division by a scalar, componentwise through det_div.
+   The emitter generates these in cell arithmetic, where the divisor is
+   a small integer cast to float and the result addresses a lattice -
+   so a last-place difference moves a sample to a different cell, not
+   to a slightly different place in the same one. */
+vec2 det_div2(vec2 a, float b){
+  return vec2(det_div(a.x, b), det_div(a.y, b));
+}
+
+/* dot() is the archetype of the problem: a sum of products, where both
+   the summation order and whether any product folds into an fma are the
+   compiler's to choose. Every product named, association stated. */
+float det_dot3(vec3 a, vec3 b){
+  precise float x = a.x * b.x;
+  precise float y = a.y * b.y;
+  precise float z = a.z * b.z;
+  precise float s = x + y;
+  precise float t = s + z;
+  return t;
+}
+
+vec3 det_mix3(vec3 a, vec3 b, float t){
+  return vec3(det_mix(a.x, b.x, t), det_mix(a.y, b.y, t),
+              det_mix(a.z, b.z, t));
+}
+
+/* cross(): three differences of products, each of which a compiler is
+   free to fuse one half of. */
+vec3 det_cross(vec3 a, vec3 b){
+  precise float x0 = a.y * b.z; precise float x1 = a.z * b.y;
+  precise float y0 = a.z * b.x; precise float y1 = a.x * b.z;
+  precise float z0 = a.x * b.y; precise float z1 = a.y * b.x;
+  precise float x = x0 - x1;
+  precise float y = y0 - y1;
+  precise float z = z0 - z1;
+  return vec3(x, y, z);
+}
+
+/* Rodrigues rotation, the whole expression pinned rather than its
+   pieces. Written as three named vec3 terms so the sum has one
+   association and no term can be fused into the next. */
+vec3 det_rodrigues(vec3 c, vec3 k, float cs, float sn){
+  precise float om = 1.0 - cs;
+  vec3 t0 = c * cs;
+  vec3 t1 = det_cross(k, c) * sn;
+  precise float kd = det_dot3(k, c);
+  precise float kdo = kd * om;
+  vec3 t2 = k * kdo;
+  return (t0 + t1) + t2;
+}

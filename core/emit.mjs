@@ -9,6 +9,10 @@
 // Draw order is source order; the emitter hoists draws as sequenced
 // statements exactly where JavaScript would evaluate them.
 import { fnv1a } from "./measure.mjs";
+// The oracle is the only way a constant reaches emitted GLSL:
+// a bit pattern from a record that passed all three levels,
+// never a decimal typed into this file.
+import { glsl as oracleGlsl } from "./oracle.mjs";
 
 // ---------------------------------------------------------------- lex
 const PUNCT = ["=>", "<=", ">=", "==", "!=", "&&", "||",
@@ -229,7 +233,52 @@ function parse(src) {
 }
 
 // --------------------------------------------------------------- emit
-export function emitWalk(pos) {
+// ------------------------------------------------------- the pinned set
+//
+// Phase 2 of docs/DETERMINISM.md. With `pin`, every float operation the
+// emitter writes either has a deterministic form behind it or is
+// refused. Without it the emitter behaves exactly as before, so nothing
+// already built moves until somebody asks for it.
+//
+// The det_* functions come from core/detlib.glsl.template, filled from
+// the verified constants and proven byte-identical to the library the
+// darkroom already runs (tools/gen-detlib.mjs). So this is not a new
+// numerical claim - it is the existing, measured one, reached from a
+// record instead of from a comment.
+const DET = {
+  sin: a => `det_sin(${a[0]})`,
+  cos: a => `det_cos(${a[0]})`,
+  tan: a => `det_tan(${a[0]})`,
+  sqrt: a => `det_sqrt(${a[0]})`,
+  acos: a => `det_acos(${a[0]})`,
+  atan2: a => `det_atan(${a[0]}, ${a[1]})`,
+  pow: a => `det_pow(${a[0]}, ${a[1]})`,
+  // exp and log have no det_ of their own; they are the base-2 pair
+  // rescaled by a constant that is itself in the record, so the
+  // rescale is a pinned multiply rather than a typed-in decimal.
+  exp: a => `det_exp2((${a[0]}) * ${oracleGlsl("LOG2E")})`,
+  log: a => `(det_log2(${a[0]}) * ${oracleGlsl("LN2")})`,
+};
+
+// Exact by construction: selections and sign manipulation, correctly
+// rounded or bit-exact on every conforming implementation. They need no
+// det_ form and get none.
+const EXACT_BUILTINS = new Set(["abs", "min", "max", "floor", "sign"]);
+
+// Reachable from the subset today, with nothing deterministic behind
+// them. `oracle.UNCOVERED` carries the same list so the gap is data.
+// Refusing is the honest outcome: the language gets smaller rather than
+// the guarantee getting vaguer.
+const NO_DET_FORM = {
+  asin: "no det_asin exists. pi/2 - det_acos(x) loses precision near 0, " +
+        "so it is not offered as one",
+  sinh: "no det_sinh exists",
+  cosh: "no det_cosh exists",
+  tanh: "no det_tanh exists",
+};
+
+export function emitWalk(pos, opts = {}) {
+  const pin = !!opts.pin;
   const src = pos.walk.toString();
   const ast = parse(src);
   const P = ast.pName, S = ast.sName;
@@ -365,6 +414,15 @@ export function emitWalk(pos) {
             return { type: l.type, code: `(${l.code} ${n.op} ${r.code})` };
           err(`use the vector helpers (add3, mul3, .scale) instead of ${n.op} on mixed vector types`);
         }
+        // THE ONE LINE WHERE A FLOAT DIVISION BECOMES GLSL. Every `/`
+        // in every emitted plate passes through here, which is the
+        // whole reason the plan put the pinning in this repository
+        // rather than in a regex over sixty-eight authors' source.
+        // GLSL gives division 2.5 ULP of latitude; det_div refines a
+        // bit-trick seed with exact arithmetic and has none.
+        if (pin && n.op === "/")
+          return { type: "float",
+                   code: `det_div(${asFloat(l)}, ${asFloat(r)})` };
         return { type: "float", code: `(${asFloat(l)} ${n.op} ${asFloat(r)})` };
       }
       case "array": err("array literal outside pal()");
@@ -468,6 +526,11 @@ export function emitWalk(pos) {
       const want = c.n === "len2" ? 2 : 3;
       if (n.args.length !== want) err(`${c.n} wants ${want} arguments`);
       const xs = n.args.map(a => asFloat(emit(a)));
+      // length() is sqrt(dot(v,v)), and dot chooses its own order
+      // and contraction. det_len2/3 name every square and the sum.
+      if (pin)
+        return { type: "float",
+                 code: `det_len${want}(${xs.join(", ")})` };
       return { type: "float", code: `length(vec${want}(${xs.join(", ")}))` };
     }
     // grid2(b)
@@ -501,6 +564,15 @@ export function emitWalk(pos) {
     // GLSL-parity scalar builtins
     if (c.t === "id" && ["fract", "mod", "mix", "clamp", "step", "smoothstep"].includes(c.n)) {
       const args = n.args.map(a => asFloat(emit(a)));
+      // fract, clamp and step are exact - a subtraction against an
+      // exact floor, and two selections - so they are emitted as they
+      // stand under pinning too. mod, mix and smoothstep are not, and
+      // each has a pinned form.
+      const PINNED_VOCAB = { mod: "det_mod", mix: "det_mix",
+                             smoothstep: "det_smoothstep" };
+      if (pin && c.n in PINNED_VOCAB)
+        return { type: "float",
+                 code: `${PINNED_VOCAB[c.n]}(${args.join(", ")})` };
       return { type: "float", code: `${c.n}(${args.join(", ")})` };
     }
     // complex arithmetic rides the shared header's own functions
@@ -532,11 +604,19 @@ export function emitWalk(pos) {
       const v3s = vs.filter(v => v.type === "vec3").map(v => v.code);
       if (c.n === "add3") return { type: "vec3", code: `(${v3s[0]} + ${v3s[1]})` };
       if (c.n === "mul3") return { type: "vec3", code: `(${v3s[0]} * ${asFloat(vs[1])})` };
-      if (c.n === "mix3") return { type: "vec3", code: `mix(${v3s[0]}, ${v3s[1]}, ${asFloat(vs[2])})` };
-      if (c.n === "dot3") return { type: "float", code: `dot(${v3s[0]}, ${v3s[1]})` };
+      if (c.n === "mix3")
+        return { type: "vec3", code: pin
+          ? `det_mix3(${v3s[0]}, ${v3s[1]}, ${asFloat(vs[2])})`
+          : `mix(${v3s[0]}, ${v3s[1]}, ${asFloat(vs[2])})` };
+      if (c.n === "dot3")
+        return { type: "float", code: pin
+          ? `det_dot3(${v3s[0]}, ${v3s[1]})`
+          : `dot(${v3s[0]}, ${v3s[1]})` };
       if (c.n === "cross3") return { type: "vec3", code: `cross(${v3s[0]}, ${v3s[1]})` };
       if (c.n === "normalize3") return { type: "vec3", code: `normalize(${v3s[0]})` };
-      if (c.n === "length3") return { type: "float", code: `length(${v3s[0]})` };
+      if (c.n === "length3")
+        return { type: "float",
+                 code: pin ? `det_len3v(${v3s[0]})` : `length(${v3s[0]})` };
     }
     // sum(n, k => term): the reduction loop, usable inside expressions
     if (c.t === "id" && c.n === "sum") {
@@ -585,6 +665,30 @@ export function emitWalk(pos) {
                     exp: "exp", log: "log", sign: "sign", round: "round" };
       if (!(target.name in MAP)) err(`Math.${target.name} is not in the subset`);
       const args = n.args.map(a => asFloat(emit(a)));
+
+      // Math.round IS NOT GLSL round(), and this was wrong before any
+      // determinism question arose. JS rounds a half toward +Infinity;
+      // GLSL says a fraction of 0.5 "will round in a direction chosen
+      // by the implementation", so `round` is both a JS/GLSL mismatch
+      // and a parity hazard. floor(x + 0.5) is exactly what JS does -
+      // including Math.round(-1.5) === -1 - and floor is exact
+      // everywhere. Emitted unconditionally: a correctness fix does not
+      // wait for a flag.
+      if (target.name === "round")
+        return { type: "float", code: `floor((${args[0]}) + 0.5)` };
+
+      if (pin) {
+        if (target.name in NO_DET_FORM)
+          err(`Math.${target.name} has no deterministic form: ` +
+              `${NO_DET_FORM[target.name]}. Emitting it would put an ` +
+              `operation with spec-permitted ULP latitude in a plate ` +
+              `that claims bit-identity`, n.line);
+        if (target.name in DET)
+          return { type: "float", code: DET[target.name](args) };
+        if (!EXACT_BUILTINS.has(target.name))
+          err(`Math.${target.name} is neither pinned nor known-exact; ` +
+              `the pinned set has to state which it is`, n.line);
+      }
       return { type: "float", code: `${MAP[target.name]}(${args.join(", ")})` };
     }
 
@@ -684,7 +788,10 @@ export function emitWalk(pos) {
         }
         draw();
         const dv = fresh("depth");
-        put(`int ${dv} = int(pow(u2f(pt), ${bias}) * float(${maxVar}));`);
+        // THIS pow DECIDES AN INTEGER. A last-place difference in it
+        // flips the depth at a boundary, so the walk does not go a
+        // slightly different way - it goes a different way.
+        put(`int ${dv} = int(${pin ? "det_pow" : "pow"}(u2f(pt), ${bias}) * float(${maxVar}));`);
         return { type: "int", code: dv, staticMax };
       }
       case "descend": err("s.descend must be bound directly: const x = s.descend(...)");
@@ -757,9 +864,20 @@ export function emitWalk(pos) {
     syms.delete(cName);
     put(`if (${keep}) {`);
     indent += "  ";
-    put(`${xy} += vec2(float(${cxV}), float(${cyV})) * ${sc} / float(${bI})`);
-    put(`     - vec2(${sc} * 0.5 * (1.0 - 1.0 / float(${bI})));`);
-    put(`${sc} /= float(${bI});`);
+    // The cell step addresses a LATTICE: a last-place difference here
+    // does not move a sample slightly, it moves it into a different
+    // cell. Both divisions go through the exact form under pinning.
+    if (pin) {
+      put(`${xy} += det_div2(vec2(float(${cxV}), float(${cyV})) * ${sc}, float(${bI}))`);
+      put(`     - vec2(${sc} * 0.5 * (1.0 - det_recip(float(${bI}))));`);
+    } else {
+      put(`${xy} += vec2(float(${cxV}), float(${cyV})) * ${sc} / float(${bI})`);
+      put(`     - vec2(${sc} * 0.5 * (1.0 - 1.0 / float(${bI})));`);
+    }
+    // the last float division the emitter writes by hand. `int`
+    // divisions elsewhere are exact and stay as they are.
+    put(pin ? `${sc} = det_div(${sc}, float(${bI}));`
+            : `${sc} /= float(${bI});`);
     put(`${adr} = ${cand};`);
     if (tr) put(`${tr} = hashu(${tr} ^ ${cand});`);
     put(`${rc} += 1;`);
@@ -843,16 +961,16 @@ export function emitWalk(pos) {
     if (!cfg.unit) err("window wants unit: <world per lattice unit>");
     const sp = cfg.span.items.map(e => asInt(emit(e)));
     const mg = fresh("mg");
-    put(`float ${mg} = exp2(P[${leverIx[cfg.magnify.name]}]);`);
+    put(`float ${mg} = ${pin ? "det_exp2" : "exp2"}(P[${leverIx[cfg.magnify.name]}]);`);
     const ctr = fresh("ctr");
     put(`ivec2 ${ctr} = ivec2((${sp[0]}) / 2, (${sp[1]}) / 2);`);
     const hx = asInt(emit(cfg.heart.items[0])), hy = asInt(emit(cfg.heart.items[1]));
     const hrt = fresh("hrt");
     put(`ivec2 ${hrt} = ivec2(${hx}, ${hy});`);
     const wc = fresh("wc");
-    put(`ivec2 ${wc} = ${ctr} + ivec2(vec2(${hrt} - ${ctr}) * (1.0 - 1.0 / ${mg}));`);
+    put(`ivec2 ${wc} = ${ctr} + ivec2(vec2(${hrt} - ${ctr}) * (1.0 - ${pin ? `det_recip(${mg})` : `1.0 / ${mg}`}));`);
     const hw = fresh("hw");
-    put(`ivec2 ${hw} = ivec2(vec2(${ctr}) / ${mg});`);
+    put(`ivec2 ${hw} = ivec2(${pin ? `det_div2(vec2(${ctr}), ${mg})` : `vec2(${ctr}) / ${mg}`});`);
     const win = fresh("win");
     put(`ivec4 ${win} = ivec4(${wc} - ${hw}, ${wc} + ${hw});`);
     const km = fresh("km");
@@ -1144,9 +1262,12 @@ export function emitWalk(pos) {
   const head = [];
   if (helpers.has("stain")) {
     head.push(`vec3 stain_${pos.id}(vec3 c, float a){`);
-    head.push(`  float cs = cos(a), sn = sin(a);`);
+    head.push(pin ? `  float cs = det_cos(a), sn = det_sin(a);`
+                  : `  float cs = cos(a), sn = sin(a);`);
     head.push(`  vec3 k = vec3(0.57735027);`);
-    head.push(`  return c * cs + cross(k, c) * sn + k * dot(k, c) * (1.0 - cs);`);
+    head.push(pin
+      ? `  return det_rodrigues(c, k, cs, sn);`
+      : `  return c * cs + cross(k, c) * sn + k * dot(k, c) * (1.0 - cs);`);
     head.push(`}`);
   }
   head.push(`vec3 shape_${pos.id}(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){`);
@@ -1160,8 +1281,8 @@ export function emitWalk(pos) {
 }
 
 // a registry-contract plate file wrapping the emitted GLSL
-export function emitPlate(pos) {
-  const glsl = emitWalk(pos);
+export function emitPlate(pos, opts = {}) {
+  const glsl = emitWalk(pos, opts);
   const meta = pos.meta;
   const plate = `"use strict";
 /* GENERATED by atlas-engine from positives/${pos.id.replace(/_pos$/, "")}.pos.mjs - do not edit */

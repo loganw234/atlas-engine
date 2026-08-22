@@ -13,7 +13,7 @@
     "2": "transcription: the value equals what that source says, re-derived by an independent implementation",
     "3": "behaviour: the approximation built from those constants is measured over its whole admitted domain and its worst error asserted"
   },
-  "digest": "sha256:9869d7370282d422f5078363ea9e3d59999de417871261b4f35175d36ab172db",
+  "digest": "sha256:9c9d3f12173c1af4c96c9e3b3bc501c9c1cf55246a8ec1d8fc91eb9c7e361341",
   "constants": {
     "TWO_OVER_PI": {
       "bits": "0x3F22F983",
@@ -105,6 +105,18 @@
         "verified_against_source": true
       },
       "expr": "1/log(2)"
+    },
+    "LN2": {
+      "bits": "0x3F317218",
+      "decimal": "0.693147182464599609375",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "log(2)",
+      "note": "engine-only; no upstream counterpart, and none needed - mpmath re-derives it"
     },
     "SQRT2": {
       "bits": "0x3FB504F3",

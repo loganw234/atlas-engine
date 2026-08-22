@@ -241,6 +241,66 @@ constants of Phase 0, not copied.
 **Done when:** an emitted plate contains no unpinned float operation,
 and the emitter refuses a positive that would require one.
 
+#### Met for the emitted text, 2026-08-22 — and not yet for the header
+
+`emitWalk(pos, { pin: true })`. Without the flag the emitter behaves
+exactly as before, so nothing already built moves until asked.
+
+| | |
+|---|---|
+| fully pinned | **50 of 54** |
+| refused | **4** — `asin` ×3, `cosh` ×1 |
+| emitted text still carrying an unpinned op | **0** |
+| compile on NVIDIA, radeonsi, iris, llvmpipe | **50/50 each** |
+
+The det library moved in as the plan said, and the check that makes it
+worth anything is byte-identity: `tools/gen-detlib.mjs` fills the
+extracted template from the verified record and the result is
+**identical to the darkroom's proven `detlib.glsl`**, all 16,138
+characters. Every guarantee that file has earned transfers.
+
+New pinned forms live in `core/detpre.glsl.template`, separate so
+`detlib.glsl` is never added to: `det_len2/3`, `det_dot3`, `det_cross`,
+`det_mix/mix3`, `det_smoothstep`, `det_div2`, `det_rodrigues`.
+
+**THE GAP, stated because it would otherwise be invisible.** Emitted
+text *calls* functions whose bodies live in the registry's shared
+header, and a text scan cannot see into them. Measured: **38 of 54
+positives** reach unpinned arithmetic that way —
+
+| | calls | what is unpinned in it |
+|---|---|---|
+| `cmul` | 113 | products and a difference, contraction free |
+| `pal` | 44 | `cos()` |
+| `cdiv` | 7 | `dot()` and a raw division |
+| `csqrt` | 2 | `sqrt()`, twice |
+
+So "fully pinned" above means *the text the engine writes*, not the
+whole program. Closing it needs det_ versions emitted alongside the
+plate, or a change to the registry contract — a Phase 5 question.
+
+Three things the work turned up:
+
+**`Math.round` was already wrong, before any determinism question.**
+JS rounds a half toward +∞; GLSL says a 0.5 fraction "will round in a
+direction chosen by the implementation". It is both a JS/GLSL mismatch
+and a parity hazard, and it now emits `floor(x + 0.5)` — exactly what
+JS does — unconditionally, because a correctness fix does not wait for
+a flag.
+
+**A claim in the checker was false and checking it caught that.**
+`verify-pinned.mjs` admitted `dot` and `mix` "because nothing emitted
+uses them". Putting them in the scan dropped the pinned count from 50
+to 35: fifteen positives used one or the other. The claim had never
+been measured.
+
+**Most of the unpinned operations were the emitter's own, not the
+author's.** Swapping the `Math.*` map covered 19 of 54. The remaining
+31 came from generated code — `length()` from `len2`/`len3`, the `pow`
+deciding a descend depth, the divisions in cell and magnify
+arithmetic, `cos`/`sin` in the rotation helper. The one choke point
+the plan counted on turned out to be several.
+
 ### Phase 3 — bit-identity as the bar
 
 The conformance harness currently reports cell correlation `r =

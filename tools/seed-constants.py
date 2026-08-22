@@ -128,6 +128,11 @@ CONSTANTS = {
     "SEVENTH": scalar(1 / 7, "closed", MATH, expr="1/7"),
     "NINTH": scalar(1 / 9, "closed", MATH, expr="1/9"),
     "LOG2E": scalar(1.4426950408889634, "closed", MATH, expr="1/log(2)"),
+    # ENGINE-ONLY, added for Phase 2. The darkroom has no det_log,
+    # only det_log2, so nothing upstream ever needed ln(2). The
+    # emitter does: Math.log(x) becomes det_log2(x) * LN2.
+    "LN2": scalar(np.log(2.0), "closed", MATH, expr="log(2)",
+                  note="engine-only; no upstream counterpart, and none needed - mpmath re-derives it"),
     "SQRT2": scalar(np.sqrt(2.0), "closed", MATH, expr="sqrt(2)"),
     "PI_F": scalar(np.pi, "closed", MATH, expr="pi"),
     "PIO2_F": scalar(np.pi / 2, "closed", MATH, expr="pi/2"),

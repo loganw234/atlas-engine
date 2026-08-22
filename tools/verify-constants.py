@@ -360,6 +360,7 @@ def closed_value(expr):
         "1/7": lambda: mpf(1) / 7,
         "1/9": lambda: mpf(1) / 9,
         "1/log(2)": lambda: 1 / m_log(2),
+        "log(2)": lambda: m_log(2),
         "sqrt(2)": lambda: m_sqrt(2),
         "pi": lambda: m_pi,
         "pi/2": lambda: m_pi / 2,
@@ -888,10 +889,23 @@ def cross_check_upstream(rec, allow_missing):
     up = json.loads(r.stdout)
     out, notes = [], []
     C = rec["constants"]
+    engine_only = []
     for name, c in C.items():
         if name not in up:
-            out.append(f"{name}: not in the upstream generator - the "
-                       f"record has a constant its stated source does not")
+            # A CONSTANT THE UPSTREAM DOES NOT HAVE IS NOT AUTOMATICALLY
+            # WRONG - the engine will legitimately grow past the darkroom,
+            # and LN2 was the first. But the two kinds are not alike. A
+            # closed form is re-derived from mathematics at level 2, so
+            # it needs no upstream to vouch for it. A FITTED coefficient
+            # cannot be re-derived - that is what fitted means - so
+            # upstream is the only thing checking it, and one that
+            # appears from nowhere has nothing behind it at all.
+            if c["kind"] == "fitted":
+                out.append(f"{name}: a fitted coefficient with no upstream "
+                           f"and no way to re-derive it - nothing in this "
+                           f"checker vouches for its value")
+            else:
+                engine_only.append(name)
         elif up[name].upper() != c["bits"].upper():
             out.append(f"{name}: upstream {up[name]}, record {c['bits']}")
     for name in up:
@@ -899,6 +913,9 @@ def cross_check_upstream(rec, allow_missing):
             out.append(f"{name}: upstream has it, the record does not - "
                        f"the emitter would have nothing to substitute")
     notes.append(f"    {len(up)} constants matched against {gen.name}")
+    if engine_only:
+        notes.append(f"    engine-only, re-derived rather than matched: "
+                     f"{', '.join(sorted(engine_only))}")
     return out, notes
 
 
