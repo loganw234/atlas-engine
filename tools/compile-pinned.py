@@ -215,9 +215,30 @@ def run_variant(ctx, base, root):
         a = np.frombuffer(bo.read(), np.float32).reshape(NRUN, 6)
         pos = np.ascontiguousarray(a[:, :3])
         col = np.ascontiguousarray(a[:, 3:])
+        # SIGNED ZERO IS A HASH DIFFERENCE AND NOT A NUMERICAL ONE.
+        # Measured on lyap: every one of 16,384 samples had y = -0.0 on
+        # NVIDIA and +0.0 on radeonsi, and NOT ONE value differed
+        # otherwise. The two deposit into the same pixel, so the census
+        # - which hashes accumulated counts - cannot see it, while this
+        # harness - which hashes returned floats - fails on it.
+        #
+        # So both are recorded. `pos` is the strict hash; `pos_canon`
+        # canonicalises -0.0 to +0.0 first and is the one that
+        # corresponds to what an image would show. Reporting only the
+        # strict number would call a plate divergent over a sign bit
+        # nothing downstream reads; reporting only the canonical one
+        # would hide a real distinction in the returned value.
+        def canon(v):
+            u = np.ascontiguousarray(v).view(np.uint32).copy()
+            u[u == 0x80000000] = 0
+            return u
         out[p.stem] = {
             "pos": hashlib.sha256(pos.tobytes()).hexdigest()[:16],
+            "pos_canon": hashlib.sha256(canon(pos).tobytes()).hexdigest()[:16],
             "col": hashlib.sha256(col.tobytes()).hexdigest()[:16],
+            "col_canon": hashlib.sha256(canon(col).tobytes()).hexdigest()[:16],
+            "negzero": int((np.ascontiguousarray(a).view(np.uint32)
+                            == 0x80000000).sum()),
             "finite": bool(np.isfinite(a).all()),
         }
     return out
@@ -250,12 +271,19 @@ def compare():
             both = [p for p in sorted(set(ra) & set(rb))
                     if "error" not in ra[p] and "error" not in rb[p]]
             same_pos = [p for p in both if ra[p]["pos"] == rb[p]["pos"]]
+            canon = [p for p in both
+                     if ra[p].get("pos_canon") == rb[p].get("pos_canon")]
             same_all = [p for p in same_pos if ra[p]["col"] == rb[p]["col"]]
             pairs.append((len(same_pos), len(same_all), len(both)))
             print(f"  {a[:18]:18} vs {b[:18]:18} "
                   f"position {len(same_pos):3d}/{len(both):3d}   "
+                  f"ignoring -0 {len(canon):3d}/{len(both):3d}   "
                   f"+colour {len(same_all):3d}/{len(both):3d}")
-            diff = sorted(p for p in both if p not in same_pos)
+            zonly = sorted(set(canon) - set(same_pos))
+            if zonly:
+                print(f"      differ ONLY in the sign of a zero: "
+                      f"{' '.join(zonly)}")
+            diff = sorted(p for p in both if p not in canon)
             if diff:
                 shown = " ".join(diff[:10])
                 more = f" ... (+{len(diff) - 10})" if len(diff) > 10 else ""

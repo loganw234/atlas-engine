@@ -289,6 +289,30 @@ export function emitWalk(pos, opts = {}) {
   const err = (m, line) => { throw new Error(`emit: ${m}${line ? ` (line ${line})` : ""}`); };
 
   let vn = 0;
+
+  // Depth of ternary nesting, so hoisting can stay out of branches it
+  // would make unconditional. See the note in case "cond".
+  let inCond = 0;
+
+  /** Bind a compound float expression to its own `precise` temporary.
+   *
+   *  Only compound ones: a bare name, a literal, a swizzle or a lever
+   *  read is already a single value, and naming it again would double
+   *  the length of every emitted plate to say nothing. The test is
+   *  deliberately syntactic and slightly generous - if it binds
+   *  something that did not need it, the cost is a redundant local the
+   *  compiler removes; if it misses something that did, a plate stops
+   *  agreeing across vendors, which is far more expensive. */
+  function bindPrecise(code) {
+    if (inCond) return code;
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(code)) return code;        // name
+    if (/^[A-Za-z_][A-Za-z0-9_]*\.[xyzw]$/.test(code)) return code; // swizzle
+    if (/^-?[0-9.]+(e-?[0-9]+)?$/.test(code)) return code;          // literal
+    if (/^P\[[0-9]+\]$/.test(code)) return code;                    // lever
+    const t = `pb_${vn++}`;
+    put(`precise float ${t} = ${code};`);
+    return t;
+  }
   // GLSL reserves the gl_ prefix, so a walk variable named "gl" would
   // emit gl_5 and fail at GPU link time only - emit and smoke are both
   // CPU-side and would pass it through. Rename at the source.
@@ -384,7 +408,14 @@ export function emitWalk(pos, opts = {}) {
       case "cond": {
         if (effectful(n.a) || effectful(n.b))
           err("a stream draw inside a ternary branch would diverge across backends; hoist the draw", n.line);
+        // NO HOISTING INSIDE A TERNARY. Binding a branch to a named
+        // temporary would compute it whether or not it is selected -
+        // harmless numerically, since the emitter already refuses side
+        // effects here, but tpms has four branches of six det_ calls
+        // each and it would pay for all of them every sample.
+        inCond++;
         const c = emit(n.c), a = emit(n.a), b = emit(n.b);
+        inCond--;
         const ty = a.type === "int" && b.type === "int" ? "int" : "float";
         const ca = ty === "float" ? asFloat(a) : a.code;
         const cb = ty === "float" ? asFloat(b) : b.code;
@@ -420,10 +451,21 @@ export function emitWalk(pos, opts = {}) {
         // rather than in a regex over sixty-eight authors' source.
         // GLSL gives division 2.5 ULP of latitude; det_div refines a
         // bit-trick seed with exact arithmetic and has none.
+        //
+        // AND THE OPERANDS ARE BOUND FIRST, which `precise` on the
+        // destination does not do for you. Measured on radeonsi with
+        // tpms: `(A - level) - (B - level)` written inline is cancelled
+        // to `A - B` and the rounding changes, even though the result
+        // is assigned to a `precise` local. Binding each side to its
+        // own `precise` temporary stops it, and is the difference
+        // between that plate agreeing across vendors and not. Same
+        // rule the darkroom states above pal(): never hand a compound
+        // expression onward - bind it to a local first.
+        const lf = pin ? bindPrecise(asFloat(l)) : asFloat(l);
+        const rf = pin ? bindPrecise(asFloat(r)) : asFloat(r);
         if (pin && n.op === "/")
-          return { type: "float",
-                   code: `det_div(${asFloat(l)}, ${asFloat(r)})` };
-        return { type: "float", code: `(${asFloat(l)} ${n.op} ${asFloat(r)})` };
+          return { type: "float", code: `det_div(${lf}, ${rf})` };
+        return { type: "float", code: `(${lf} ${n.op} ${rf})` };
       }
       case "array": err("array literal outside pal()");
       case "object": err("object literal outside a known call");
@@ -519,7 +561,7 @@ export function emitWalk(pos, opts = {}) {
         return `vec3(${xs.join(", ")})`;
       });
       if (vecs.length !== 4) err("pal wants t plus four arrays");
-      return { type: "vec3", code: `pal(${asFloat(t)}, ${vecs.join(", ")})` };
+      return { type: "vec3", code: `${pin ? "det_pal" : "pal"}(${asFloat(t)}, ${vecs.join(", ")})` };
     }
     // len2/len3: GLSL length(), which is what these spell on the CPU
     if (c.t === "id" && (c.n === "len2" || c.n === "len3")) {
@@ -576,13 +618,15 @@ export function emitWalk(pos, opts = {}) {
       return { type: "float", code: `${c.n}(${args.join(", ")})` };
     }
     // complex arithmetic rides the shared header's own functions
+    // pinned twins live in detpre; the registry header keeps its own
     if (c.t === "id" && ["cmul", "cdiv", "cinv", "csqrt"].includes(c.n)) {
       const args = n.args.map(a => {
         const v = emit(a);
         if (v.type !== "vec2") err(`${c.n} wants vec2 arguments`);
         return v.code;
       });
-      return { type: "vec2", code: `${c.n}(${args.join(", ")})` };
+      return { type: "vec2",
+               code: `${pin ? "det_" : ""}${c.n}(${args.join(", ")})` };
     }
     if (c.t === "id" && c.n === "v2") {
       const args = n.args.map(a => asFloat(emit(a)));
