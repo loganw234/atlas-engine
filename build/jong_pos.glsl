@@ -1,0 +1,39 @@
+vec3 shape_jong_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
+  uint pt = hashu(seed ^ hashu(floatBitsToUint(q.x))
+                       ^ hashu(floatBitsToUint(q.y) * 552738893u));
+  pt = hashu(pt ^ floatBitsToUint(rnd.x));
+  int li_iters = int(P[5] + 0.5);
+  float a_1 = (P[0] + ((0.52 * P[4]) * sin((0.041 * uT))));
+  float b_2 = (P[1] + ((0.37 * P[4]) * sin(((0.033 * uT) + 1.4))));
+  float c_3 = (P[2] + ((0.36 * P[4]) * sin(((0.037 * uT) + 2.9))));
+  float d_4 = (P[3] + ((0.41 * P[4]) * sin(((0.029 * uT) + 4.2))));
+  pt = hashu(pt);
+  float x0_5 = ((u2f(pt) * 4.0) - 2.0);
+  pt = hashu(pt);
+  float y0_6 = ((u2f(pt) * 4.0) - 2.0);
+  float ob_7_x = x0_5;
+  float ob_7_y = y0_6;
+  float ob_7_px = x0_5;
+  float ob_7_py = y0_6;
+  int ob_7_count = 0;
+  bool ob_7_esc = false;
+  for (int ok_8 = 0; ok_8 < 24; ok_8++) {
+    if (ok_8 >= li_iters) break;
+    float ob_7_t_9 = (sin((a_1 * ob_7_y)) - cos((b_2 * ob_7_x)));
+    float ob_7_t_10 = (sin((c_3 * ob_7_x)) - cos((d_4 * ob_7_y)));
+    float ob_7_t_11 = ob_7_x;
+    float ob_7_t_12 = ob_7_y;
+    ob_7_x = ob_7_t_9;
+    ob_7_y = ob_7_t_10;
+    ob_7_px = ob_7_t_11;
+    ob_7_py = ob_7_t_12;
+    ob_7_count += 1;
+  }
+  float sp_13 = length(vec2((ob_7_x - ob_7_px), (ob_7_y - ob_7_py)));
+  float dep_c_14 = (ob_7_x * 0.62);
+  float dep_c_15 = (ob_7_y * 0.62);
+  float dep_c_16 = (ob_7_px * P[6]);
+  vec3 dep_col_17 = pal(clamp((sp_13 * 0.30), 0.0, 1.0), vec3(0.46, 0.34, 0.55), vec3(0.44, 0.33, 0.40), vec3(1.0, 0.95, 0.80), vec3(0.65, 0.40, 0.10));
+  col = dep_col_17;
+  return vec3(dep_c_14, dep_c_15, dep_c_16);
+}

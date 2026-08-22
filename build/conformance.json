@@ -1,0 +1,14 @@
+{
+  "t": 1.3,
+  "results": [
+    {
+      "id": "harm",
+      "status": "PASS",
+      "r": 0.9953,
+      "ratio": 1.003,
+      "cells": 9196,
+      "clipped": 20,
+      "contract": "ok"
+    }
+  ]
+}

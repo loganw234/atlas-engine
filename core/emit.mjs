@@ -12,8 +12,9 @@ import { fnv1a } from "./measure.mjs";
 
 // ---------------------------------------------------------------- lex
 const PUNCT = ["=>", "<=", ">=", "==", "!=", "&&", "||",
+  "+=", "-=", "*=", "/=",
   "(", ")", "{", "}", "[", "]", ",", ";", ":", ".", "?",
-  "+", "-", "*", "/", "<", ">", "=", "!"];
+  "+", "-", "*", "/", "%", "<", ">", "=", "!"];
 
 function lex(src) {
   const toks = [];
@@ -86,11 +87,16 @@ function parse(src) {
     const t = peek();
     if (t.t === "id" && (t.v === "const" || t.v === "let")) {
       next();
-      const name = eat("id").v;
-      eat("=");
-      const e = expr();
+      const decls = [];
+      for (;;) {
+        const name = eat("id").v;
+        eat("=");
+        decls.push({ name, e: expr() });
+        if (peek().t === ",") { next(); continue; }
+        break;
+      }
       eat(";");
-      return { t: "decl", mut: t.v === "let", name, e, line: t.line };
+      return { t: "decl", mut: t.v === "let", decls, line: t.line };
     }
     if (t.t === "id" && t.v === "if") {
       next(); eat("(");
@@ -109,10 +115,12 @@ function parse(src) {
     }
     if (t.t === "id") {
       const name = next().v;
-      eat("=");
+      const op = peek().t;
+      if (op === "=" || op === "+=" || op === "-=" || op === "*=" || op === "/=") next();
+      else err("assignment expected");
       const e = expr();
       eat(";");
-      return { t: "assign", name, e, line: t.line };
+      return { t: "assign", name, op, e, line: t.line };
     }
     err("statement expected");
   }
@@ -150,7 +158,7 @@ function parse(src) {
     return l;
   }
   function addE() { let l = mulE(); while (peek().t === "+" || peek().t === "-") { const op = next().t; l = { t: "bin", op, l, r: mulE() }; } return l; }
-  function mulE() { let l = unE(); while (peek().t === "*" || peek().t === "/") { const op = next().t; l = { t: "bin", op, l, r: unE() }; } return l; }
+  function mulE() { let l = unE(); while (peek().t === "*" || peek().t === "/" || peek().t === "%") { const op = next().t; l = { t: "bin", op, l, r: unE() }; } return l; }
   function unE() {
     if (peek().t === "-") { next(); return { t: "un", op: "-", e: unE() }; }
     if (peek().t === "!") { next(); return { t: "un", op: "!", e: unE() }; }
@@ -253,6 +261,23 @@ export function emitWalk(pos) {
   syms.set("TAU", { kind: "scalar", type: "float", v: "TAU" });
   syms.set("PI", { kind: "scalar", type: "float", v: "PI" });
 
+  // resolve a loop bound: a lever gives its max as the static bound
+  // and its runtime int as the break; a literal is both
+  function staticBoundOf(a) {
+    if (a.t === "num") return { staticN: Math.round(+a.v), runtime: null };
+    if (a.t === "member" && a.o.t === "id" && a.o.n === P) {
+      const lv = pos.levers[leverIx[a.name]];
+      if (!lv) err(`unknown lever ${a.name}`);
+      return { staticN: Math.ceil(lv.max), runtime: intLeverVar(a.name) };
+    }
+    if (a.t === "id") {
+      const sym = syms.get(a.n);
+      if (sym && sym.staticMax !== undefined)
+        return { staticN: sym.staticMax, runtime: sym.v };
+    }
+    err("a loop bound must be a lever, a literal, or carry a known maximum");
+  }
+
   // ---- effect analysis: does this subtree draw from the stream ----
   function effectful(n) {
     if (!n || typeof n !== "object") return false;
@@ -325,8 +350,18 @@ export function emitWalk(pos) {
           return { type: "bool", code: `(${asFloat(l)} ${n.op} ${asFloat(r)})` };
         }
         // arithmetic
+        if (n.op === "%") {
+          if (l.type === "int" && r.type === "int")
+            return { type: "int", code: `(${l.code} % ${r.code})` };
+          err("float modulus diverges between JS and GLSL; use mod(a, b)");
+        }
         if (l.type === "int" && r.type === "int" && (n.op === "+" || n.op === "-" || n.op === "*"))
           return { type: "int", code: `(${l.code} ${n.op} ${r.code})` };
+        if (l.type === "vec2" || r.type === "vec2" || l.type === "vec3" || r.type === "vec3") {
+          if (l.type === r.type && (n.op === "+" || n.op === "-"))
+            return { type: l.type, code: `(${l.code} ${n.op} ${r.code})` };
+          err(`use the vector helpers (add3, mul3, .scale) instead of ${n.op} on mixed vector types`);
+        }
         return { type: "float", code: `(${asFloat(l)} ${n.op} ${asFloat(r)})` };
       }
       case "array": err("array literal outside pal()");
@@ -364,6 +399,16 @@ export function emitWalk(pos) {
     }
     if (o.kind === "window") {
       return { kind: "windowmethod", base: o.sym, name: n.name };
+    }
+    if (o.kind === "orbitstate") {
+      if (!(n.name in o.sym.fields)) err(`orbit state has no ${n.name}`);
+      return { type: "float", code: o.sym.fields[n.name] };
+    }
+    if (o.kind === "orbit") {
+      if (n.name === "count") return { type: "int", code: o.sym.count };
+      if (n.name === "escaped") return { type: "bool", code: o.sym.escaped };
+      if (n.name in o.sym.fields) return { type: "float", code: o.sym.fields[n.name] };
+      err(`orbit result has no ${n.name}`);
     }
     if (o.kind === "wdescend") {
       if (n.name === "n") return { type: "int", code: o.sym.n };
@@ -443,6 +488,64 @@ export function emitWalk(pos) {
       err("digitTriangle only lives inside s.descend(...)");
     if (c.t === "id" && c.n === "levels")
       err("levels must be bound directly: const g = levels(p, P.depth)");
+    // GLSL-parity scalar builtins
+    if (c.t === "id" && ["fract", "mod", "mix", "clamp", "step", "smoothstep"].includes(c.n)) {
+      const args = n.args.map(a => asFloat(emit(a)));
+      return { type: "float", code: `${c.n}(${args.join(", ")})` };
+    }
+    // complex arithmetic rides the shared header's own functions
+    if (c.t === "id" && ["cmul", "cdiv", "cinv", "csqrt"].includes(c.n)) {
+      const args = n.args.map(a => {
+        const v = emit(a);
+        if (v.type !== "vec2") err(`${c.n} wants vec2 arguments`);
+        return v.code;
+      });
+      return { type: "vec2", code: `${c.n}(${args.join(", ")})` };
+    }
+    if (c.t === "id" && c.n === "v2") {
+      const args = n.args.map(a => asFloat(emit(a)));
+      return { type: "vec2", code: `vec2(${args.join(", ")})` };
+    }
+    if (c.t === "id" && c.n === "v3") {
+      const args = n.args.map(a => asFloat(emit(a)));
+      return { type: "vec3", code: `vec3(${args.join(", ")})` };
+    }
+    if (c.t === "id" && ["add3", "mul3", "mix3", "dot3", "cross3", "normalize3", "length3"].includes(c.n)) {
+      // an [r, g, b] literal is a vec3 wherever a vec3 helper wants one
+      const vs = n.args.map(a => {
+        if (a.t === "array" && a.items.length === 3) {
+          const xs = a.items.map(e2 => asFloat(emit(e2)));
+          return { type: "vec3", code: `vec3(${xs.join(", ")})` };
+        }
+        return emit(a);
+      });
+      const v3s = vs.filter(v => v.type === "vec3").map(v => v.code);
+      if (c.n === "add3") return { type: "vec3", code: `(${v3s[0]} + ${v3s[1]})` };
+      if (c.n === "mul3") return { type: "vec3", code: `(${v3s[0]} * ${asFloat(vs[1])})` };
+      if (c.n === "mix3") return { type: "vec3", code: `mix(${v3s[0]}, ${v3s[1]}, ${asFloat(vs[2])})` };
+      if (c.n === "dot3") return { type: "float", code: `dot(${v3s[0]}, ${v3s[1]})` };
+      if (c.n === "cross3") return { type: "vec3", code: `cross(${v3s[0]}, ${v3s[1]})` };
+      if (c.n === "normalize3") return { type: "vec3", code: `normalize(${v3s[0]})` };
+      if (c.n === "length3") return { type: "float", code: `length(${v3s[0]})` };
+    }
+    // sum(n, k => term): the reduction loop, usable inside expressions
+    if (c.t === "id" && c.n === "sum") {
+      const bound = staticBoundOf(n.args[0]);
+      const arrow = n.args[1];
+      if (!arrow || arrow.t !== "arrow") err("sum wants (k) => term");
+      const acc = fresh("acc"), kv = fresh("sk");
+      put(`float ${acc} = 0.0;`);
+      put(`for (int ${kv} = 0; ${kv} < ${bound.staticN}; ${kv}++) {`);
+      indent += "  ";
+      if (bound.runtime) put(`if (${kv} >= ${bound.runtime}) break;`);
+      syms.set(arrow.params[0], { kind: "scalar", type: "int", v: kv });
+      const term = emit(arrow.body);
+      syms.delete(arrow.params[0]);
+      put(`${acc} += ${asFloat(term)};`);
+      indent = indent.slice(2);
+      put(`}`);
+      return { type: "float", code: acc };
+    }
     const target = c.t === "member" ? emitMember(c) : null;
     if (!target) err("unsupported call");
 
@@ -457,8 +560,17 @@ export function emitWalk(pos) {
         }
         err("Math.trunc is only in the subset as trunc(int / int)");
       }
+      if (target.name === "hypot") {
+        const args = n.args.map(a => asFloat(emit(a)));
+        if (args.length === 2) return { type: "float", code: `length(vec2(${args.join(", ")}))` };
+        if (args.length === 3) return { type: "float", code: `length(vec3(${args.join(", ")}))` };
+        err("Math.hypot wants 2 or 3 arguments");
+      }
       const MAP = { max: "max", min: "min", abs: "abs", pow: "pow", sqrt: "sqrt",
-                    floor: "floor", sin: "sin", cos: "cos", atan2: "atan", exp: "exp", log: "log" };
+                    floor: "floor", sin: "sin", cos: "cos", tan: "tan",
+                    asin: "asin", acos: "acos", atan2: "atan",
+                    sinh: "sinh", cosh: "cosh", tanh: "tanh",
+                    exp: "exp", log: "log", sign: "sign", round: "round" };
       if (!(target.name in MAP)) err(`Math.${target.name} is not in the subset`);
       const args = n.args.map(a => asFloat(emit(a)));
       return { type: "float", code: `${MAP[target.name]}(${args.join(", ")})` };
@@ -814,49 +926,119 @@ export function emitWalk(pos) {
     syms.set(name, { kind: "wdescend", n: nV, k: kV, v: vV, lin: linV, dead: deadV });
   }
 
+  // s.orbit(n, {a: init...}, (st, k) => ({a: next...}), {until})
+  // iterate a named-record state; simultaneous update via temps
+  function emitOrbit(name, call) {
+    const bound = staticBoundOf(call.args[0]);
+    const initObj = call.args[1];
+    const stepArrow = call.args[2];
+    const opts = call.args[3];
+    if (!initObj || initObj.t !== "object") err("orbit wants an initial state object");
+    if (!stepArrow || stepArrow.t !== "arrow") err("orbit wants (st, k) => ({...})");
+    let untilArrow = null;
+    if (opts) {
+      if (opts.t !== "object") err("orbit options must be an object literal");
+      for (const pr of opts.props) {
+        if (pr.key === "until") untilArrow = pr.value;
+        else err(`orbit option ${pr.key} is not in the subset`);
+      }
+    }
+    const N = fresh("ob");
+    const fields = {};
+    for (const pr of initObj.props) {
+      const v = emit(pr.value);
+      const fv = `${N}_${pr.key}`;
+      put(`float ${fv} = ${asFloat(v)};`);
+      fields[pr.key] = fv;
+    }
+    const cnt = `${N}_count`, esc = `${N}_esc`;
+    put(`int ${cnt} = 0;`);
+    put(`bool ${esc} = false;`);
+    const kv = fresh("ok");
+    put(`for (int ${kv} = 0; ${kv} < ${bound.staticN}; ${kv}++) {`);
+    indent += "  ";
+    if (bound.runtime) put(`if (${kv} >= ${bound.runtime}) break;`);
+    if (untilArrow) {
+      if (untilArrow.t !== "arrow") err("until wants (st) => condition");
+      syms.set(untilArrow.params[0], { kind: "orbitstate", fields });
+      const cond = emit(untilArrow.body);
+      syms.delete(untilArrow.params[0]);
+      put(`if (${cond.code}) { ${esc} = true; break; }`);
+    }
+    syms.set(stepArrow.params[0], { kind: "orbitstate", fields });
+    if (stepArrow.params[1]) syms.set(stepArrow.params[1], { kind: "scalar", type: "int", v: kv });
+    const body = stepArrow.body;
+    const stepObj = body.t === "object" ? body
+                  : (body.t === "paren" && body.e.t === "object") ? body.e
+                  : err("orbit step must return an object literal: (st, k) => ({ ... })");
+    const temps = [];
+    for (const pr of stepObj.props) {
+      if (!(pr.key in fields)) err(`orbit step writes unknown field ${pr.key}`);
+      const v = emit(pr.value);
+      const tv = fresh(`${N}_t`);
+      put(`float ${tv} = ${asFloat(v)};`);
+      temps.push([fields[pr.key], tv]);
+    }
+    syms.delete(stepArrow.params[0]);
+    if (stepArrow.params[1]) syms.delete(stepArrow.params[1]);
+    for (const [fv, tv] of temps) put(`${fv} = ${tv};`);
+    put(`${cnt} += 1;`);
+    indent = indent.slice(2);
+    put(`}`);
+    syms.set(name, { kind: "orbit", fields, count: cnt, escaped: esc });
+  }
+
   // ---- statements ----
+  function declOne(name, e, line) {
+    if (e.t === "call" && e.callee.t === "id" && e.callee.n === "levels") {
+      emitLevels(name, e);
+      return;
+    }
+    if (e.t === "call" && e.callee.t === "member" &&
+        e.callee.o.t === "id" && e.callee.o.n === S && e.callee.name === "window") {
+      emitWindow(name, e);
+      return;
+    }
+    if (e.t === "call" && e.callee.t === "member" &&
+        e.callee.o.t === "id" && e.callee.o.n === S && e.callee.name === "orbit") {
+      emitOrbit(name, e);
+      return;
+    }
+    // descend is a special form; the domain picks the shape
+    if (e.t === "call" && e.callee.t === "member" &&
+        e.callee.o.t === "id" && e.callee.o.n === S && e.callee.name === "descend") {
+      const dom = e.args[0];
+      if (dom && dom.t === "call" && dom.callee.t === "id" && dom.callee.n === "digitTriangle") {
+        emitWDescend(name, e);
+        return;
+      }
+      emitDescend(name, e);
+      return;
+    }
+    const v = emit(e);
+    if (v.type === "vec2") {
+      const nm = fresh(name);
+      put(`vec2 ${nm} = ${v.code};`);
+      syms.set(name, { kind: "vec2", v: nm });
+    } else if (v.type === "int" || v.type === "float" || v.type === "bool" || v.type === "vec3") {
+      const nm = fresh(name);
+      put(`${v.type} ${nm} = ${v.code};`);
+      const rec = { kind: "scalar", type: v.type, v: nm };
+      if (v.staticMax !== undefined) rec.staticMax = v.staticMax;
+      syms.set(name, rec);
+    } else err(`cannot bind ${name}: unhandled value`, line);
+  }
   function stmt(st) {
     if (st.t === "decl") {
-      if (st.e.t === "call" && st.e.callee.t === "id" && st.e.callee.n === "levels") {
-        emitLevels(st.name, st.e);
-        return;
-      }
-      if (st.e.t === "call" && st.e.callee.t === "member" &&
-          st.e.callee.o.t === "id" && st.e.callee.o.n === S && st.e.callee.name === "window") {
-        emitWindow(st.name, st.e);
-        return;
-      }
-      // descend is a special form; the domain picks the shape
-      if (st.e.t === "call" && st.e.callee.t === "member" &&
-          st.e.callee.o.t === "id" && st.e.callee.o.n === S && st.e.callee.name === "descend") {
-        const dom = st.e.args[0];
-        if (dom && dom.t === "call" && dom.callee.t === "id" && dom.callee.n === "digitTriangle") {
-          emitWDescend(st.name, st.e);
-          return;
-        }
-        emitDescend(st.name, st.e);
-        return;
-      }
-      const v = emit(st.e);
-      if (v.type === "vec2") {
-        const nm = fresh(st.name);
-        put(`vec2 ${nm} = ${v.code};`);
-        syms.set(st.name, { kind: "vec2", v: nm });
-      } else if (v.type === "int" || v.type === "float" || v.type === "bool" || v.type === "vec3") {
-        const nm = fresh(st.name);
-        put(`${v.type} ${nm} = ${v.code};`);
-        const rec = { kind: "scalar", type: v.type, v: nm };
-        if (v.staticMax !== undefined) rec.staticMax = v.staticMax;
-        syms.set(st.name, rec);
-      } else err(`cannot bind ${st.name}: unhandled value`, st.line);
+      for (const d of st.decls) declOne(d.name, d.e, st.line);
       return;
     }
     if (st.t === "assign") {
       const sym = syms.get(st.name);
       if (!sym) err(`assignment to unknown ${st.name}`, st.line);
       const v = emit(st.e);
-      const target = sym.kind === "vec2" ? sym.v : sym.v;
-      put(`${target} = ${v.code};`);
+      const op = st.op === "=" ? "=" : st.op;
+      put(`${sym.v} ${op} ${v.code};`);
       return;
     }
     if (st.t === "if") {
@@ -898,6 +1080,13 @@ export function emitWalk(pos) {
             put(`float ${nm} = ${asFloat(v)};`);
             return nm;
           });
+          continue;
+        }
+        if (pr.key === "col" && pr.value.t === "array" && pr.value.items.length === 3) {
+          const xs = pr.value.items.map(e2 => asFloat(emit(e2)));
+          const nm2 = fresh("dep_col");
+          put(`vec3 ${nm2} = vec3(${xs.join(", ")});`);
+          parts.col = nm2;
           continue;
         }
         const v = emit(pr.value);

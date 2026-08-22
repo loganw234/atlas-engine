@@ -183,6 +183,22 @@ export class Stream {
   }
   // the measure declines this point
   decline() { return null; }
+  // orbit: iterate a named-record state up to n times; until() stops
+  // early. Simultaneous update: every component of the next state is
+  // computed from the previous one, as an object literal naturally
+  // does. Returns the final state plus count and escaped.
+  orbit(n, init, stepFn, opts = {}) {
+    let st = { ...init };
+    const N = Math.round(n);
+    let count = 0, escaped = false;
+    const until = opts.until;
+    for (let k = 0; k < N; k++) {
+      if (until && until(st)) { escaped = true; break; }
+      st = stepFn(st, k);
+      count++;
+    }
+    return { ...st, count, escaped };
+  }
   // the descent: addressed survival on a subdivision domain. The
   // stream proposes children; the address decides, identically for
   // every point. Stops where the structure dies.
@@ -272,6 +288,59 @@ export class Stream {
 // IQ palette, the shared header's pal()
 export function pal(t, a, b, c, d) {
   return [0, 1, 2].map(i => a[i] + b[i] * Math.cos(TAU * (c[i] * t + d[i])));
+}
+
+// ---- GLSL parity: the builtins plates reach for --------------------
+export function fract(x) { return x - Math.floor(x); }
+export function mix(a, b, t) { return a + (b - a) * t; }
+export function clamp(x, lo, hi) { return Math.min(hi, Math.max(lo, x)); }
+export function step(edge, x) { return x < edge ? 0 : 1; }
+export function smoothstep(e0, e1, x) {
+  const t = clamp((x - e0) / (e1 - e0), 0, 1);
+  return t * t * (3 - 2 * t);
+}
+export function mod(x, y) { return x - y * Math.floor(x / y); }
+
+// complex arithmetic on Vec2 (z.x + i z.y), matching the shared
+// header's cmul/cdiv/cinv/csqrt exactly
+export function v2(x, y) { return new Vec2(x, y); }
+export function cmul(a, b) { return new Vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
+export function cdiv(a, b) {
+  const d = b.x * b.x + b.y * b.y + 1e-30;
+  return new Vec2((a.x * b.x + a.y * b.y) / d, (a.y * b.x - a.x * b.y) / d);
+}
+export function cinv(a) {
+  const d = a.x * a.x + a.y * a.y + 1e-30;
+  return new Vec2(a.x / d, -a.y / d);
+}
+export function csqrt(z) {
+  const r = Math.hypot(z.x, z.y);
+  const re = Math.sqrt(Math.max(0, 0.5 * (r + z.x)));
+  const im = Math.sqrt(Math.max(0, 0.5 * (r - z.x))) * (z.y < 0 ? -1 : 1);
+  return new Vec2(re, im);
+}
+
+// vec3 helpers for colour and geometry work
+export function v3(x, y, z) { return [x, y, z]; }
+export function add3(a, b) { return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]; }
+export function mul3(a, k) { return [a[0] * k, a[1] * k, a[2] * k]; }
+export function mix3(a, b, t) { return [0, 1, 2].map(i => a[i] + (b[i] - a[i]) * t); }
+export function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+export function cross3(a, b) {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+export function normalize3(a) {
+  const l = Math.hypot(a[0], a[1], a[2]) || 1;
+  return [a[0] / l, a[1] / l, a[2] / l];
+}
+export function length3(a) { return Math.hypot(a[0], a[1], a[2]); }
+
+// sum(n, k => term): the reduction loop as vocabulary
+export function sum(n, f) {
+  let acc = 0;
+  const N = Math.round(n);
+  for (let k = 0; k < N; k++) acc += f(k);
+  return acc;
 }
 
 // ---- native evaluation ---------------------------------------------
