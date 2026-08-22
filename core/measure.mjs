@@ -292,7 +292,7 @@ export function pal(t, a, b, c, d) {
 
 // ---- GLSL parity: the builtins plates reach for --------------------
 export function fract(x) { return x - Math.floor(x); }
-export function mix(a, b, t) { return a + (b - a) * t; }
+export function mix(a, b, t) { return a * (1 - t) + b * t; }
 export function clamp(x, lo, hi) { return Math.min(hi, Math.max(lo, x)); }
 export function step(edge, x) { return x < edge ? 0 : 1; }
 export function smoothstep(e0, e1, x) {
@@ -314,7 +314,7 @@ export function cinv(a) {
   return new Vec2(a.x / d, -a.y / d);
 }
 export function csqrt(z) {
-  const r = Math.hypot(z.x, z.y);
+  const r = Math.sqrt(z.x * z.x + z.y * z.y);
   const re = Math.sqrt(Math.max(0, 0.5 * (r + z.x)));
   const im = Math.sqrt(Math.max(0, 0.5 * (r - z.x))) * (z.y < 0 ? -1 : 1);
   return new Vec2(re, im);
@@ -324,16 +324,16 @@ export function csqrt(z) {
 export function v3(x, y, z) { return [x, y, z]; }
 export function add3(a, b) { return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]; }
 export function mul3(a, k) { return [a[0] * k, a[1] * k, a[2] * k]; }
-export function mix3(a, b, t) { return [0, 1, 2].map(i => a[i] + (b[i] - a[i]) * t); }
+export function mix3(a, b, t) { return [0, 1, 2].map(i => a[i] * (1 - t) + b[i] * t); }
 export function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 export function cross3(a, b) {
   return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 }
 export function normalize3(a) {
-  const l = Math.hypot(a[0], a[1], a[2]) || 1;
+  const l = Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]) || 1;
   return [a[0] / l, a[1] / l, a[2] / l];
 }
-export function length3(a) { return Math.hypot(a[0], a[1], a[2]); }
+export function length3(a) { return Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]); }
 
 // sum(n, k => term): the reduction loop as vocabulary
 export function sum(n, f) {

@@ -24,7 +24,7 @@ const GRID = 96, EXTENT = 1.55, RAD = 3;
 // buys agreement rather than hiding disagreement: raise it, do not
 // lower the threshold. Measured on bulb: r 0.864 / 0.962 / 0.980 at
 // 2^20 / 2^22 / 2^23.
-const DIFFUSE = { qjulia: 23, bulb: 23 };
+const DIFFUSE = { qjulia: 23, bulb: 23, hilbert: 23 };
 const pArg = process.argv.indexOf("--points");
 const POINTS = pArg > 0 ? parseInt(process.argv[pArg + 1]) : 0;
 const fArg = process.argv.indexOf("--frames");

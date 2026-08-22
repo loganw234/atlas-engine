@@ -620,10 +620,26 @@ export function emitWalk(pos) {
     err("unsupported call target");
   }
 
+  // Every draw binds its value at the draw site. Returning the live
+  // expression u2f(pt) instead would let two draws in one expression
+  // both read the FINAL hash, while the CPU evaluator draws twice -
+  // the two sides would disagree and nothing would say so. Found by a
+  // conversion agent reading the emitter, 2026-08-22; no positive had
+  // tripped it, which is exactly why it needed closing.
   function emitStreamCall(name, n) {
     switch (name) {
-      case "u": { draw(); return { type: "float", code: "u2f(pt)" }; }
-      case "centered": { draw(); return { type: "float", code: "(u2f(pt) - 0.5)" }; }
+      case "u": {
+        draw();
+        const v = fresh("draw");
+        put(`float ${v} = u2f(pt);`);
+        return { type: "float", code: v };
+      }
+      case "centered": {
+        draw();
+        const v = fresh("draw");
+        put(`float ${v} = u2f(pt) - 0.5;`);
+        return { type: "float", code: v };
+      }
       case "pick": {
         const a = n.args[0];
         let bi;
@@ -631,7 +647,9 @@ export function emitWalk(pos) {
         else if (a.t === "num") bi = a.v;
         else err("pick wants a lever or an integer literal");
         draw();
-        return { type: "int", code: `min(int(u2f(pt) * float(${bi})), ${bi} - 1)` };
+        const pv = fresh("pick");
+        put(`int ${pv} = min(int(u2f(pt) * float(${bi})), ${bi} - 1);`);
+        return { type: "int", code: pv };
       }
       case "jitter2": {
         const vx = fresh("jx"), v = fresh("jit");
@@ -653,7 +671,9 @@ export function emitWalk(pos) {
           }
         }
         draw();
-        return { type: "int", code: `int(pow(u2f(pt), ${bias}) * float(${maxVar}))`, staticMax };
+        const dv = fresh("depth");
+        put(`int ${dv} = int(pow(u2f(pt), ${bias}) * float(${maxVar}));`);
+        return { type: "int", code: dv, staticMax };
       }
       case "descend": err("s.descend must be bound directly: const x = s.descend(...)");
       case "deposit": err("s.deposit is only valid as the returned expression");
