@@ -187,6 +187,44 @@ are scored against it — which of llvmpipe and radeonsi is nearer the
 true measure, and by how much. That question is currently unanswerable
 and becomes a afternoon's work.
 
+#### Answered 2026-08-22 — and not from here
+
+The engine could not answer it. `cascade` is one of the fourteen plates
+with no positive, and it is the only one of the six most fragile plates
+missing — `wpath`, `vortex`, `stdmap`, `logz` and `hilbert` all have
+one. Worse, a positive would not have settled it anyway: conformance
+between a positive and its plate is measured at `r ≈ 0.99`, four
+significant figures, while the driver divergence being adjudicated is
+1e-8 to 8e-5. **The restatement's own fidelity is coarser than the
+effect**, so scoring GPUs against a positive would have measured the
+restatement.
+
+So it was answered in the darkroom instead, with
+`tools/determinism/shapeprobe.py`: call `shape_<id>` directly on fixed
+input bits, skip the renderer, score every stack against a float64
+evaluation of the same function. Full record in the darkroom at
+`docs/test-records/2026-08-22c-which-stack-is-nearest-the-truth.md`.
+
+The result, on 65,536 paired samples across five stacks:
+
+- **llvmpipe is farthest from the truth**, not nearest — beaten by
+  every GPU on 52.3–52.7% of the samples where they differ, p < 0.001.
+- **And it barely matters.** Every stack sits 5.6e-6 from the truth and
+  3.2e-7 from its neighbours: seventeen times nearer each other than
+  any is to the answer. Float32 sets the accuracy; the stack does not.
+- The GTX 1080 and RTX 5060 Ti are **bit-identical on all 65,536
+  positions** while their colours differ — colour goes through `cos()`,
+  position does not.
+
+Two things this changes for the phases below. First, **the reference
+question has no single answer**: llvmpipe is six orders more accurate
+at `sin`/`cos` (where two GPUs are simply wrong above |x| ≈ 1e5) and
+marginally worse on chaotic pure arithmetic. Picking a column was never
+the way out; `det_*` is. Second, `det_sin`'s 1.01e-6 worst error from
+Phase 0 turns out to be **four orders better than the best GPU builtin
+at large arguments** — so Phase 2's pinning buys accuracy as well as
+parity, which was not the argument for it.
+
 ### Phase 2 — emit through the pinned set
 
 `emit.mjs` stops emitting raw operators for the cases that have a
@@ -276,9 +314,16 @@ already there, and the work is using it rather than building it. Phase
 0 is what makes any of this auditable by someone who trusts none of it,
 and it is where the real effort sits.
 
-**Phase 0 is done** (2026-08-22). Next is Phase 1: use the float64
-native evaluator to adjudicate `cascade`, the plate whose GPU answers
-relocate 52.6 billion counts while conserving total light to 0.006%,
-and which no cross-vendor comparison has been able to attribute. Score
-llvmpipe and radeonsi against a higher-precision evaluation of the same
-program and the question stops being "which card do we trust".
+**Phase 0 and Phase 1 are both done** (2026-08-22). Phase 1 was
+answered in the darkroom rather than here, because `cascade` has no
+positive and a positive would have been too coarse an instrument
+anyway — see the note under Phase 1. The answer: no float32 stack is
+meaningfully the accurate one, llvmpipe is not the CPU reference the
+question assumed, and `det_*` rather than a chosen column is the way
+out.
+
+Next is **Phase 2**: route `emit.mjs` through the pinned set. Phase 0
+left it a concrete starting list — six builtins the emitter can reach
+today with no deterministic form behind them (`asin`, `sinh`, `cosh`,
+`tanh`, `round`, `sign`), carried in `oracle.mjs` as `UNCOVERED` so the
+decision to grow a form or refuse them is made from data.
