@@ -187,3 +187,30 @@ House style for comments: prose about the mathematics, in sentences,
 no em dashes. Comments say what a stanza means, not what a line does.
 Look at `positives/hopf.pos.mjs` and `positives/jong.pos.mjs` for the
 register to aim at.
+
+## The cross-check that wave one invented
+
+Every wave-one agent, unprompted, built the same instrument and it is
+now expected of you. After smoke passes, transcribe the plate's GLSL
+literally into a throwaway JS function in your scratch area, drive
+your walk with a draw-recording stream, replay the transcription on
+the same draws, and compare every deposit field. Wave one found
+agreement from 4e-16 to 2e-14 across four lever and clock settings,
+which is what "the same subject" should look like.
+
+Validate the comparator before you trust it: perturb one constant in
+the transcription and confirm the check reports a difference. A
+checker that cannot see a planted fault is not evidence. Report the
+worst delta you measured and the fact that the negative control
+fired.
+
+## What the picture check will and will not tell you
+
+Conformance runs centrally, and two plates have already taught the
+rig that a low correlation is not automatically a defect. Plates that
+spread points thinly through a volume (qjulia, bulb) carry a per-cell
+Poisson noise floor that falls as 1/N: bulb reads r = 0.864, 0.962,
+0.980 at 2^20, 2^22, 2^23 points, converging on its original at
+exactly the shot-noise rate. So a diffuse plate is measured with more
+points rather than a lower threshold. If your plate is volumetric,
+say so in your report; it saves the lead a diagnosis.
