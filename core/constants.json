@@ -1,0 +1,857 @@
+{
+  "schema": 1,
+  "what": "Pinned constants for deterministic GLSL emission, with provenance, and the polynomials built from them as executable data.",
+  "derived_by": "tools/seed-constants.py",
+  "checked_by": "tools/verify-constants.py (mpmath, 50 digits)",
+  "scope": [
+    "Phase 0 covers the CONSTANTS and the POLYNOMIALS built from them, given exact inputs over the stated domain.",
+    "It does NOT cover the surrounding reduction: the Payne-Hanek-free argument reduction in det_sincos, the det_div inside det_log2 and det_atan, the Newton iterations in det_recip and det_sqrt, or the exponent assembly in det_exp2 and det_log2.",
+    "Those are whole-function properties and they belong to Phase 2, when the det library moves into the engine and can be emulated end to end. Saying so here so the record cannot be read as claiming more than it measured."
+  ],
+  "levels": {
+    "1": "provenance: every value names where it came from, in data rather than in a comment",
+    "2": "transcription: the value equals what that source says, re-derived by an independent implementation",
+    "3": "behaviour: the approximation built from those constants is measured over its whole admitted domain and its worst error asserted"
+  },
+  "digest": "sha256:9869d7370282d422f5078363ea9e3d59999de417871261b4f35175d36ab172db",
+  "constants": {
+    "TWO_OVER_PI": {
+      "bits": "0x3F22F983",
+      "decimal": "0.636619746685028076171875",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "2/pi"
+    },
+    "RND_MAGIC": {
+      "bits": "0x4B400000",
+      "decimal": "12582912",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "1.5 * 2**23",
+      "exact": true,
+      "note": "the shift-trick round-to-integer magic; exactly representable, so `exact` holds"
+    },
+    "NHALF": {
+      "bits": "0xBF000000",
+      "decimal": "-0.5",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "-1/2",
+      "exact": true
+    },
+    "THIRD": {
+      "bits": "0x3EAAAAAB",
+      "decimal": "0.3333333432674407958984375",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "1/3"
+    },
+    "FIFTH": {
+      "bits": "0x3E4CCCCD",
+      "decimal": "0.20000000298023223876953125",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "1/5"
+    },
+    "SEVENTH": {
+      "bits": "0x3E124925",
+      "decimal": "0.14285714924335479736328125",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "1/7"
+    },
+    "NINTH": {
+      "bits": "0x3DE38E39",
+      "decimal": "0.111111111938953399658203125",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "1/9"
+    },
+    "LOG2E": {
+      "bits": "0x3FB8AA3B",
+      "decimal": "1.44269502162933349609375",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "1/log(2)"
+    },
+    "SQRT2": {
+      "bits": "0x3FB504F3",
+      "decimal": "1.41421353816986083984375",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "sqrt(2)"
+    },
+    "PI_F": {
+      "bits": "0x40490FDB",
+      "decimal": "3.1415927410125732421875",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "pi"
+    },
+    "PIO2_F": {
+      "bits": "0x3FC90FDB",
+      "decimal": "1.57079637050628662109375",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "pi/2"
+    },
+    "TWOP48": {
+      "bits": "0x57800000",
+      "decimal": "281474976710656",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "2**48",
+      "exact": true
+    },
+    "TWOM24": {
+      "bits": "0x33800000",
+      "decimal": "5.9604644775390625E-8",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "2**-24",
+      "exact": true
+    },
+    "TWOM126": {
+      "bits": "0x00800000",
+      "decimal": "1.1754943508222875079687365372222456778186655567720875215087517062784172594547271728515625E-38",
+      "kind": "closed",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "2**-126",
+      "exact": true
+    },
+    "PIO2_1": {
+      "bits": "0x3FC90FDB",
+      "decimal": "1.57079637050628662109375",
+      "kind": "derived",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "f32(f64(pi/2))",
+      "note": "limb 1 of 3 of pi/2"
+    },
+    "PIO2_2": {
+      "bits": "0xB33BBD2E",
+      "decimal": "-4.371138828673792886547744274139404296875E-8",
+      "kind": "derived",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "f32(f64(pi/2) - f64(PIO2_1))",
+      "note": "limb 2 of 3"
+    },
+    "PIO2_3": {
+      "bits": "0xA7000000",
+      "decimal": "-1.7763568394002504646778106689453125E-15",
+      "kind": "derived",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "f32(f64(pi/2) - f64(PIO2_1) - f64(PIO2_2))",
+      "note": "limb 3 of 3. The chain starts at the float64 pi/2, which is what caps the split's accuracy - measured, not assumed, in verify-constants.py"
+    },
+    "SINCOS_LIM": {
+      "bits": "0x4AC90FDA",
+      "decimal": "6588397",
+      "kind": "derived",
+      "source": {
+        "kind": "mathematical",
+        "text": "closed form; mpmath re-derives it from the mathematics",
+        "verified_against_source": true
+      },
+      "expr": "nextafter(f32(2**22 * f64(pi/2)), 0)",
+      "domain_role": "upper bound on |x| for det_sincos",
+      "note": "rounded toward zero so the admitted set is a subset of the exactly-reducible one, not one ulp past it"
+    },
+    "SS1": {
+      "bits": "0xBE2AAAA3",
+      "decimal": "-0.16666655242443084716796875",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "cephes single-precision sin/cos kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "claimed": "minimax on the reduced interval |r| <= pi/4",
+        "verified_against_source": false,
+        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+      }
+    },
+    "SS2": {
+      "bits": "0x3C08839E",
+      "decimal": "0.00833216123282909393310546875",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "cephes single-precision sin/cos kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "claimed": "minimax on the reduced interval |r| <= pi/4",
+        "verified_against_source": false,
+        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+      }
+    },
+    "SS3": {
+      "bits": "0xB94CA1F9",
+      "decimal": "-0.000195152955711819231510162353515625",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "cephes single-precision sin/cos kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "claimed": "minimax on the reduced interval |r| <= pi/4",
+        "verified_against_source": false,
+        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+      }
+    },
+    "CC1": {
+      "bits": "0x3D2AAAA5",
+      "decimal": "0.0416666455566883087158203125",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "cephes single-precision sin/cos kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "claimed": "minimax on the reduced interval |r| <= pi/4",
+        "verified_against_source": false,
+        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+      }
+    },
+    "CC2": {
+      "bits": "0xBAB6061A",
+      "decimal": "-0.00138873164542019367218017578125",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "cephes single-precision sin/cos kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "claimed": "minimax on the reduced interval |r| <= pi/4",
+        "verified_against_source": false,
+        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+      }
+    },
+    "CC3": {
+      "bits": "0x37CCF5CE",
+      "decimal": "0.00002443315679556690156459808349609375",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "cephes single-precision sin/cos kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "claimed": "minimax on the reduced interval |r| <= pi/4",
+        "verified_against_source": false,
+        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+      }
+    },
+    "E2P0": {
+      "bits": "0x3920FDDE",
+      "decimal": "0.00015353361959569156169891357421875",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "cephes single-precision exp2 kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "claimed": "minimax on [-0.5, 0.5]",
+        "verified_against_source": false,
+        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+      }
+    },
+    "E2P1": {
+      "bits": "0x3AAF9F29",
+      "decimal": "0.001339887385256588459014892578125",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "cephes single-precision exp2 kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "claimed": "minimax on [-0.5, 0.5]",
+        "verified_against_source": false,
+        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+      }
+    },
+    "E2P2": {
+      "bits": "0x3C1D96A6",
+      "decimal": "0.00961843691766262054443359375",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "cephes single-precision exp2 kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "claimed": "minimax on [-0.5, 0.5]",
+        "verified_against_source": false,
+        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+      }
+    },
+    "E2P3": {
+      "bits": "0x3D635774",
+      "decimal": "0.05550332367420196533203125",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "cephes single-precision exp2 kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "claimed": "minimax on [-0.5, 0.5]",
+        "verified_against_source": false,
+        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+      }
+    },
+    "E2P4": {
+      "bits": "0x3E75FDEE",
+      "decimal": "0.2402264773845672607421875",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "cephes single-precision exp2 kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "claimed": "minimax on [-0.5, 0.5]",
+        "verified_against_source": false,
+        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+      }
+    },
+    "E2P5": {
+      "bits": "0x3F317218",
+      "decimal": "0.693147182464599609375",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "cephes single-precision exp2 kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "claimed": "minimax on [-0.5, 0.5]",
+        "verified_against_source": false,
+        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+      }
+    },
+    "AT0": {
+      "bits": "0x3F7FFE82",
+      "decimal": "0.99997723102569580078125",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "unattributed in atlas-darkroom tools/determinism/gendetlib.py; the generator's comment reads 'atan - odd minimax on [0, 1]'",
+        "claimed": "odd minimax on [0, 1]",
+        "verified_against_source": false,
+        "note": "no attribution I can stand behind, so none is asserted. Whether it is in fact a minimax fit is decided by the equioscillation test, not by the comment."
+      }
+    },
+    "AT1": {
+      "bits": "0xBEAA4DA0",
+      "decimal": "-0.33262348175048828125",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "unattributed in atlas-darkroom tools/determinism/gendetlib.py; the generator's comment reads 'atan - odd minimax on [0, 1]'",
+        "claimed": "odd minimax on [0, 1]",
+        "verified_against_source": false,
+        "note": "no attribution I can stand behind, so none is asserted. Whether it is in fact a minimax fit is decided by the equioscillation test, not by the comment."
+      }
+    },
+    "AT2": {
+      "bits": "0x3E463042",
+      "decimal": "0.1935434639453887939453125",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "unattributed in atlas-darkroom tools/determinism/gendetlib.py; the generator's comment reads 'atan - odd minimax on [0, 1]'",
+        "claimed": "odd minimax on [0, 1]",
+        "verified_against_source": false,
+        "note": "no attribution I can stand behind, so none is asserted. Whether it is in fact a minimax fit is decided by the equioscillation test, not by the comment."
+      }
+    },
+    "AT3": {
+      "bits": "0xBDEE745B",
+      "decimal": "-0.116432867944240570068359375",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "unattributed in atlas-darkroom tools/determinism/gendetlib.py; the generator's comment reads 'atan - odd minimax on [0, 1]'",
+        "claimed": "odd minimax on [0, 1]",
+        "verified_against_source": false,
+        "note": "no attribution I can stand behind, so none is asserted. Whether it is in fact a minimax fit is decided by the equioscillation test, not by the comment."
+      }
+    },
+    "AT4": {
+      "bits": "0x3D57AB02",
+      "decimal": "0.052653320133686065673828125",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "unattributed in atlas-darkroom tools/determinism/gendetlib.py; the generator's comment reads 'atan - odd minimax on [0, 1]'",
+        "claimed": "odd minimax on [0, 1]",
+        "verified_against_source": false,
+        "note": "no attribution I can stand behind, so none is asserted. Whether it is in fact a minimax fit is decided by the equioscillation test, not by the comment."
+      }
+    },
+    "AT5": {
+      "bits": "0xBC400A47",
+      "decimal": "-0.011721200309693813323974609375",
+      "kind": "fitted",
+      "source": {
+        "kind": "fitted",
+        "text": "unattributed in atlas-darkroom tools/determinism/gendetlib.py; the generator's comment reads 'atan - odd minimax on [0, 1]'",
+        "claimed": "odd minimax on [0, 1]",
+        "verified_against_source": false,
+        "note": "no attribution I can stand behind, so none is asserted. Whether it is in fact a minimax fit is decided by the equioscillation test, not by the comment."
+      }
+    }
+  },
+  "approximations": {
+    "sin_kernel": {
+      "approximates": "sin(r)",
+      "inputs": [
+        "r"
+      ],
+      "domain": {
+        "r": [
+          -0.7853981633974483,
+          0.7853981633974483
+        ]
+      },
+      "domain_note": "|r| <= pi/4, the reduced argument det_sincos hands the kernel. The reduction itself is NOT covered here - see scope, below.",
+      "coefficients": [
+        "SS1",
+        "SS2",
+        "SS3"
+      ],
+      "eval": [
+        [
+          "r2",
+          "mul",
+          "r",
+          "r"
+        ],
+        [
+          "p",
+          "fma",
+          "r2",
+          "SS3",
+          "SS2"
+        ],
+        [
+          "p2",
+          "fma",
+          "r2",
+          "p",
+          "SS1"
+        ],
+        [
+          "r3",
+          "mul",
+          "r2",
+          "r"
+        ],
+        [
+          "ss",
+          "fma",
+          "r3",
+          "p2",
+          "r"
+        ]
+      ],
+      "result": "ss",
+      "odd": true,
+      "expected_alternations": 5,
+      "bound": {
+        "criterion": "worst absolute error of the exact evaluation, and worst ulp error of the float32 chain, over the swept domain",
+        "fit_abs_max": 6.2e-09,
+        "chain_ulp_max": 0.71,
+        "basis": "measured at 8001 points, rounded up to two significant figures",
+        "measured": {
+          "fit_abs_max": 5.628981542428388e-09,
+          "chain_ulp_max": 0.6391044292421313,
+          "chain_rel_max": 6.449744763627785e-08,
+          "alternations": 3,
+          "evenness": 0.06458304799474053,
+          "rounding_floor": 3.750108919963539e-09,
+          "equioscillates": false,
+          "conclusive": false
+        }
+      }
+    },
+    "cos_kernel": {
+      "approximates": "cos(r)",
+      "inputs": [
+        "r"
+      ],
+      "domain": {
+        "r": [
+          -0.7853981633974483,
+          0.7853981633974483
+        ]
+      },
+      "domain_note": "as sin_kernel",
+      "coefficients": [
+        "CC1",
+        "CC2",
+        "CC3",
+        "NHALF"
+      ],
+      "eval": [
+        [
+          "r2",
+          "mul",
+          "r",
+          "r"
+        ],
+        [
+          "p",
+          "fma",
+          "r2",
+          "CC3",
+          "CC2"
+        ],
+        [
+          "p2",
+          "fma",
+          "r2",
+          "p",
+          "CC1"
+        ],
+        [
+          "w",
+          "fma",
+          "r2",
+          "NHALF",
+          "1.0"
+        ],
+        [
+          "r4",
+          "mul",
+          "r2",
+          "r2"
+        ],
+        [
+          "cc",
+          "fma",
+          "r4",
+          "p2",
+          "w"
+        ]
+      ],
+      "result": "cc",
+      "even": true,
+      "expected_alternations": 5,
+      "bound": {
+        "criterion": "worst absolute error of the exact evaluation, and worst ulp error of the float32 chain, over the swept domain",
+        "fit_abs_max": 1.4e-10,
+        "chain_ulp_max": 1.4,
+        "basis": "measured at 8001 points, rounded up to two significant figures",
+        "measured": {
+          "fit_abs_max": 1.2716233391810645e-10,
+          "chain_ulp_max": 1.185098621620733,
+          "chain_rel_max": 9.915904923722713e-08,
+          "alternations": 3,
+          "evenness": 0.5941868397486095,
+          "rounding_floor": 7.225383407751138e-10,
+          "equioscillates": false,
+          "conclusive": false
+        }
+      }
+    },
+    "exp2_kernel": {
+      "approximates": "2**f",
+      "inputs": [
+        "f"
+      ],
+      "domain": {
+        "f": [
+          -0.5,
+          0.5
+        ]
+      },
+      "domain_note": "f is the fractional part after the exact split in det_exp2; the integer part is applied by exponent bits and is exact.",
+      "coefficients": [
+        "E2P0",
+        "E2P1",
+        "E2P2",
+        "E2P3",
+        "E2P4",
+        "E2P5"
+      ],
+      "eval": [
+        [
+          "p0",
+          "fma",
+          "f",
+          "E2P0",
+          "E2P1"
+        ],
+        [
+          "p1",
+          "fma",
+          "f",
+          "p0",
+          "E2P2"
+        ],
+        [
+          "p2",
+          "fma",
+          "f",
+          "p1",
+          "E2P3"
+        ],
+        [
+          "p3",
+          "fma",
+          "f",
+          "p2",
+          "E2P4"
+        ],
+        [
+          "p4",
+          "fma",
+          "f",
+          "p3",
+          "E2P5"
+        ],
+        [
+          "y",
+          "fma",
+          "f",
+          "p4",
+          "1.0"
+        ]
+      ],
+      "result": "y",
+      "expected_alternations": 7,
+      "bound": {
+        "criterion": "worst absolute error of the exact evaluation, and worst ulp error of the float32 chain, over the swept domain",
+        "fit_abs_max": 1.5e-08,
+        "chain_ulp_max": 1.0,
+        "basis": "measured at 8001 points, rounded up to two significant figures",
+        "measured": {
+          "fit_abs_max": 1.3584428818408116e-08,
+          "chain_ulp_max": 0.9008947435065332,
+          "chain_rel_max": 7.579513303009806e-08,
+          "alternations": 4,
+          "evenness": 0.002259801336231169,
+          "rounding_floor": 1.7027673493430484e-08,
+          "equioscillates": false,
+          "conclusive": false
+        }
+      }
+    },
+    "atanh_series": {
+      "approximates": "log((1+s)/(1-s))",
+      "inputs": [
+        "s"
+      ],
+      "domain": {
+        "s": [
+          -0.17157287525380996,
+          0.17157287525380996
+        ]
+      },
+      "domain_note": "s = (m-1)/(m+1) for m in (sqrt2/2, sqrt2], the mantissa fold in det_log2. NOTE the real det_log2 forms s with det_div, not exact division; this sweep feeds the series an exact s so the coefficients are measured alone.",
+      "coefficients": [
+        "THIRD",
+        "FIFTH",
+        "SEVENTH",
+        "NINTH"
+      ],
+      "eval": [
+        [
+          "z",
+          "mul",
+          "s",
+          "s"
+        ],
+        [
+          "p",
+          "fma",
+          "z",
+          "NINTH",
+          "SEVENTH"
+        ],
+        [
+          "p2",
+          "fma",
+          "z",
+          "p",
+          "FIFTH"
+        ],
+        [
+          "p3",
+          "fma",
+          "z",
+          "p2",
+          "THIRD"
+        ],
+        [
+          "q",
+          "fma",
+          "z",
+          "p3",
+          "1.0"
+        ],
+        [
+          "twos",
+          "add",
+          "s",
+          "s"
+        ],
+        [
+          "ln",
+          "mul",
+          "twos",
+          "q"
+        ]
+      ],
+      "result": "ln",
+      "odd": true,
+      "series": "truncated atanh, not a fit: the coefficients ARE 1/3, 1/5, 1/7, 1/9, so the error is a truncation tail and does NOT equioscillate. Checked as a series, not as a minimax.",
+      "expected_alternations": null,
+      "bound": {
+        "criterion": "worst absolute error of the exact evaluation, and worst ulp error of the float32 chain, over the swept domain",
+        "fit_abs_max": 6.7e-10,
+        "chain_ulp_max": 1.6,
+        "basis": "measured at 8001 points, rounded up to two significant figures",
+        "measured": {
+          "fit_abs_max": 6.058968182080529e-10,
+          "chain_ulp_max": 1.4036994837907575,
+          "chain_rel_max": 1.1272677648097614e-07,
+          "alternations": 1,
+          "evenness": 1.0,
+          "rounding_floor": 0.0,
+          "equioscillates": false,
+          "conclusive": true
+        }
+      }
+    },
+    "atan_kernel": {
+      "approximates": "atan(r)",
+      "inputs": [
+        "r"
+      ],
+      "domain": {
+        "r": [
+          0.0,
+          1.0
+        ]
+      },
+      "domain_note": "r = min(|y|,|x|)/max(|y|,|x|) after the octant fold in det_atan, so r is in [0,1] by construction. As with atanh_series, the fold's det_div is not covered here.",
+      "coefficients": [
+        "AT0",
+        "AT1",
+        "AT2",
+        "AT3",
+        "AT4",
+        "AT5"
+      ],
+      "eval": [
+        [
+          "z",
+          "mul",
+          "r",
+          "r"
+        ],
+        [
+          "p",
+          "fma",
+          "z",
+          "AT5",
+          "AT4"
+        ],
+        [
+          "p2",
+          "fma",
+          "z",
+          "p",
+          "AT3"
+        ],
+        [
+          "p3",
+          "fma",
+          "z",
+          "p2",
+          "AT2"
+        ],
+        [
+          "p4",
+          "fma",
+          "z",
+          "p3",
+          "AT1"
+        ],
+        [
+          "p5",
+          "fma",
+          "z",
+          "p4",
+          "AT0"
+        ],
+        [
+          "a",
+          "mul",
+          "r",
+          "p5"
+        ]
+      ],
+      "result": "a",
+      "odd": true,
+      "expected_alternations": 7,
+      "bound": {
+        "criterion": "worst absolute error of the exact evaluation, and worst ulp error of the float32 chain, over the swept domain",
+        "fit_abs_max": 1.9e-06,
+        "chain_ulp_max": 420.0,
+        "basis": "measured at 8001 points, rounded up to two significant figures",
+        "measured": {
+          "fit_abs_max": 1.6982971003138577e-06,
+          "chain_ulp_max": 378.8666317960559,
+          "chain_rel_max": 2.283332238930851e-05,
+          "alternations": 6,
+          "evenness": 0.9617936239884312,
+          "rounding_floor": 5.820766091346741e-08,
+          "equioscillates": true,
+          "conclusive": true
+        }
+      }
+    }
+  }
+}

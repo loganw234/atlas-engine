@@ -1,0 +1,284 @@
+# Determinism by construction
+
+A plan. Written 2026-08-22, before the work, so that what was intended
+can be compared against what happened.
+
+## The goal, stated precisely
+
+**One hash, everywhere, and every number in the chain checkable against
+a source outside this project.**
+
+Three claims, in the order they have to be earned:
+
+1. A positive's meaning is *defined* by the language, not discovered by
+   running it somewhere.
+2. Every implementation that runs it — the native evaluator, emitted
+   GLSL on any driver, any card — produces bit-identical output, or is
+   wrong by definition.
+3. Every constant and every approximation underneath that definition
+   can be checked by someone who trusts none of this code, against
+   published values they can look up themselves.
+
+The third is the one that makes the first two worth anything. A
+deterministic system whose constants nobody can audit is a system that
+reproduces the same answer everywhere and cannot say whether it is the
+right answer.
+
+## Why here and not in the darkroom
+
+The darkroom corrects **afterwards**. `bakearchive` regex-substitutes
+`det_*` over GLSL that was hand-written by sixty-eight different
+authors, and the operations it deliberately leaves alone — raw
+division, `dot`, `mix`, `smoothstep`, `fract`, `floor` — are a judgement
+call about what is "exact or near-exact enough".
+
+Measured 2026-08-22 across four machines and six stacks, that judgement
+has a ceiling:
+
+| pair | plates agreeing, of 68 |
+|---|---|
+| GTX 1080 vs RTX 5060 Ti | 68 |
+| Arc B580 vs RX 7600 | 61 |
+| RX 7600 vs NVIDIA | 59 |
+| llvmpipe vs *any GPU* | 1 |
+
+And the divergence is not attributable: correlating every unpinned
+operation against the nine cross-vendor diverging plates separates
+nothing. `inversesqrt` shows 3.9× off a base of 0.3 against 0.1, which
+is noise; raw-division density puts mostly *agreeing* plates at the top.
+Whatever it is, it is not one source-level operation, and it cannot be
+found by looking harder at text nobody controls.
+
+The engine controls the text. Three properties are already in place:
+
+- **One choke point.** `emit.mjs` has exactly one line where a binary
+  operator becomes GLSL. Every `/` in every emitted plate passes
+  through it.
+- **Association is already explicit.** Every binary op emits
+  `(l op r)`, fully parenthesised, by construction.
+- **The refusal machinery already exists and already targets this.** It
+  refuses float `%` because it "diverges between JS and GLSL", and
+  refuses stream draws on the short-circuit side of `&&`. Determinism
+  pinning is that same principle with wider coverage.
+
+And `measure.mjs` dissolves the question the darkroom cannot answer,
+though not the way I first wrote here — see the correction in Phase 1.
+It computes the walk in **float64**, which makes it an *accuracy*
+reference rather than a bit-exact one. That is better for this purpose:
+there is no need to decide whether NVIDIA or llvmpipe is "correct",
+because a higher-precision evaluation of the same program can be asked
+directly, and both are scored against it.
+
+## What a verifiable oracle means here
+
+Three levels, each stricter than the last. A constant is only admitted
+when all three hold.
+
+**Level 1 — provenance.** Every constant names where it came from, in
+data rather than in a comment: a source, an edition, a page or symbol.
+"cephes minimax on [-0.5, 0.5]" becomes a record a script can read.
+
+**Level 2 — transcription.** The constant equals what that source says,
+checked by an independent implementation. π is the correctly-rounded
+f32 nearest the real π, and `mpmath` at 50 digits says so — not numpy,
+which shares too much lineage with the thing being checked.
+
+**Level 3 — behaviour.** The *approximation built from* those constants
+is measured against a high-precision reference over its whole admitted
+domain, and its worst error is asserted against the published bound.
+This is the level that catches a correctly-transcribed coefficient used
+in the wrong polynomial, which levels 1 and 2 both pass.
+
+Level 3 is the one that matters and the one usually skipped. A minimax
+polynomial with the right coefficients and a wrong Horner order is
+still wrong, and only measurement says so.
+
+## Phases
+
+Each phase ends with something checkable. No phase depends on a later
+one being finished.
+
+### Phase 0 — the oracle — **DONE 2026-08-22**
+
+`core/constants.json`, `tools/seed-constants.py`,
+`tools/verify-constants.py`, `tools/oracle.mjs`,
+`tools/verify-negative-controls.py`.
+
+36 constants and 5 approximations, each with bits, exact decimal,
+provenance, domain and bound. All 36 bit patterns match the darkroom's
+deployed `gendetlib.py`, so this measures the running library rather
+than a copy. Findings in `docs/CONSTANTS-FINDINGS.md`.
+
+**Done when:** `verify-constants.py` passes with every constant at all
+three levels, and fails loudly if any bit pattern is edited. — Met.
+Nine negative controls, each caught at the level that claims to catch
+it (`verify-negative-controls.py`).
+
+Four things turned out differently from this plan, and they are worth
+carrying forward because each was a mistake this phase caught in
+itself:
+
+**The published bound was replaced by a measured one.** The plan said
+"asserting the published bound". There is no bound anyone can open: the
+cephes attribution is cited from ubiquity, and the atan coefficients
+carry no attribution at all. Asserting a citation I could not check
+would have been the exact failure this phase exists to prevent. So
+bounds are **measured over the admitted domain with the exact
+evaluation order and pinned**, which is a stronger claim than a
+citation — a fact about this code rather than about someone else's.
+
+**A citation was replaced by a measurement.** The atan coefficients
+claim "odd minimax on [0, 1]" and name no source. Equioscillation tests
+that claim without one, and it holds: six alternating extrema, evenness
+0.962. Where a source cannot be opened, a falsifiable property can
+still be checked.
+
+**The equioscillation test had to be given a power analysis before its
+verdicts meant anything.** It first reported sin, cos and exp2 as "not
+minimax". That was reading the instrument's own noise: rounding those
+coefficients to float32 perturbs the result by as much as the total
+error, so equioscillation could not survive regardless of the fit.
+Those three are now reported **INCONCLUSIVE** with the ratio.
+
+**Behavioural bounds cannot catch a one-ulp typo, and a negative
+control is what proved it.** A fitted coefficient moved one ulp passed
+all three levels — sixty times under its own bound. Closed with a
+sha256 seal over the bit patterns and a cross-check against the
+darkroom generator. A missing upstream is a failure, not a skip.
+
+Two accuracy findings came out of it, neither a parity break:
+`det_sin` reaches ~1.0e-6 error (≈17 ulp) near the top of its stated
+domain, because `float32(2/π)` widens the reduced argument to 1.05 rad;
+and `det_atan` carries a 2.28e-5 relative floor near zero, which is
+what an absolute-minimax fit costs. Both deterministic — every driver
+gets the same answer — so the library's actual promise stands.
+
+### Phase 1 — the accuracy oracle, which already exists
+
+**Corrected before starting.** The plan above said to *add* a float64
+mode. Inspection says there is nothing to add: `measure.mjs` uses
+`Math.fround` in exactly nine places — the `u2f` RNG conversion, the
+magnify/heart geometry, and the weighted pick — and nowhere else. Every
+vector operation is plain JavaScript (`Vec2.scale` is `this.x * k`),
+and every positive's walk is plain JavaScript arithmetic
+(`j.chebyshev() * 2.0`, `0.92 / Math.max(rim, 1e-3)`).
+
+**The native evaluator computes the walk in float64. Emitted GLSL
+computes it in float32.** The f32 pinning is at the boundaries where
+the two must agree structurally — the hash, the RNG, the geometry — not
+through the arithmetic.
+
+That is the right architecture, and it means the reference this project
+has never had was already sitting here. It also means one thing in
+`measure.mjs`'s own header — "writes GLSL whose arithmetic matches this
+file exactly" — is true of the structure and cannot be true of the
+arithmetic. f64 and f32 do not match, and no amount of care makes them.
+
+So the roles separate cleanly, and two different tests measure two
+different properties:
+
+| | is | measured by |
+|---|---|---|
+| native evaluator | what the answer **should** be (f64) | error against it, per cell |
+| emitted GLSL | **one** answer, everywhere (f32) | bit-identity across implementations |
+
+**Done when:** `cascade` is evaluated natively and its two GPU answers
+are scored against it — which of llvmpipe and radeonsi is nearer the
+true measure, and by how much. That question is currently unanswerable
+and becomes a afternoon's work.
+
+### Phase 2 — emit through the pinned set
+
+`emit.mjs` stops emitting raw operators for the cases that have a
+deterministic form.
+
+- `/` → `det_div`
+- transcendentals → `det_sin`, `det_cos`, `det_exp2`, …
+- `precise` on the accumulation chain, by construction
+- the refusal list extended to anything without a pinned form
+
+The det library moves into the engine — generated from the verified
+constants of Phase 0, not copied.
+
+**Done when:** an emitted plate contains no unpinned float operation,
+and the emitter refuses a positive that would require one.
+
+### Phase 3 — bit-identity as the bar
+
+The conformance harness currently reports cell correlation `r =
+0.9915`, with GPU-to-GPU at `0.9925` — the method's own noise floor
+sits at that scale.
+
+Bit-identity is not an increment on that; it is a different
+measurement. It needs the harness to compare deposits, not tonemapped
+cells.
+
+**NOT native-against-GLSL.** Per the correction in Phase 1, those two
+compute at different precisions and can never be bit-identical. The bar
+is emitted GLSL against emitted GLSL, on different implementations —
+which is the property the commons actually needs, and the one the
+darkroom already tries to hold.
+
+**Done when:** for at least one positive, emitted GLSL produces
+identical integer deposit counts over a full supertile on two different
+implementations — and its error against the native f64 evaluation is
+stated.
+
+### Phase 4 — across the matrix
+
+Planometer already does this. Emitted plates go through the ladder on
+every proven stack.
+
+**Done when:** an emitted positive produces one hash across radeonsi,
+iris, NVIDIA and llvmpipe — the case that today only `collatz`, at
+0.166% lit, manages.
+
+### Phase 5 — adoption
+
+Two routes, and they are not exclusive:
+
+- **Retrofit.** Emitted GLSL replaces a hand-written plate's source in
+  PrettyCloud. Changes the plate's hash, so it wants doing before works
+  publish.
+- **New plates authored as positives.** No retrofit, no hash churn, and
+  the deterministic corpus grows from the new end.
+
+**Done when:** one emitted plate is live in PrettyCloud and renders
+byte-identically to the engine's own evaluation.
+
+## Risks, and what this does not promise
+
+**It does not promise the GPUs were wrong.** Phase 1 may find llvmpipe
+is the outlier *and* the more accurate one, or the reverse, or that the
+difference is below any meaningful threshold. The plan is built to find
+out, not to confirm.
+
+**Bit-identity across drivers may not be reachable for every
+operation.** Some GLSL builtins have spec-permitted ULP latitude that
+no amount of pinning removes short of reimplementing them — which is
+what `det_*` does, at a cost in speed. If a construct cannot be pinned,
+the honest outcome is refusal, and the language gets smaller.
+
+**Coverage is not there.** 54 of 68 plates convert. Four are blocked on
+two genuinely missing language features. A full deterministic corpus
+needs those closed first, and that is language design, not plumbing.
+
+**This makes the engine the source of truth for plate GLSL.** Today
+PrettyCloud is canonical and the engine emits to its contract. Phase 5
+inverts that for any plate it touches. That is a real architectural
+commitment and it should be taken deliberately.
+
+## Order of work
+
+Phase 0 and Phase 1 first, and they are independent of everything after
+them. Phase 1 turned out to need no change at all — the reference was
+already there, and the work is using it rather than building it. Phase
+0 is what makes any of this auditable by someone who trusts none of it,
+and it is where the real effort sits.
+
+**Phase 0 is done** (2026-08-22). Next is Phase 1: use the float64
+native evaluator to adjudicate `cascade`, the plate whose GPU answers
+relocate 52.6 billion counts while conserving total light to 0.006%,
+and which no cross-vendor comparison has been able to attribute. Score
+llvmpipe and radeonsi against a higher-precision evaluation of the same
+program and the question stops being "which card do we trust".
