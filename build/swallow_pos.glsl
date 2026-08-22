@@ -1,0 +1,74 @@
+vec3 shape_swallow_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
+  uint pt = hashu(seed ^ hashu(floatBitsToUint(q.x))
+                       ^ hashu(floatBitsToUint(q.y) * 1220653529u));
+  pt = hashu(pt ^ floatBitsToUint(rnd.x));
+  float form_1 = floor((P[0] + 0.5));
+  float tint_2 = clamp(P[3], 0.0, 1.0);
+  float wx_3 = 0.0;
+  float wy_4 = 0.0;
+  float wz_5 = 0.0;
+  float a_6 = 0.0;
+  float aMin_7 = 0.0;
+  float aMax_8 = 0.0;
+  float uns_9 = 0.0;
+  float hilite_10 = 0.0;
+  if ((form_1 == 2.0)) {
+    float R_11 = (0.8 * P[1]);
+    float rad_12 = (R_11 * sqrt(q.x));
+    float th_13 = (TAU * q.y);
+    float x_14 = (rad_12 * cos(th_13));
+    float y_15 = (rad_12 * sin(th_13));
+    pt = hashu(pt);
+    float draw_16 = u2f(pt);
+    float sg_17 = ((((draw_16 < 0.5))) ? (-1.0) : 1.0);
+    a_6 = ((sg_17 * 3.0) * rad_12);
+    float b_18 = ((((3.0 * y_15) * y_15) - ((3.0 * x_14) * x_14)) - ((2.0 * a_6) * x_14));
+    float c_19 = (((6.0 * x_14) * y_15) - ((2.0 * a_6) * y_15));
+    wx_3 = (b_18 * 0.35);
+    wy_4 = (a_6 * 0.35);
+    wz_5 = (c_19 * 0.35);
+    aMin_7 = ((-3.0) * R_11);
+    aMax_8 = (3.0 * R_11);
+    uns_9 = ((((a_6 < 0.0))) ? 1.0 : 0.0);
+  } else {
+    float x_20 = (mix((-1.0), 1.0, q.x) * P[1]);
+    a_6 = (mix((-2.0), 1.0, q.y) * P[1]);
+    aMin_7 = ((-2.0) * P[1]);
+    aMax_8 = P[1];
+    float b_21 = (((((-4.0) * x_20) * x_20) * x_20) - ((2.0 * a_6) * x_20));
+    if ((form_1 == 1.0)) {
+      float c_22 = (((((3.0 * x_20) * x_20) * x_20) * x_20) + ((a_6 * x_20) * x_20));
+      wx_3 = (a_6 * 0.55);
+      wy_4 = ((c_22 * 0.45) - 0.3);
+      wz_5 = (b_21 * 0.22);
+      uns_9 = (((((((12.0 * x_20) * x_20) + (2.0 * a_6)) < 0.0))) ? 1.0 : 0.0);
+    } else {
+      wx_3 = (a_6 * 0.55);
+      wy_4 = (x_20 * 0.8);
+      wz_5 = (b_21 * 0.28);
+      uns_9 = (((((((12.0 * x_20) * x_20) + (2.0 * a_6)) < 0.0))) ? 1.0 : 0.0);
+      float bs_23 = ((1.1 * P[1]) * sin((uT * 0.35)));
+      float dd_24 = (((b_21 - bs_23)) / (((0.22 * P[1]) + 1.0e-3)));
+      hilite_10 = (0.4 * exp(((-dd_24) * dd_24)));
+    }
+  }
+  float thresh_25 = mix(aMax_8, (aMin_7 + (0.06 * ((aMax_8 - aMin_7)))), clamp(P[2], 0.0, 1.0));
+  if ((a_6 > thresh_25)) {
+    col = vec3(0.0);
+    return vec3(0.0, -20000.0, 0.0);
+  }
+  float sx_26 = (wx_3 * P[4]);
+  float sy_27 = (wy_4 * P[4]);
+  float sz_28 = (wz_5 * P[4]);
+  if ((((abs(sx_26) > 1.45) || (abs(sy_27) > 1.45)) || (abs(sz_28) > 1.45))) {
+    col = vec3(0.0);
+    return vec3(0.0, -20000.0, 0.0);
+  }
+  float dep_c_29 = sx_26;
+  float dep_c_30 = sy_27;
+  float dep_c_31 = sz_28;
+  vec3 dep_col_32 = mix(vec3(1.02, 0.92, 0.74), vec3(0.26, 0.31, 0.42), (uns_9 * tint_2));
+  float dep_glow_33 = (((0.35 + (0.85 * P[5]))) * ((1.0 + hilite_10)));
+  col = dep_col_32 * dep_glow_33;
+  return vec3(dep_c_29, dep_c_30, dep_c_31);
+}

@@ -2,10 +2,540 @@
   "t": 1.3,
   "results": [
     {
+      "id": "allpaths",
+      "status": "PASS",
+      "r": 0.9948,
+      "ratio": 0.999,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "arnold",
+      "status": "PASS",
+      "r": 0.9999,
+      "ratio": 1,
+      "cells": 9185,
+      "clipped": 31,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "bifurc",
+      "status": "PASS",
+      "r": 0.9978,
+      "ratio": 1.003,
+      "cells": 9186,
+      "clipped": 30,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "buddha",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "bulb",
+      "status": "PASS",
+      "r": 0.9802,
+      "ratio": 0.998,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^23"
+    },
+    {
+      "id": "caustic",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "chladni",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9212,
+      "clipped": 4,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "collatz",
+      "status": "PASS",
+      "r": 0.9969,
+      "ratio": 1.003,
+      "cells": 9214,
+      "clipped": 2,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "conoscope",
+      "status": "PASS",
+      "r": 0.9997,
+      "ratio": 1.001,
+      "cells": 9215,
+      "clipped": 1,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "critical",
+      "status": "PASS",
+      "r": 0.9982,
+      "ratio": 0.999,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "cursum",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9189,
+      "clipped": 27,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "curves",
+      "status": "PASS",
+      "r": 0.9996,
+      "ratio": 0.997,
+      "cells": 9154,
+      "clipped": 62,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "dipole",
+      "status": "PASS",
+      "r": 0.9929,
+      "ratio": 0.996,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "domain",
+      "status": "PASS",
+      "r": 0.9997,
+      "ratio": 1,
+      "cells": 9208,
+      "clipped": 8,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
       "id": "e8",
       "status": "PASS",
       "r": 0.9981,
       "ratio": 0.998,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "elliptic",
+      "status": "PASS",
+      "r": 0.9997,
+      "ratio": 0.999,
+      "cells": 9192,
+      "clipped": 24,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "flows",
+      "status": "PASS",
+      "r": 0.9992,
+      "ratio": 1.001,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "ford",
+      "status": "PASS",
+      "r": 0.9996,
+      "ratio": 1.005,
+      "cells": 9191,
+      "clipped": 25,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "gibbs",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9164,
+      "clipped": 52,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "halo",
+      "status": "PASS",
+      "r": 0.991,
+      "ratio": 0.998,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "harm",
+      "status": "PASS",
+      "r": 0.9987,
+      "ratio": 1.001,
+      "cells": 9185,
+      "clipped": 31,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "hilbert",
+      "status": "PASS",
+      "r": 0.9979,
+      "ratio": 1.001,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^23"
+    },
+    {
+      "id": "hopf",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9144,
+      "clipped": 72,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "hyper",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "ifs",
+      "status": "PASS",
+      "r": 0.9991,
+      "ratio": 0.998,
+      "cells": 9205,
+      "clipped": 11,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "invjulia",
+      "status": "PASS",
+      "r": 0.9996,
+      "ratio": 0.997,
+      "cells": 9208,
+      "clipped": 8,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "jong",
+      "status": "PASS",
+      "r": 0.9974,
+      "ratio": 0.998,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "kleinian",
+      "status": "PASS",
+      "r": 0.9996,
+      "ratio": 1.001,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "logz",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "lyap",
+      "status": "PASS",
+      "r": 0.9991,
+      "ratio": 0.999,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "mand",
+      "status": "PASS",
+      "r": 0.9997,
+      "ratio": 1,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "mirage",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "modmul",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "nested",
+      "status": "PASS",
+      "r": 0.9985,
+      "ratio": 0.999,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "newton",
+      "status": "PASS",
+      "r": 0.9998,
+      "ratio": 1.001,
+      "cells": 9108,
+      "clipped": 108,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "nonorient",
+      "status": "PASS",
+      "r": 0.9839,
+      "ratio": 0.999,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "orbital",
+      "status": "PASS",
+      "r": 0.9934,
+      "ratio": 1,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "penrose",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9183,
+      "clipped": 33,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "polytope",
+      "status": "PASS",
+      "r": 0.9993,
+      "ratio": 1.002,
+      "cells": 9211,
+      "clipped": 5,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "primes",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "qjulia",
+      "status": "PASS",
+      "r": 0.9909,
+      "ratio": 1.002,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^23"
+    },
+    {
+      "id": "rainbow",
+      "status": "PASS",
+      "r": 0.9905,
+      "ratio": 0.996,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "relativity",
+      "status": "PASS",
+      "r": 0.9994,
+      "ratio": 0.999,
+      "cells": 9202,
+      "clipped": 14,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "rmt",
+      "status": "PASS",
+      "r": 0.9999,
+      "ratio": 1,
+      "cells": 9138,
+      "clipped": 78,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "stdmap",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "stoch",
+      "status": "PASS",
+      "r": 0.9999,
+      "ratio": 0.999,
+      "cells": 9129,
+      "clipped": 87,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "swallow",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9202,
+      "clipped": 14,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "threebody",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "tpms",
+      "status": "PASS",
+      "r": 0.9913,
+      "ratio": 1.001,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "vortex",
+      "status": "PASS",
+      "r": 0.9896,
+      "ratio": 0.994,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^23"
+    },
+    {
+      "id": "wave",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9214,
+      "clipped": 2,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "wavecat",
+      "status": "PASS",
+      "r": 0.9999,
+      "ratio": 1.001,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "wpath",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
+      "cells": 9216,
+      "clipped": 0,
+      "contract": "ok",
+      "points": "2^22"
+    },
+    {
+      "id": "zeta",
+      "status": "PASS",
+      "r": 1,
+      "ratio": 1,
       "cells": 9216,
       "clipped": 0,
       "contract": "ok",

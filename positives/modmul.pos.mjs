@@ -4,8 +4,7 @@
 // mod n, and the envelope of all the chords is the epicycloid. The
 // only clock use drifts the multiplier, wrapped mod n because m and
 // m + n are the same map.
-import { positive, lever, pal, mix3, mul3, mix, mod, fract, TAU, PI }
-  from "../core/measure.mjs";
+import { positive, lever, pal, mix3, mul3, mix, mod, fract, TAU, PI, len2 } from "../core/measure.mjs";
 
 export default positive("modmul_pos", {
   mult:  lever("MULTIPLIER m", 1,  12,  0.01,  2),
@@ -39,7 +38,7 @@ export default positive("modmul_pos", {
 
   // hue reads either the residue index or the chord's length, blended
   // by the lever; brightness swells toward the chord's middle
-  const clen = Math.hypot(bx - ax, by - ay) * 0.5;
+  const clen = len2(bx - ax, by - ay) * 0.5;
   const byIdx = pal(j / n, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5],
                     [1.0, 1.0, 1.0], [0.0, 0.33, 0.67]);
   const byLen = pal(clen * 0.9, [0.52, 0.36, 0.30], [0.45, 0.36, 0.30],

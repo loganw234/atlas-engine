@@ -77,44 +77,45 @@ vec3 shape_qjulia_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
   float st_2 = sqrt(max(0.0, (1.0 - (ct_1 * ct_1))));
   float ph_3 = (TAU * q.y);
   pt = hashu(pt);
-  float rad_4 = (1.35 * pow(u2f(pt), 0.33333));
-  float x0_5 = ((st_2 * cos(ph_3)) * rad_4);
-  float y0_6 = (ct_1 * rad_4);
-  float z0_7 = ((st_2 * sin(ph_3)) * rad_4);
-  float K_8 = P[5];
-  float ob_9_x = x0_5;
-  float ob_9_y = y0_6;
-  float ob_9_z = z0_7;
-  float ob_9_w = P[4];
-  int ob_9_count = 0;
-  bool ob_9_esc = false;
-  for (int ok_10 = 0; ok_10 < 16; ok_10++) {
-    if (ok_10 >= li_iters) break;
-    if ((((((ob_9_x * ob_9_x) + (ob_9_y * ob_9_y)) + (ob_9_z * ob_9_z)) + (ob_9_w * ob_9_w)) > 16.0)) { ob_9_esc = true; break; }
-    float ob_9_t_11 = (((ob_9_x * ob_9_x) - ((((ob_9_y * ob_9_y) + (ob_9_z * ob_9_z)) + (ob_9_w * ob_9_w)))) + P[0]);
-    float ob_9_t_12 = (((2.0 * ob_9_x) * ob_9_y) + P[1]);
-    float ob_9_t_13 = (((2.0 * ob_9_x) * ob_9_z) + P[2]);
-    float ob_9_t_14 = (((2.0 * ob_9_x) * ob_9_w) + P[3]);
-    ob_9_x = ob_9_t_11;
-    ob_9_y = ob_9_t_12;
-    ob_9_z = ob_9_t_13;
-    ob_9_w = ob_9_t_14;
-    ob_9_count += 1;
+  float draw_4 = u2f(pt);
+  float rad_5 = (1.35 * pow(draw_4, 0.33333));
+  float x0_6 = ((st_2 * cos(ph_3)) * rad_5);
+  float y0_7 = (ct_1 * rad_5);
+  float z0_8 = ((st_2 * sin(ph_3)) * rad_5);
+  float K_9 = P[5];
+  float ob_10_x = x0_6;
+  float ob_10_y = y0_7;
+  float ob_10_z = z0_8;
+  float ob_10_w = P[4];
+  int ob_10_count = 0;
+  bool ob_10_esc = false;
+  for (int ok_11 = 0; ok_11 < 16; ok_11++) {
+    if (ok_11 >= li_iters) break;
+    if ((((((ob_10_x * ob_10_x) + (ob_10_y * ob_10_y)) + (ob_10_z * ob_10_z)) + (ob_10_w * ob_10_w)) > 16.0)) { ob_10_esc = true; break; }
+    float ob_10_t_12 = (((ob_10_x * ob_10_x) - ((((ob_10_y * ob_10_y) + (ob_10_z * ob_10_z)) + (ob_10_w * ob_10_w)))) + P[0]);
+    float ob_10_t_13 = (((2.0 * ob_10_x) * ob_10_y) + P[1]);
+    float ob_10_t_14 = (((2.0 * ob_10_x) * ob_10_z) + P[2]);
+    float ob_10_t_15 = (((2.0 * ob_10_x) * ob_10_w) + P[3]);
+    ob_10_x = ob_10_t_12;
+    ob_10_y = ob_10_t_13;
+    ob_10_z = ob_10_t_14;
+    ob_10_w = ob_10_t_15;
+    ob_10_count += 1;
   }
-  float q4_15 = ((((ob_9_x * ob_9_x) + (ob_9_y * ob_9_y)) + (ob_9_z * ob_9_z)) + (ob_9_w * ob_9_w));
-  float esc_16 = ((((q4_15 > 16.0))) ? ((float(ob_9_count) - 1.0)) : (-1.0));
-  if (((esc_16 >= 0.0) && (esc_16 < (P[6] * K_8)))) {
+  float q4_16 = ((((ob_10_x * ob_10_x) + (ob_10_y * ob_10_y)) + (ob_10_z * ob_10_z)) + (ob_10_w * ob_10_w));
+  float esc_17 = ((((q4_16 > 16.0))) ? ((float(ob_10_count) - 1.0)) : (-1.0));
+  if (((esc_17 >= 0.0) && (esc_17 < (P[6] * K_9)))) {
     col = vec3(0.0);
     return vec3(0.0, -20000.0, 0.0);
   }
-  float glow_17 = ((((esc_16 < 0.0))) ? 0.35 : 1.5);
-  float hue_18 = ((((esc_16 < 0.0))) ? (rad_4 * 0.45) : (esc_16 / K_8));
-  float dep_c_19 = (x0_5 * 0.95);
-  float dep_c_20 = (y0_6 * 0.95);
-  float dep_c_21 = (z0_7 * 0.95);
-  vec3 dep_col_22 = pal(((hue_18 * 0.6) + 0.12), vec3(0.42, 0.30, 0.50), vec3(0.45, 0.35, 0.40), vec3(1.0, 0.90, 0.70), vec3(0.78, 0.52, 0.18));
-  float dep_glow_23 = glow_17;
-  col = dep_col_22 * dep_glow_23;
-  return vec3(dep_c_19, dep_c_20, dep_c_21);
+  float glow_18 = ((((esc_17 < 0.0))) ? 0.35 : 1.5);
+  float hue_19 = ((((esc_17 < 0.0))) ? (rad_5 * 0.45) : (esc_17 / K_9));
+  float dep_c_20 = (x0_6 * 0.95);
+  float dep_c_21 = (y0_7 * 0.95);
+  float dep_c_22 = (z0_8 * 0.95);
+  vec3 dep_col_23 = pal(((hue_19 * 0.6) + 0.12), vec3(0.42, 0.30, 0.50), vec3(0.45, 0.35, 0.40), vec3(1.0, 0.90, 0.70), vec3(0.78, 0.52, 0.18));
+  float dep_glow_24 = glow_18;
+  col = dep_col_23 * dep_glow_24;
+  return vec3(dep_c_20, dep_c_21, dep_c_22);
 }`
 });

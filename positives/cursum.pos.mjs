@@ -8,7 +8,7 @@
 // deposits on that filament; density is literally time spent. KIND
 // picks the linear, quadratic, quadratic-plus-linear, or cubic
 // phase by seeding the differences.
-import { positive, lever, pal, fract, mix, TAU } from "../core/measure.mjs";
+import { positive, lever, pal, fract, mix, TAU, len2 } from "../core/measure.mjs";
 
 export default positive("cursum_pos", {
   kind:  lever("KIND",   0,    3,   1,      0),
@@ -68,7 +68,7 @@ export default positive("cursum_pos", {
   // the excursions without bending directions
   const wx = mix(o.px, o.sx, q.y) * (P.scale / (3.0 + Math.sqrt(LEN)));
   const wy = mix(o.py, o.sy, q.y) * (P.scale / (3.0 + Math.sqrt(LEN)));
-  const r = Math.hypot(wx, wy);
+  const r = len2(wx, wy);
   const soft = 1.0 / Math.sqrt(1.0 + (r / 1.35) * (r / 1.35));
   const nf = (Nf - 1.0 + q.y) / LEN;
 

@@ -97,17 +97,20 @@ vec3 shape_nested_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
   }
   int xu_15 = ((2 * wd_14_k) + (((lv_R_4 - 1) - wd_14_n)));
   pt = hashu(pt);
-  float jx_16 = (((u2f(pt) - 0.5)) * 1.88);
+  float draw_16 = u2f(pt);
+  float jx_17 = (((draw_16 - 0.5)) * 1.88);
   pt = hashu(pt);
-  float jy_17 = (((u2f(pt) - 0.5)) * 1.88);
-  float lv_18 = (float(wd_14_n) / float(lv_R_4));
-  float hue_19 = ((((p_2 == 2))) ? 0.0 : (float(((wd_14_v - 1))) / float(((p_2 - 1)))));
+  float draw_18 = u2f(pt);
+  float jy_19 = (((draw_18 - 0.5)) * 1.88);
+  float lv_20 = (float(wd_14_n) / float(lv_R_4));
+  float hue_21 = ((((p_2 == 2))) ? 0.0 : (float(((wd_14_v - 1))) / float(((p_2 - 1)))));
   pt = hashu(pt);
-  float z_20 = ((((u2f(hashu(wd_14_lin ^ uint(0))) - 0.5) + ((u2f(pt) - 0.5) * 0.3))) * P[5]);
-  vec2 dep_xy_21 = (((vec2(ivec2((xu_15 + 1), ((2 * wd_14_n) + 1)) - wc_10) + vec2(jx_16, jy_17)) * km_13) * vec2(1.0, -1.0));
-  float dep_z_22 = z_20;
-  vec3 dep_col_23 = stain_nested_pos(pal(((0.34 + ((0.45 * hue_19) * P[3])) + ((0.10 * lv_18) * P[4])), vec3(0.44, 0.52, 0.46), vec3(0.42, 0.48, 0.44), vec3(0.95, 1.0, 0.9), vec3(0.12, 0.40, 0.62)), (((P[7] - 0.5)) * 2.2));
-  float dep_glow_24 = (((0.5 + (1.4 * P[6]))) * ((1.0 - ((P[4] * 0.55) * ((1.0 - lv_18))))));
-  col = dep_col_23 * dep_glow_24;
-  return vec3(dep_xy_21.x, dep_xy_21.y, dep_z_22);
+  float draw_22 = u2f(pt) - 0.5;
+  float z_23 = ((((u2f(hashu(wd_14_lin ^ uint(0))) - 0.5) + (draw_22 * 0.3))) * P[5]);
+  vec2 dep_xy_24 = (((vec2(ivec2((xu_15 + 1), ((2 * wd_14_n) + 1)) - wc_10) + vec2(jx_17, jy_19)) * km_13) * vec2(1.0, -1.0));
+  float dep_z_25 = z_23;
+  vec3 dep_col_26 = stain_nested_pos(pal(((0.34 + ((0.45 * hue_21) * P[3])) + ((0.10 * lv_20) * P[4])), vec3(0.44, 0.52, 0.46), vec3(0.42, 0.48, 0.44), vec3(0.95, 1.0, 0.9), vec3(0.12, 0.40, 0.62)), (((P[7] - 0.5)) * 2.2));
+  float dep_glow_27 = (((0.5 + (1.4 * P[6]))) * ((1.0 - ((P[4] * 0.55) * ((1.0 - lv_20))))));
+  col = dep_col_26 * dep_glow_27;
+  return vec3(dep_xy_24.x, dep_xy_24.y, dep_z_25);
 }

@@ -96,8 +96,13 @@ Pure helpers (import what you use from `../core/measure.mjs`):
 - `TAU`, `PI`
 - `fract, mix, clamp, step, smoothstep, mod` - GLSL semantics
 - `Math.sin cos tan asin acos atan2 exp log pow sqrt abs min max floor
-  sign trunc hypot sinh cosh tanh round` (`Math.hypot(a,b)` emits
-  `length(vec2(a,b))`; `Math.round` emits `floor(x + 0.5)`)
+  sign trunc sinh cosh tanh round` (`Math.round` emits
+  `floor(x + 0.5)`)
+- `len2(x, y)`, `len3(x, y, z)` - GLSL `length()`. Use these, never
+  `Math.hypot`, which the emitter refuses: hypot scales to avoid
+  overflow and so answers more accurately than `length()` does, which
+  makes the two evaluators disagree in the last bits. `Math.sqrt(x*x +
+  y*y)` is the same thing spelled out and is equally fine.
 - `v2(x, y)` and vec2 methods `.x .y .scale(k) .flipY() .chebyshev()`
 - `v3(x,y,z), add3, mul3, mix3, dot3, cross3, normalize3, length3` -
   vec3s as values for `col` and `xyz`; componentwise scalar math is

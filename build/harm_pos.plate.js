@@ -87,14 +87,15 @@ vec3 shape_harm_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
   float f_13 = (0.30 * (((((w0_9 * Y20_5) + (w1_10 * Y32_6)) + (w2_11 * Y43_7)) + (w3_12 * Y55_8))));
   float r_14 = (0.58 + (P[5] * f_13));
   pt = hashu(pt);
-  r_14 = (r_14 * ((1.0 + (P[6] * (u2f(pt) - 0.5)))));
-  float rr_15 = (max(r_14, 0.03) * 1.05);
-  float dep_c_16 = ((st_2 * cos(ph_3)) * rr_15);
-  float dep_c_17 = (ct_1 * rr_15);
-  float dep_c_18 = ((st_2 * sin(ph_3)) * rr_15);
-  vec3 dep_col_19 = mix(vec3(0.22, 0.58, 1.0), vec3(1.0, 0.55, 0.20), step(0.0, f_13));
-  float dep_glow_20 = (0.20 + (1.6 * abs(f_13)));
-  col = dep_col_19 * dep_glow_20;
-  return vec3(dep_c_16, dep_c_17, dep_c_18);
+  float draw_15 = u2f(pt) - 0.5;
+  r_14 = (r_14 * ((1.0 + (P[6] * draw_15))));
+  float rr_16 = (max(r_14, 0.03) * 1.05);
+  float dep_c_17 = ((st_2 * cos(ph_3)) * rr_16);
+  float dep_c_18 = (ct_1 * rr_16);
+  float dep_c_19 = ((st_2 * sin(ph_3)) * rr_16);
+  vec3 dep_col_20 = mix(vec3(0.22, 0.58, 1.0), vec3(1.0, 0.55, 0.20), step(0.0, f_13));
+  float dep_glow_21 = (0.20 + (1.6 * abs(f_13)));
+  col = dep_col_20 * dep_glow_21;
+  return vec3(dep_c_17, dep_c_18, dep_c_19);
 }`
 });

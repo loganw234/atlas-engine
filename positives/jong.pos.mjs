@@ -3,7 +3,7 @@
 // onto de Jong's attractor; the state record carries the previous
 // point so depth (a Takens delay) and speed (the colour) fall out.
 // No chains: an attractor's invariant measure is a law, not a world.
-import { positive, lever, pal, clamp } from "../core/measure.mjs";
+import { positive, lever, pal, clamp, len2 } from "../core/measure.mjs";
 
 export default positive("jong_pos", {
   a:     lever("A",          -2.8, 2.8, 0.005,  1.40),
@@ -33,7 +33,7 @@ export default positive("jong_pos", {
     py: z.y,
   }));
 
-  const sp = Math.hypot(o.x - o.px, o.y - o.py);
+  const sp = len2(o.x - o.px, o.y - o.py);
   return s.deposit({
     xyz: [o.x * 0.62, o.y * 0.62, o.px * P.depth],
     col: pal(clamp(sp * 0.30, 0.0, 1.0),

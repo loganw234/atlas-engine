@@ -240,7 +240,10 @@ export function emitWalk(pos) {
   const err = (m, line) => { throw new Error(`emit: ${m}${line ? ` (line ${line})` : ""}`); };
 
   let vn = 0;
-  const fresh = (base) => `${base}_${++vn}`;
+  // GLSL reserves the gl_ prefix, so a walk variable named "gl" would
+  // emit gl_5 and fail at GPU link time only - emit and smoke are both
+  // CPU-side and would pass it through. Rename at the source.
+  const fresh = (base) => `${/^gl(_|$)/.test(base) ? "v" + base : base}_${++vn}`;
   const helpers = new Set();
 
   const leverIx = {};
@@ -568,10 +571,12 @@ export function emitWalk(pos) {
         err("Math.trunc is only in the subset as trunc(int / int)");
       }
       if (target.name === "hypot") {
-        const args = n.args.map(a => asFloat(emit(a)));
-        if (args.length === 2) return { type: "float", code: `length(vec2(${args.join(", ")}))` };
-        if (args.length === 3) return { type: "float", code: `length(vec3(${args.join(", ")}))` };
-        err("Math.hypot wants 2 or 3 arguments");
+        // Math.hypot scales its arguments to avoid overflow and is
+        // therefore MORE accurate than GLSL length(), which is the
+        // naive sqrt of a dot product. More accurate is wrong here:
+        // the CPU evaluator exists to say what the GPU says. Measured
+        // disagreement was 38% of argument pairs, worst 4.4e-16.
+        err("Math.hypot has no GLSL twin: say len2(x, y) or len3(x, y, z)");
       }
       const MAP = { max: "max", min: "min", abs: "abs", pow: "pow", sqrt: "sqrt",
                     floor: "floor", sin: "sin", cos: "cos", tan: "tan",

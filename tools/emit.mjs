@@ -13,6 +13,24 @@ if (!pos || pos.kind !== "positive") {
   process.exit(1);
 }
 const { glsl, plate } = emitPlate(pos);
+
+// Guard the emitted text against names the GPU will reject. Neither
+// emit nor smoke runs a GLSL compiler, so without this a reserved
+// identifier survives all the way to the browser gate, where it shows
+// up as a link failure with no line of walk source attached to it.
+// gl_Position and friends are the only lawful gl_ names here.
+{
+  const LAWFUL = new Set(["gl_Position", "gl_PointSize", "gl_VertexID", "gl_InstanceID"]);
+  const bad = new Set();
+  for (const m of glsl.matchAll(/gl_[A-Za-z0-9_]*/g)) if (!LAWFUL.has(m[0])) bad.add(m[0]);
+  // GLSL ES 3.0 keywords a generated name could collide with
+  const KEYWORDS = /(sample|input|output|filter|active|common|partition|class|union|enum|typedef|template|this|resource|goto|inline|noinline|public|static|extern|external|interface|long|short|half|fixed|unsigned|superp|namespace|using|sizeer|cast)_[0-9]+/g;
+  for (const m of glsl.matchAll(KEYWORDS)) bad.add(m[0]);
+  if (bad.size) {
+    console.error(`emit: ${pos.id} produced GLSL-reserved identifiers: ${[...bad].join(", ")}`);
+    process.exit(1);
+  }
+}
 const outDir = join(here, "..", "build");
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, pos.id + ".glsl"), glsl + "\n");

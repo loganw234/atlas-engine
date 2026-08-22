@@ -13,7 +13,7 @@
 // coin, each step draws the next, and last trails one behind so it
 // finishes on the vertex the final move actually used, exactly the
 // shader's last. One draw more than the plate in total; same law.
-import { positive, lever, pal, mix, mix3 } from "../core/measure.mjs";
+import { positive, lever, pal, mix, mix3, len3 } from "../core/measure.mjs";
 
 export default positive("ifs_pos", {
   verts: lever("VERTICES",     3,    8,    1,     4),
@@ -57,7 +57,7 @@ export default positive("ifs_pos", {
   }));
 
   // hue traces either the radius or the last symbolic address
-  const byRad = pal(Math.hypot(g.x, g.y, g.z) * 0.8,
+  const byRad = pal(len3(g.x, g.y, g.z) * 0.8,
                     [0.40, 0.50, 0.35], [0.35, 0.40, 0.30],
                     [1.0, 0.9, 0.8], [0.30, 0.15, 0.45]);
   const byAdr = pal(g.last / n, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5],

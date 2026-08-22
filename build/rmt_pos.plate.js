@@ -73,56 +73,61 @@ vec3 shape_rmt_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
   if ((ens_1 == 0.0)) {
     float Nf_7 = max(4.0, min(100.0, floor(P[1])));
     pt = hashu(pt);
-    float kf_8 = (1.0 + floor((u2f(pt) * Nf_7)));
-    float ob_9_i = 0.0;
-    float ob_9_acc = 0.0;
-    int ob_9_count = 0;
-    bool ob_9_esc = false;
-    for (int ok_10 = 0; ok_10 < 100; ok_10++) {
-      if ((ob_9_i >= kf_8)) { ob_9_esc = true; break; }
-      float ob_9_t_11 = (ob_9_i + 1.0);
+    float draw_8 = u2f(pt);
+    float kf_9 = (1.0 + floor((draw_8 * Nf_7)));
+    float ob_10_i = 0.0;
+    float ob_10_acc = 0.0;
+    int ob_10_count = 0;
+    bool ob_10_esc = false;
+    for (int ok_11 = 0; ok_11 < 100; ok_11++) {
+      if ((ob_10_i >= kf_9)) { ob_10_esc = true; break; }
+      float ob_10_t_12 = (ob_10_i + 1.0);
       pt = hashu(pt);
-      float ob_9_t_12 = (ob_9_acc - log(max(1.0e-6, u2f(pt))));
-      ob_9_i = ob_9_t_11;
-      ob_9_acc = ob_9_t_12;
-      ob_9_count += 1;
+      float draw_13 = u2f(pt);
+      float ob_10_t_14 = (ob_10_acc - log(max(1.0e-6, draw_13)));
+      ob_10_i = ob_10_t_12;
+      ob_10_acc = ob_10_t_14;
+      ob_10_count += 1;
     }
-    float rad_13 = sqrt((ob_9_acc / Nf_7));
-    float th_14 = (TAU * q.x);
-    px_3 = ((rad_13 * cos(th_14)) * scl_2);
+    float rad_15 = sqrt((ob_10_acc / Nf_7));
+    float th_16 = (TAU * q.x);
+    px_3 = ((rad_15 * cos(th_16)) * scl_2);
     pt = hashu(pt);
-    py_4 = ((u2f(pt) - 0.5) * 0.03);
-    pz_5 = ((rad_13 * sin(th_14)) * scl_2);
-    shade_6 = rad_13;
+    float draw_17 = u2f(pt) - 0.5;
+    py_4 = (draw_17 * 0.03);
+    pz_5 = ((rad_15 * sin(th_16)) * scl_2);
+    shade_6 = rad_15;
   } else {
     if ((ens_1 == 1.0)) {
-      float x_15 = ((2.0 * q.x) - 1.0);
-      float rho_16 = (((2.0 / PI)) * sqrt(max(0.0, (1.0 - (x_15 * x_15)))));
-      px_3 = ((x_15 * 1.35) * scl_2);
-      py_4 = (((((q.y - 0.5)) * 2.0) * rho_16) * P[4]);
+      float x_18 = ((2.0 * q.x) - 1.0);
+      float rho_19 = (((2.0 / PI)) * sqrt(max(0.0, (1.0 - (x_18 * x_18)))));
+      px_3 = ((x_18 * 1.35) * scl_2);
+      py_4 = (((((q.y - 0.5)) * 2.0) * rho_19) * P[4]);
       pt = hashu(pt);
-      pz_5 = ((u2f(pt) - 0.5) * 0.04);
-      shade_6 = rho_16;
+      float draw_20 = u2f(pt) - 0.5;
+      pz_5 = (draw_20 * 0.04);
+      shade_6 = rho_19;
     } else {
-      float g_17 = clamp(P[2], 0.05, 1.0);
-      float sg_18 = sqrt(g_17);
-      float lm_19 = (((1.0 - sg_18)) * ((1.0 - sg_18)));
-      float lp_20 = (((1.0 + sg_18)) * ((1.0 + sg_18)));
-      float x_21 = mix(lm_19, lp_20, q.x);
-      float rho_22 = (sqrt(max(0.0, (((lp_20 - x_21)) * ((x_21 - lm_19))))) / (((TAU * g_17) * max(x_21, 1.0e-3))));
-      px_3 = ((((x_21 - (0.5 * ((lp_20 + lm_19))))) * 0.9) * scl_2);
-      py_4 = (((((q.y - 0.5)) * 2.0) * rho_22) * P[4]);
+      float g_21 = clamp(P[2], 0.05, 1.0);
+      float sg_22 = sqrt(g_21);
+      float lm_23 = (((1.0 - sg_22)) * ((1.0 - sg_22)));
+      float lp_24 = (((1.0 + sg_22)) * ((1.0 + sg_22)));
+      float x_25 = mix(lm_23, lp_24, q.x);
+      float rho_26 = (sqrt(max(0.0, (((lp_24 - x_25)) * ((x_25 - lm_23))))) / (((TAU * g_21) * max(x_25, 1.0e-3))));
+      px_3 = ((((x_25 - (0.5 * ((lp_24 + lm_23))))) * 0.9) * scl_2);
+      py_4 = (((((q.y - 0.5)) * 2.0) * rho_26) * P[4]);
       pt = hashu(pt);
-      pz_5 = ((u2f(pt) - 0.5) * 0.04);
-      shade_6 = rho_22;
+      float draw_27 = u2f(pt) - 0.5;
+      pz_5 = (draw_27 * 0.04);
+      shade_6 = rho_26;
     }
   }
-  float dep_c_23 = px_3;
-  float dep_c_24 = py_4;
-  float dep_c_25 = pz_5;
-  vec3 dep_col_26 = pal(((clamp(shade_6, 0.0, 1.0) * 0.7) + 0.1), vec3(0.5, 0.45, 0.5), vec3(0.5, 0.45, 0.45), vec3(1.0, 0.95, 0.9), vec3(0.1, 0.25, 0.5));
-  float dep_glow_27 = (0.45 + (0.85 * P[5]));
-  col = dep_col_26 * dep_glow_27;
-  return vec3(dep_c_23, dep_c_24, dep_c_25);
+  float dep_c_28 = px_3;
+  float dep_c_29 = py_4;
+  float dep_c_30 = pz_5;
+  vec3 dep_col_31 = pal(((clamp(shade_6, 0.0, 1.0) * 0.7) + 0.1), vec3(0.5, 0.45, 0.5), vec3(0.5, 0.45, 0.45), vec3(1.0, 0.95, 0.9), vec3(0.1, 0.25, 0.5));
+  float dep_glow_32 = (0.45 + (0.85 * P[5]));
+  col = dep_col_31 * dep_glow_32;
+  return vec3(dep_c_28, dep_c_29, dep_c_30);
 }`
 });

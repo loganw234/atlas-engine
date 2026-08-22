@@ -9,7 +9,7 @@
 // use, the ifs coin pattern: the init draws the first, each step
 // spends its predecessor and draws the next. One draw more than the
 // plate in total; same law.
-import { positive, lever, pal, TAU } from "../core/measure.mjs";
+import { positive, lever, pal, TAU, len2 } from "../core/measure.mjs";
 
 export default positive("penrose_pos", {
   sym:   lever("SYMMETRY",  5,   12,  1,    5),
@@ -52,7 +52,7 @@ export default positive("penrose_pos", {
   // hue is the internal bearing; the hidden coordinate lifts into z
   return s.deposit({
     xyz: [o.px * P.scale * 0.16, o.py * P.scale * 0.16,
-          Math.hypot(o.ix, o.iy) * P.lift],
+          len2(o.ix, o.iy) * P.lift],
     col: pal(Math.atan2(o.iy, o.ix) / TAU + 0.5, [0.5, 0.5, 0.5],
              [0.5, 0.5, 0.5], [1.0, 1.0, 1.0], [0.0, 0.33, 0.67]),
     glow: 0.5 + 0.7 * P.glow,

@@ -10,8 +10,7 @@
 // sharing one step length; the after-loop residual test recomputes
 // them once more as bound constants, exactly as the shader calls the
 // helper one last time.
-import { positive, lever, mix, clamp, mix3, mul3, v3, PI, TAU }
-  from "../core/measure.mjs";
+import { positive, lever, mix, clamp, mix3, mul3, v3, PI, TAU, len2 } from "../core/measure.mjs";
 
 export default positive("dipole_pos", {
   range:    lever("RANGE",        4,  14, 0.1,  9),
@@ -128,7 +127,7 @@ export default positive("dipole_pos", {
 
   // sign of the level in two complementary hues; |grad F| heats the
   // near zone where the loops are being made
-  const gm = Math.hypot(gr, gth);
+  const gm = len2(gr, gth);
   const heat = 1.0 - Math.exp(-0.8 * gm);
   let colv = v3(1.0, 0.60, 0.30);
   if (cj > 0.0) {

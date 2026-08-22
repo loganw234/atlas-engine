@@ -12,8 +12,7 @@
 // dv/nl and log(nl + 1e-9). The state update keeps the shader's
 // sequencing exactly: p advances with the old theta, theta advances
 // with the new p (written as fract(th + fract(p + ...))).
-import { positive, lever, mix3, mul3, mix, clamp, smoothstep, fract, TAU }
-  from "../core/measure.mjs";
+import { positive, lever, mix3, mul3, mix, clamp, smoothstep, fract, TAU, len2 } from "../core/measure.mjs";
 
 export default positive("stdmap_pos", {
   kick:     lever("KICK K",       0,   6,   0.005, 0.97),
@@ -32,7 +31,7 @@ export default positive("stdmap_pos", {
   const jt = s.jitter2();
   const ex = jt.x + 1.0e-3;
   const ey = jt.y + 7.0e-4;
-  const en = Math.hypot(ex, ey);
+  const en = len2(ex, ey);
 
   // rotor and tangent in one record; acc collects log of the growth
   const o = s.orbit(P.iters,
@@ -40,13 +39,13 @@ export default positive("stdmap_pos", {
     th: fract(z.th + fract(z.p + (K / TAU) * Math.sin(TAU * z.th))),
     p: fract(z.p + (K / TAU) * Math.sin(TAU * z.th)),
     ux: (z.ux + (z.uy + K * Math.cos(TAU * z.th) * z.ux))
-      / Math.hypot(z.ux + (z.uy + K * Math.cos(TAU * z.th) * z.ux),
+      / len2(z.ux + (z.uy + K * Math.cos(TAU * z.th) * z.ux),
                    z.uy + K * Math.cos(TAU * z.th) * z.ux),
     uy: (z.uy + K * Math.cos(TAU * z.th) * z.ux)
-      / Math.hypot(z.ux + (z.uy + K * Math.cos(TAU * z.th) * z.ux),
+      / len2(z.ux + (z.uy + K * Math.cos(TAU * z.th) * z.ux),
                    z.uy + K * Math.cos(TAU * z.th) * z.ux),
     acc: z.acc + Math.log(
-           Math.hypot(z.ux + (z.uy + K * Math.cos(TAU * z.th) * z.ux),
+           len2(z.ux + (z.uy + K * Math.cos(TAU * z.th) * z.ux),
                       z.uy + K * Math.cos(TAU * z.th) * z.ux) + 1.0e-9),
   }));
   const ftle = o.acc / P.iters;

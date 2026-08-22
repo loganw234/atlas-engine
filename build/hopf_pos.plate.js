@@ -80,8 +80,9 @@ vec3 shape_hopf_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
   float dep_c_22 = ((rz_17 / d_19) * P[4]);
   vec3 dep_col_23 = pal(along_1, vec3(0.5, 0.5, 0.5), vec3(0.5, 0.5, 0.5), vec3(1.0, 1.0, 1.0), vec3(0.0, 0.33, 0.67));
   pt = hashu(pt);
-  float dep_glow_24 = (0.8 + (0.4 * u2f(pt)));
-  col = dep_col_23 * dep_glow_24;
+  float draw_24 = u2f(pt);
+  float dep_glow_25 = (0.8 + (0.4 * draw_24));
+  col = dep_col_23 * dep_glow_25;
   return vec3(dep_c_20, dep_c_21, dep_c_22);
 }`
 });

@@ -1,0 +1,305 @@
+vec3 shape_halo_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
+  uint pt = hashu(seed ^ hashu(floatBitsToUint(q.x))
+                       ^ hashu(floatBitsToUint(q.y) * 2533637179u));
+  pt = hashu(pt ^ floatBitsToUint(rnd.x));
+  float omode_1 = floor((P[0] + 0.5));
+  float fmode_2 = floor((P[1] + 0.5));
+  float wob_3 = P[2];
+  float alt_4 = (((PI / 180.0)) * clamp(P[3], 0.0, 89.0));
+  float dsp_5 = P[4];
+  float glow_6 = P[5];
+  float sdx_7 = 0.0;
+  float sdy_8 = sin(alt_4);
+  float sdz_9 = (-cos(alt_4));
+  float lx_10 = (-sdx_7);
+  float ly_11 = (-sdy_8);
+  float lz_12 = (-sdz_9);
+  pt = hashu(pt);
+  float draw_13 = u2f(pt);
+  float g0_14 = draw_13;
+  float px_15 = 0.0;
+  float py_16 = 0.0;
+  float pz_17 = 0.0;
+  float cr_18 = 0.0;
+  float cg_19 = 0.0;
+  float cb_20 = 0.0;
+  if ((g0_14 < 0.015)) {
+    float tvx_21 = 0.0;
+    float tvy_22 = 0.0;
+    float tvz_23 = 0.0;
+    if ((abs(sdz_9) < 0.9)) {
+      tvx_21 = 0.0;
+      tvy_22 = 0.0;
+      tvz_23 = 1.0;
+    } else {
+      tvx_21 = 1.0;
+      tvy_22 = 0.0;
+      tvz_23 = 0.0;
+    }
+    float kx_24 = (((sdy_8 * tvz_23) - (sdz_9 * tvy_22)) + 1.0e-9);
+    float ky_25 = (((sdz_9 * tvx_21) - (sdx_7 * tvz_23)) + 1.0e-9);
+    float kz_26 = (((sdx_7 * tvy_22) - (sdy_8 * tvx_21)) + 1.0e-9);
+    float kl_27 = length(vec3(kx_24, ky_25, kz_26));
+    float uax_28 = (kx_24 / kl_27);
+    float uay_29 = (ky_25 / kl_27);
+    float uaz_30 = (kz_26 / kl_27);
+    float ubx_31 = ((sdy_8 * uaz_30) - (sdz_9 * uay_29));
+    float uby_32 = ((sdz_9 * uax_28) - (sdx_7 * uaz_30));
+    float ubz_33 = ((sdx_7 * uay_29) - (sdy_8 * uax_28));
+    float rr_34 = ((((PI / 180.0)) * 0.6) * sqrt(q.x));
+    float ap_35 = (TAU * q.y);
+    float ca_36 = cos(ap_35);
+    float sa_37 = sin(ap_35);
+    float tr_38 = tan(rr_34);
+    float dx_39 = ((sdx_7 + ((((uax_28 * ca_36) + (ubx_31 * sa_37))) * tr_38)) + 1.0e-9);
+    float dy_40 = ((sdy_8 + ((((uay_29 * ca_36) + (uby_32 * sa_37))) * tr_38)) + 1.0e-9);
+    float dz_41 = ((sdz_9 + ((((uaz_30 * ca_36) + (ubz_33 * sa_37))) * tr_38)) + 1.0e-9);
+    float dl_42 = length(vec3(dx_39, dy_40, dz_41));
+    px_15 = (1.3 * ((dx_39 / dl_42)));
+    py_16 = (1.3 * ((dy_40 / dl_42)));
+    pz_17 = (1.3 * ((dz_41 / dl_42)));
+    cr_18 = (0.022 * ((0.5 + glow_6)));
+    cg_19 = (0.021 * ((0.5 + glow_6)));
+    cb_20 = (0.017 * ((0.5 + glow_6)));
+  } else {
+    float cax_43 = 0.0;
+    float cay_44 = 0.0;
+    float caz_45 = 0.0;
+    if ((omode_1 == 0.0)) {
+      pt = hashu(pt);
+      float draw_46 = u2f(pt);
+      float uz_47 = draw_46;
+      pt = hashu(pt);
+      float draw_48 = u2f(pt);
+      float ua_49 = draw_48;
+      float z_50 = ((2.0 * uz_47) - 1.0);
+      float az_51 = (TAU * ua_49);
+      float rr_52 = sqrt(max((1.0 - (z_50 * z_50)), 0.0));
+      cax_43 = (rr_52 * cos(az_51));
+      cay_44 = z_50;
+      caz_45 = (rr_52 * sin(az_51));
+    } else {
+      float bsx_53 = 0.0;
+      float bsy_54 = 0.0;
+      float bsz_55 = 0.0;
+      if ((omode_1 == 1.0)) {
+        bsx_53 = 0.0;
+        bsy_54 = 1.0;
+        bsz_55 = 0.0;
+      } else {
+        pt = hashu(pt);
+        float draw_56 = u2f(pt);
+        float uh_57 = draw_56;
+        float ha_58 = (TAU * uh_57);
+        bsx_53 = cos(ha_58);
+        bsy_54 = 0.0;
+        bsz_55 = sin(ha_58);
+      }
+      float tvx_59 = 0.0;
+      float tvy_60 = 0.0;
+      float tvz_61 = 0.0;
+      if ((abs(bsz_55) < 0.9)) {
+        tvx_59 = 0.0;
+        tvy_60 = 0.0;
+        tvz_61 = 1.0;
+      } else {
+        tvx_59 = 1.0;
+        tvy_60 = 0.0;
+        tvz_61 = 0.0;
+      }
+      float kx_62 = (((bsy_54 * tvz_61) - (bsz_55 * tvy_60)) + 1.0e-9);
+      float ky_63 = (((bsz_55 * tvx_59) - (bsx_53 * tvz_61)) + 1.0e-9);
+      float kz_64 = (((bsx_53 * tvy_60) - (bsy_54 * tvx_59)) + 1.0e-9);
+      float kl_65 = length(vec3(kx_62, ky_63, kz_64));
+      float wax_66 = (kx_62 / kl_65);
+      float way_67 = (ky_63 / kl_65);
+      float waz_68 = (kz_64 / kl_65);
+      float wbx_69 = ((bsy_54 * waz_68) - (bsz_55 * way_67));
+      float wby_70 = ((bsz_55 * wax_66) - (bsx_53 * waz_68));
+      float wbz_71 = ((bsx_53 * way_67) - (bsy_54 * wax_66));
+      pt = hashu(pt);
+      float draw_72 = u2f(pt);
+      float n1_73 = max(draw_72, 1.0e-7);
+      pt = hashu(pt);
+      float draw_74 = u2f(pt);
+      float n2_75 = draw_74;
+      float gs_76 = (sqrt(((-2.0) * log(n1_73))) * cos((TAU * n2_75)));
+      float tl_77 = clamp(((((PI / 180.0)) * wob_3) * gs_76), (-0.6), 0.6);
+      pt = hashu(pt);
+      float draw_78 = u2f(pt);
+      float uw_79 = draw_78;
+      float wz_80 = (TAU * uw_79);
+      float ctl_81 = cos(tl_77);
+      float stl_82 = sin(tl_77);
+      float cwz_83 = cos(wz_80);
+      float swz_84 = sin(wz_80);
+      float mx_85 = (((bsx_53 * ctl_81) + ((((wax_66 * cwz_83) + (wbx_69 * swz_84))) * stl_82)) + 1.0e-9);
+      float my_86 = (((bsy_54 * ctl_81) + ((((way_67 * cwz_83) + (wby_70 * swz_84))) * stl_82)) + 1.0e-9);
+      float mz_87 = (((bsz_55 * ctl_81) + ((((waz_68 * cwz_83) + (wbz_71 * swz_84))) * stl_82)) + 1.0e-9);
+      float ml_88 = length(vec3(mx_85, my_86, mz_87));
+      cax_43 = (mx_85 / ml_88);
+      cay_44 = (my_86 / ml_88);
+      caz_45 = (mz_87 / ml_88);
+    }
+    float tvx_89 = 0.0;
+    float tvy_90 = 0.0;
+    float tvz_91 = 0.0;
+    if ((abs(caz_45) < 0.9)) {
+      tvx_89 = 0.0;
+      tvy_90 = 0.0;
+      tvz_91 = 1.0;
+    } else {
+      tvx_89 = 1.0;
+      tvy_90 = 0.0;
+      tvz_91 = 0.0;
+    }
+    float kx_92 = (((cay_44 * tvz_91) - (caz_45 * tvy_90)) + 1.0e-9);
+    float ky_93 = (((caz_45 * tvx_89) - (cax_43 * tvz_91)) + 1.0e-9);
+    float kz_94 = (((cax_43 * tvy_90) - (cay_44 * tvx_89)) + 1.0e-9);
+    float kl_95 = length(vec3(kx_92, ky_93, kz_94));
+    float e1x_96 = (kx_92 / kl_95);
+    float e1y_97 = (ky_93 / kl_95);
+    float e1z_98 = (kz_94 / kl_95);
+    float e2x_99 = ((cay_44 * e1z_98) - (caz_45 * e1y_97));
+    float e2y_100 = ((caz_45 * e1x_96) - (cax_43 * e1z_98));
+    float e2z_101 = ((cax_43 * e1y_97) - (cay_44 * e1x_96));
+    float psi_102 = (TAU * q.x);
+    float cp_103 = cos(psi_102);
+    float sp_104 = sin(psi_102);
+    float cq_105 = cos((psi_102 + 2.09439510));
+    float sq_106 = sin((psi_102 + 2.09439510));
+    float f0x_107 = ((e1x_96 * cp_103) + (e2x_99 * sp_104));
+    float f0y_108 = ((e1y_97 * cp_103) + (e2y_100 * sp_104));
+    float f0z_109 = ((e1z_98 * cp_103) + (e2z_101 * sp_104));
+    float f2x_110 = ((e1x_96 * cq_105) + (e2x_99 * sq_106));
+    float f2y_111 = ((e1y_97 * cq_105) + (e2y_100 * sq_106));
+    float f2z_112 = ((e1z_98 * cq_105) + (e2z_101 * sq_106));
+    float use90_113 = 0.0;
+    if ((fmode_2 == 0.0)) {
+      use90_113 = 0.0;
+    } else {
+      if ((fmode_2 == 1.0)) {
+        use90_113 = 1.0;
+      } else {
+        pt = hashu(pt);
+        float draw_114 = u2f(pt);
+        float u4_115 = draw_114;
+        use90_113 = ((((u4_115 < 0.30))) ? 1.0 : 0.0);
+      }
+    }
+    float F1x_116 = f0x_107;
+    float F1y_117 = f0y_108;
+    float F1z_118 = f0z_109;
+    float F2x_119 = f2x_110;
+    float F2y_120 = f2y_111;
+    float F2z_121 = f2z_112;
+    if ((use90_113 == 1.0)) {
+      pt = hashu(pt);
+      float draw_122 = u2f(pt);
+      float u5_123 = draw_122;
+      float sg_124 = ((((u5_123 < 0.5))) ? 1.0 : (-1.0));
+      F2x_119 = (cax_43 * sg_124);
+      F2y_120 = (cay_44 * sg_124);
+      F2z_121 = (caz_45 * sg_124);
+    }
+    pt = hashu(pt);
+    float draw_125 = u2f(pt);
+    float u6_126 = draw_125;
+    if ((u6_126 < 0.5)) {
+      float swx_127 = F1x_116;
+      float swy_128 = F1y_117;
+      float swz_129 = F1z_118;
+      F1x_116 = F2x_119;
+      F1y_117 = F2y_120;
+      F1z_118 = F2z_121;
+      F2x_119 = swx_127;
+      F2y_120 = swy_128;
+      F2z_121 = swz_129;
+    }
+    float d1_130 = dot(vec3(lx_10, ly_11, lz_12), vec3(F1x_116, F1y_117, F1z_118));
+    if ((d1_130 > 0.0)) {
+      F1x_116 = (-F1x_116);
+      F1y_117 = (-F1y_117);
+      F1z_118 = (-F1z_118);
+      F2x_119 = (-F2x_119);
+      F2y_120 = (-F2y_120);
+      F2z_121 = (-F2z_121);
+    }
+    float d2_131 = dot(vec3(lx_10, ly_11, lz_12), vec3(F1x_116, F1y_117, F1z_118));
+    if ((d2_131 > (-1.0e-4))) {
+      col = vec3(0.0);
+      return vec3(0.0, -20000.0, 0.0);
+    }
+    float lt_132 = q.y;
+    float lam_133 = mix(400.0, 700.0, lt_132);
+    float n_134 = (1.3006667 + (2613.34 / max((lam_133 * lam_133), 1.0)));
+    n_134 = max((1.31 + (((n_134 - 1.31)) * dsp_5)), 1.02);
+    float eta1_135 = (1.0 / n_134);
+    float N1x_136 = F1x_116;
+    float N1y_137 = F1y_117;
+    float N1z_138 = F1z_118;
+    if ((dot(vec3(F1x_116, F1y_117, F1z_118), vec3(lx_10, ly_11, lz_12)) > 0.0)) {
+      N1x_136 = (-F1x_116);
+      N1y_137 = (-F1y_117);
+      N1z_138 = (-F1z_118);
+    }
+    float c11_139 = (-dot(vec3(N1x_136, N1y_137, N1z_138), vec3(lx_10, ly_11, lz_12)));
+    float k1_140 = (1.0 - ((eta1_135 * eta1_135) * ((1.0 - (c11_139 * c11_139)))));
+    if ((k1_140 < 0.0)) {
+      col = vec3(0.0);
+      return vec3(0.0, -20000.0, 0.0);
+    }
+    float c21_141 = sqrt(max(k1_140, 0.0));
+    float b1_142 = ((eta1_135 * c11_139) - c21_141);
+    float t1x_143 = ((eta1_135 * lx_10) + (b1_142 * N1x_136));
+    float t1y_144 = ((eta1_135 * ly_11) + (b1_142 * N1y_137));
+    float t1z_145 = ((eta1_135 * lz_12) + (b1_142 * N1z_138));
+    if ((dot(vec3(t1x_143, t1y_144, t1z_145), vec3(F2x_119, F2y_120, F2z_121)) <= 1.0e-4)) {
+      col = vec3(0.0);
+      return vec3(0.0, -20000.0, 0.0);
+    }
+    float N2x_146 = F2x_119;
+    float N2y_147 = F2y_120;
+    float N2z_148 = F2z_121;
+    if ((dot(vec3(F2x_119, F2y_120, F2z_121), vec3(t1x_143, t1y_144, t1z_145)) > 0.0)) {
+      N2x_146 = (-F2x_119);
+      N2y_147 = (-F2y_120);
+      N2z_148 = (-F2z_121);
+    }
+    float c12_149 = (-dot(vec3(N2x_146, N2y_147, N2z_148), vec3(t1x_143, t1y_144, t1z_145)));
+    float k2_150 = (1.0 - ((n_134 * n_134) * ((1.0 - (c12_149 * c12_149)))));
+    if ((k2_150 < 0.0)) {
+      col = vec3(0.0);
+      return vec3(0.0, -20000.0, 0.0);
+    }
+    float c22_151 = sqrt(max(k2_150, 0.0));
+    float b2_152 = ((n_134 * c12_149) - c22_151);
+    float t2x_153 = ((n_134 * t1x_143) + (b2_152 * N2x_146));
+    float t2y_154 = ((n_134 * t1y_144) + (b2_152 * N2y_147));
+    float t2z_155 = ((n_134 * t1z_145) + (b2_152 * N2z_148));
+    float gx_156 = (t2x_153 + 1.0e-9);
+    float gy_157 = (t2y_154 + 1.0e-9);
+    float gz_158 = (t2z_155 + 1.0e-9);
+    float vgl_159 = length(vec3(gx_156, gy_157, gz_158));
+    px_15 = (1.3 * ((-((gx_156 / vgl_159)))));
+    py_16 = (1.3 * ((-((gy_157 / vgl_159)))));
+    pz_17 = (1.3 * ((-((gz_158 / vgl_159)))));
+    float w_160 = (-d2_131);
+    float lc_161 = clamp(lt_132, 0.0, 1.0);
+    float hr_162 = (smoothstep(0.42, 0.64, lc_161) + (0.26 * ((1.0 - smoothstep(0.0, 0.20, lc_161)))));
+    float hg_163 = (smoothstep(0.12, 0.38, lc_161) * ((1.0 - smoothstep(0.62, 0.90, lc_161))));
+    float hb_164 = (1.0 - smoothstep(0.24, 0.48, lc_161));
+    float hw_165 = (0.60 + (0.40 * smoothstep(0.0, 0.12, lc_161)));
+    float e1c_166 = (0.35 + (0.85 * glow_6));
+    float e2c_167 = (0.35 + (0.90 * w_160));
+    cr_18 = (((hr_162 * hw_165) * e1c_166) * e2c_167);
+    cg_19 = (((hg_163 * hw_165) * e1c_166) * e2c_167);
+    cb_20 = (((hb_164 * hw_165) * e1c_166) * e2c_167);
+  }
+  float dep_c_168 = px_15;
+  float dep_c_169 = py_16;
+  float dep_c_170 = pz_17;
+  vec3 dep_col_171 = vec3(cr_18, cg_19, cb_20);
+  col = dep_col_171;
+  return vec3(dep_c_168, dep_c_169, dep_c_170);
+}

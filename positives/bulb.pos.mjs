@@ -7,7 +7,7 @@
 // single expressions, so the radius, the two angles and the power all
 // recompute inside each coordinate where the shader bound them once,
 // value-identical at every site.
-import { positive, lever, pal, mul3, clamp, TAU } from "../core/measure.mjs";
+import { positive, lever, pal, mul3, clamp, TAU, len3 } from "../core/measure.mjs";
 
 export default positive("bulb_pos", {
   power: lever("POWER n",     2,  12,  0.05,  8),
@@ -48,15 +48,15 @@ export default positive("bulb_pos", {
   // for escape past radius 2 before each step, exactly the shader's
   // order (budget break, then escape, then update)
   const o = s.orbit(P.iters, { x: zx0, y: zy0, z: zz0 }, (z) => ({
-    x: Math.pow(Math.hypot(z.x, z.y, z.z), power)
-       * Math.sin(Math.acos(clamp(z.y / Math.max(Math.hypot(z.x, z.y, z.z), 1.0e-6), -1.0, 1.0)) * power)
+    x: Math.pow(len3(z.x, z.y, z.z), power)
+       * Math.sin(Math.acos(clamp(z.y / Math.max(len3(z.x, z.y, z.z), 1.0e-6), -1.0, 1.0)) * power)
        * Math.cos(Math.atan2(z.z, z.x) * power) + ccx,
-    y: Math.pow(Math.hypot(z.x, z.y, z.z), power)
-       * Math.cos(Math.acos(clamp(z.y / Math.max(Math.hypot(z.x, z.y, z.z), 1.0e-6), -1.0, 1.0)) * power) + ccy,
-    z: Math.pow(Math.hypot(z.x, z.y, z.z), power)
-       * Math.sin(Math.acos(clamp(z.y / Math.max(Math.hypot(z.x, z.y, z.z), 1.0e-6), -1.0, 1.0)) * power)
+    y: Math.pow(len3(z.x, z.y, z.z), power)
+       * Math.cos(Math.acos(clamp(z.y / Math.max(len3(z.x, z.y, z.z), 1.0e-6), -1.0, 1.0)) * power) + ccy,
+    z: Math.pow(len3(z.x, z.y, z.z), power)
+       * Math.sin(Math.acos(clamp(z.y / Math.max(len3(z.x, z.y, z.z), 1.0e-6), -1.0, 1.0)) * power)
        * Math.sin(Math.atan2(z.z, z.x) * power) + ccz,
-  }), { until: (z) => Math.hypot(z.x, z.y, z.z) > 2.0 });
+  }), { until: (z) => len3(z.x, z.y, z.z) > 2.0 });
 
   // esc is the step count at escape, -1 for the trapped
   const esc = o.escaped ? o.count : -1;

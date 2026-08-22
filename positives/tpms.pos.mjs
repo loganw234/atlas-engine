@@ -8,7 +8,7 @@
 // binds intermediates (f, the gradient, the shared denominator), which
 // an orbit step cannot, so the four bounded iterations are written out
 // as four guarded stanzas, each the shader's loop body verbatim.
-import { positive, lever, TAU } from "../core/measure.mjs";
+import { positive, lever, TAU, len3 } from "../core/measure.mjs";
 
 export default positive("tpms_pos", {
   surface: lever("SURFACE",      0,    3,   1,    0),
@@ -215,7 +215,7 @@ export default positive("tpms_pos", {
     : (sf == 1.0) ? Math.cos(px) + Math.cos(py) + Math.cos(pz - e)
     : (sf == 2.0) ? Math.cos(px) * Math.cos(py) * Math.cos(pz - e) - Math.sin(px) * Math.sin(py) * Math.sin(pz - e)
     : 3.0 * (Math.cos(px) + Math.cos(py) + Math.cos(pz - e)) + 4.0 * Math.cos(px) * Math.cos(py) * Math.cos(pz - e)) - level)) / (2.0 * e) + 1.0e-5;
-  const nl = Math.hypot(ngx, ngy, ngz);
+  const nl = len3(ngx, ngy, ngz);
 
   return s.deposit({
     xyz: [wx, wy, wz],

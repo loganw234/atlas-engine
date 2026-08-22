@@ -6,7 +6,7 @@
 // on the rim), the trammel of Archimedes (astroid), and chords of a
 // circle. A pure coordinate map: q.y picks the ray, q.x walks along
 // it, and no draw is ever made.
-import { positive, lever, pal, mul3, mix, TAU, PI } from "../core/measure.mjs";
+import { positive, lever, pal, mul3, mix, TAU, PI, len2 } from "../core/measure.mjs";
 
 export default positive("caustic_pos", {
   family: lever("FAMILY",     0,   2,   1,    0),
@@ -31,10 +31,10 @@ export default positive("caustic_pos", {
     const ay = Math.sin(theta);
     const dsx = ax + 1.0 + 1.0e-4;
     const dsy = ay + 1.0e-4;
-    const dl = Math.hypot(dsx, dsy);
+    const dl = len2(dsx, dsy);
     const mx = mix(-1.0, dsx / dl, src);
     const my = mix(0.0, dsy / dl, src);
-    const ml = Math.hypot(mx, my);
+    const ml = len2(mx, my);
     const dinx = mx / ml;
     const diny = my / ml;
     // the interior normal is -A; reflect, then walk RAY LENGTH along

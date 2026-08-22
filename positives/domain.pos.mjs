@@ -8,7 +8,7 @@
 // header's own. The wp lattice double loop becomes one orbit over the
 // 25 cells, the origin skipped by value, accumulating real and
 // imaginary parts as two fields in the shader's own m-major order.
-import { positive, lever, pal, fract, clamp, cmul, cdiv, cinv, v2, TAU, PI } from "../core/measure.mjs";
+import { positive, lever, pal, fract, clamp, cmul, cdiv, cinv, v2, TAU, PI, len2 } from "../core/measure.mjs";
 
 export default positive("domain_pos", {
   fn:       lever("FUNCTION",  0,   3,   1,    0),
@@ -79,7 +79,7 @@ export default positive("domain_pos", {
     // t = z + 7.5, then t^(z + 1/2) as cexp(cmul(e, clog(t)))
     const tzx = gx + 7.5;
     const tzy = gy;
-    const lgr = Math.log(Math.hypot(tzx, tzy) + 1.0e-30);
+    const lgr = Math.log(len2(tzx, tzy) + 1.0e-30);
     const lgi = Math.atan2(tzy, tzx);
     const pw = cmul(v2(gx + 0.5, gy), v2(lgr, lgi));
     const pe = Math.exp(pw.x);
@@ -123,7 +123,7 @@ export default positive("domain_pos", {
 
   // height is log magnitude clamped, hue is the argument, and the
   // contour bands cycle in log|f|
-  const mag = Math.hypot(wr, wi);
+  const mag = len2(wr, wi);
   const arg = Math.atan2(wi, wr);
   const hh = clamp(Math.log(mag + 1.0e-4), -4.0, 4.0) * P.relief;
   const hue = arg / TAU + 0.5;

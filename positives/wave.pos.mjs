@@ -5,8 +5,7 @@
 // to the point appear inlined several times inside the sum's term:
 // the subset gives an arrow no bindings, and the repeats are the same
 // pure expression, so both evaluators agree value for value.
-import { positive, lever, TAU, sum, clamp, mix3, mul3 }
-  from "../core/measure.mjs";
+import { positive, lever, TAU, sum, clamp, mix3, mul3, len2 } from "../core/measure.mjs";
 
 export default positive("wave_pos", {
   sources: lever("SOURCES",     1,    6,   1,     3),
@@ -27,10 +26,10 @@ export default positive("wave_pos", {
   // slow drift 0.10 t, at ring radius; its wavenumber is P.wavenum
   // plus three per source, and its clock runs at 2.2 k^p
   const h = sum(P.sources, (j) =>
-    P.amp / (P.damp + Math.hypot(
+    P.amp / (P.damp + len2(
         wx - P.ring * Math.cos(j * TAU / Math.max(P.sources, 1.0) + 0.10 * t),
         wy - P.ring * Math.sin(j * TAU / Math.max(P.sources, 1.0) + 0.10 * t)))
-    * Math.sin((P.wavenum + 3.0 * j) * Math.hypot(
+    * Math.sin((P.wavenum + 3.0 * j) * len2(
         wx - P.ring * Math.cos(j * TAU / Math.max(P.sources, 1.0) + 0.10 * t),
         wy - P.ring * Math.sin(j * TAU / Math.max(P.sources, 1.0) + 0.10 * t))
       - 2.2 * Math.pow(P.wavenum + 3.0 * j, P.disp) * t));
