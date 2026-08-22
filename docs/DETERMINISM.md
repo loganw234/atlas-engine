@@ -435,6 +435,53 @@ every proven stack.
 iris, NVIDIA and llvmpipe — the case that today only `collatz`, at
 0.166% lit, manages.
 
+#### Attempted 2026-08-22. NOT met — and the residue is not in the plate
+
+Two corrections to the criterion before the result. **llvmpipe is out**
+for a measured reason (it cannot single-round `fma`), so "and llvmpipe"
+is struck. And the bar as written asks for one hash *across the render*,
+which turns out to test the camera as much as the plate.
+
+`tools/determinism/bakeemitted.py` in the darkroom bakes a bundle from
+emitted GLSL **without converting it** — the emitted region is
+delimited, the usual conversion runs over the whole shader, and the
+region is put back verbatim. The camera around it still converts,
+because the camera is hand-written and always was. Two variants are
+needed: `vs`/`fs` are `#version 330`, where `precise` is a syntax
+error, so the unpinned emitted GLSL goes to the preview path and the
+pinned one to compute — the division the darkroom has always run.
+
+Three plates chosen *because they already diverge*, censused at the
+`cpu` rung on NVIDIA, radeonsi and iris, against a control of the same
+three from the registry baked the same day by the same tool:
+
+**Nine of nine hashes differ, in both tables. Emission neither helped
+nor hurt.**
+
+The magnitude is what makes this useful. `pixeldiff` on `logz`,
+radeonsi against iris, integer deposit view:
+
+| | emitted | control |
+|---|---|---|
+| lit pixels differing | 1.13% | 1.13% |
+| relative difference, mean | 1.5e-08 | 1.51e-08 |
+| total deposit delta | −9,500 | −9,462 |
+| relative | −1.67e-10 | −1.66e-10 |
+
+The same measurement to three figures — and the totals do **not**
+conserve. One stack drew 9,500 deposits the other did not, out of 56.9
+trillion. A moved deposit conserves the total; a **cull** does not.
+
+Phase 3 established the emitted shape functions are bit-identical
+across those three GPUs on all 50 plates. So the function deciding
+*where* a sample lands agrees exactly, and the difference is in whether
+it is deposited at all — in the camera's cull, which is hand-written,
+converted rather than emitted, and outside the engine's reach.
+
+That is a far better-specified target than "the census diverges", and
+it is where Phase 4 resumes. Full record in the darkroom at
+`docs/test-records/2026-08-22d-emitted-plates-through-the-ladder.md`.
+
 ### Phase 5 — adoption
 
 Two routes, and they are not exclusive:
