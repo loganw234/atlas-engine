@@ -1,0 +1,32 @@
+vec3 shape_hopf_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
+  uint pt = hashu(seed ^ hashu(floatBitsToUint(q.x))
+                       ^ hashu(floatBitsToUint(q.y) * 3510238319u));
+  pt = hashu(pt ^ floatBitsToUint(rnd.x));
+  float along_1 = q.y;
+  float a_2 = (TAU * q.x);
+  float phi_3 = (TAU * along_1);
+  float theta_4 = ((0.5 * PI) + (P[1] * sin(((P[0] * phi_3) + (0.23 * uT)))));
+  float ch_5 = cos((0.5 * theta_4));
+  float sh_6 = sin((0.5 * theta_4));
+  float x_7 = (ch_5 * cos(a_2));
+  float y_8 = (ch_5 * sin(a_2));
+  float z_9 = (sh_6 * cos((a_2 + phi_3)));
+  float w_10 = (sh_6 * sin((a_2 + phi_3)));
+  float c1_11 = cos((P[2] * uT));
+  float s1_12 = sin((P[2] * uT));
+  float c2_13 = cos((P[3] * uT));
+  float s2_14 = sin((P[3] * uT));
+  float rx_15 = ((c1_11 * x_7) - (s1_12 * w_10));
+  float ry_16 = ((c2_13 * y_8) - (s2_14 * z_9));
+  float rz_17 = ((s2_14 * y_8) + (c2_13 * z_9));
+  float rw_18 = ((s1_12 * x_7) + (c1_11 * w_10));
+  float d_19 = max((1.0 - rw_18), 0.035);
+  float dep_c_20 = ((rx_15 / d_19) * P[4]);
+  float dep_c_21 = ((ry_16 / d_19) * P[4]);
+  float dep_c_22 = ((rz_17 / d_19) * P[4]);
+  vec3 dep_col_23 = pal(along_1, vec3(0.5, 0.5, 0.5), vec3(0.5, 0.5, 0.5), vec3(1.0, 1.0, 1.0), vec3(0.0, 0.33, 0.67));
+  pt = hashu(pt);
+  float dep_glow_24 = (0.8 + (0.4 * u2f(pt)));
+  col = dep_col_23 * dep_glow_24;
+  return vec3(dep_c_20, dep_c_21, dep_c_22);
+}

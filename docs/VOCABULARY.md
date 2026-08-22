@@ -163,6 +163,34 @@ and diffed. It does not make them.
    tape, probe from one source - not raw GLSL. Build the engine first
    and that plate becomes its printout.
 
+## The classic stratum, tested
+
+The operator asked for an experiment: port one of the fifty that are
+not "designed". Plate I itself - the Hopf fibration, a pure coordinate
+map, moving, 3D - went through as `positives/hopf.pos.mjs`, and the
+findings cut both ways:
+
+- **The stratum cost two givens, not a new language.** The walk grew
+  two parameters: `q`, the point's own coordinate, and `t`, the clock
+  - `(P, s, q, t) =>` - plus trivial emitter vocabulary (trig, PI, a
+  3D seat). No new constructs. Stream, address, descend, chains: all
+  untouched, because a coordinate map needs none of them.
+- **No world, no chains, and the picture matched anyway**: GPU to GPU
+  against the plate at equal levers and clock, r = 0.9999 over 9,182
+  cells. A law alone reproduces by construction; chains exist for the
+  addressed strata, and the partition is clean. The two evaluators
+  agree at r = 0.9972, the clock verifiably moves the object
+  (corr 0.69 between t=0 and t=2.4), and 5,018 CPU-empty cells read
+  as background.
+- **The honest negative**: for a classic plate the notation buys
+  little brevity - the plate's 20 GLSL lines were already nearly
+  mathematics. What the positive buys here is the toolchain: a free
+  CPU twin, the probe bar, the refusal rules, and a statement of the
+  subject portable beyond GLSL. The language's value is uneven across
+  the strata, and the survey predicted where it concentrates: in the
+  addressed and windowed twelve, where the machinery and the bugs
+  live.
+
 ## Non-goals
 
 - Replacing the sixty-eight. They are the corpus and the reference,

@@ -69,15 +69,18 @@ function parse(src) {
   const err = (m) => { throw new Error(`emit parse: ${m} at line ${peek().line}`); };
   const eat = (t) => { if (peek().t !== t) err(`expected ${t}, got ${peek().t === "id" || peek().t === "num" ? peek().v : peek().t}`); return next(); };
 
-  // (P, s) => { ... }
+  // (P, s) or (P, s, q, t) => { ... }
   eat("(");
   const pName = eat("id").v; eat(",");
   const sName = eat("id").v;
+  let qName = null, tName = null;
+  if (peek().t === ",") { next(); qName = eat("id").v; }
+  if (peek().t === ",") { next(); tName = eat("id").v; }
   eat(")"); eat("=>"); eat("{");
   const body = [];
   while (peek().t !== "}") body.push(statement());
   eat("}");
-  return { pName, sName, body };
+  return { pName, sName, qName, tName, body };
 
   function statement() {
     const t = peek();
@@ -243,6 +246,11 @@ export function emitWalk(pos) {
   };
 
   const syms = new Map();  // name -> {kind, ...}
+  // the classic stratum's givens, when the walk names them
+  if (ast.qName) syms.set(ast.qName, { kind: "vec2", v: "q" });
+  if (ast.tName) syms.set(ast.tName, { kind: "scalar", type: "float", v: "uT" });
+  syms.set("TAU", { kind: "scalar", type: "float", v: "TAU" });
+  syms.set("PI", { kind: "scalar", type: "float", v: "PI" });
 
   // ---- effect analysis: does this subtree draw from the stream ----
   function effectful(n) {
@@ -401,7 +409,8 @@ export function emitWalk(pos) {
     if (!target) err("unsupported call");
 
     if (target.kind === "mathfn") {
-      const MAP = { max: "max", min: "min", abs: "abs", pow: "pow", sqrt: "sqrt", floor: "floor" };
+      const MAP = { max: "max", min: "min", abs: "abs", pow: "pow", sqrt: "sqrt",
+                    floor: "floor", sin: "sin", cos: "cos", atan2: "atan", exp: "exp", log: "log" };
       if (!(target.name in MAP)) err(`Math.${target.name} is not in the subset`);
       const args = n.args.map(a => asFloat(emit(a)));
       return { type: "float", code: `${MAP[target.name]}(${args.join(", ")})` };
@@ -646,16 +655,27 @@ export function emitWalk(pos) {
       if (!obj || obj.t !== "object") err("s.deposit wants an object literal");
       const parts = {};
       for (const pr of obj.props) {
+        if (pr.key === "xyz") {
+          if (pr.value.t !== "array" || pr.value.items.length !== 3) err("xyz wants [x, y, z]");
+          parts.xyz = pr.value.items.map(e => {
+            const v = emit(e);
+            const nm = fresh("dep_c");
+            put(`float ${nm} = ${asFloat(v)};`);
+            return nm;
+          });
+          continue;
+        }
         const v = emit(pr.value);
         const nm = fresh("dep_" + pr.key);
         if (pr.key === "xy") { put(`vec2 ${nm} = ${v.code};`); parts.xy = nm; }
         else if (pr.key === "col") { put(`vec3 ${nm} = ${v.code};`); parts.col = nm; }
         else { put(`float ${nm} = ${asFloat(v)};`); parts[pr.key] = nm; }
       }
-      if (!parts.xy || !parts.col) err("s.deposit wants at least xy and col");
+      if (!(parts.xy || parts.xyz) || !parts.col) err("s.deposit wants a seat (xy or xyz) and col");
       const glow = parts.glow ? ` * ${parts.glow}` : "";
       put(`col = ${parts.col}${glow};`);
-      put(`return vec3(${parts.xy}.x, ${parts.xy}.y, ${parts.z || "0.0"});`);
+      if (parts.xyz) put(`return vec3(${parts.xyz[0]}, ${parts.xyz[1]}, ${parts.xyz[2]});`);
+      else put(`return vec3(${parts.xy}.x, ${parts.xy}.y, ${parts.z || "0.0"});`);
       return;
     }
     err("unhandled statement");

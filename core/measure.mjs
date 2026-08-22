@@ -8,6 +8,7 @@
 
 const fr = Math.fround;
 export const TAU = 6.28318530718;
+export const PI = 3.14159265359;
 
 // the atlas's hash, verbatim (glsl-lib.js hashu)
 export function hashu(x) {
@@ -152,8 +153,11 @@ export class Stream {
   }
   deposit(d) {
     const glow = d.glow === undefined ? 1.0 : d.glow;
+    const at = d.xyz
+      ? { x: d.xyz[0], y: d.xyz[1], z: d.xyz[2] }
+      : { x: d.xy.x, y: d.xy.y, z: d.z === undefined ? 0 : d.z };
     return {
-      x: d.xy.x, y: d.xy.y, z: d.z === undefined ? 0 : d.z,
+      ...at,
       r: d.col[0] * glow, g: d.col[1] * glow, b: d.col[2] * glow,
     };
   }
@@ -173,8 +177,16 @@ export function leverDefaults(pos) {
   pos.leverNames.forEach((n, i) => P[n] = pos.levers[i].def);
   return P;
 }
-export function evaluate(pos, P, i) {
+// the classic stratum's two extra givens: the point's own coordinate
+// (the R2 sequence, exactly as the shared vertex header computes it)
+// and the clock. A walk that ignores them is a Mk2 walk; a walk that
+// uses them is a coordinate map.
+export function r2(i) {
+  return new Vec2(u2f(Math.imul(i, 3242174889) >>> 0),
+                  u2f(Math.imul(i, 2447445414) >>> 0));
+}
+export function evaluate(pos, P, i, t = 0) {
   const seed = hashu(hashu((i >>> 0) ^ 0xA5F15EED) ^ Math.imul(i, 2654435761) >>> 0);
   const s = new Stream(seed, pos.chains);
-  return pos.walk(P, s);
+  return pos.walk(P, s, r2(i), t);
 }
