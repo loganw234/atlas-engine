@@ -386,8 +386,47 @@ finished:
 And the residue: `hyper`, `lyap`, `mirage`, `tpms` still differ between
 NVIDIA and radeonsi. Four of the five stragglers across both pairs call
 unpinned shared-header functions (`hyper` 13 times), which is the known
-gap from Phase 2 — but **`tpms` calls none and has no unpinned builtin
-either**, so at least one disagreement has no explanation yet.
+gap from Phase 2 — but `tpms` calls none and has no unpinned builtin
+either. Chased, and it turned out to be the most useful thing in the
+phase.
+
+#### `precise` on the destination does not pin an inline expression
+
+Two hypotheses died first, and both deserved to: the cull boundaries
+(`abs(fres) > 0.08`) agree exactly — 12,623 samples culled on both
+stacks, zero disagreement — and every decimal literal in the corpus
+parses to the same bits on NVIDIA, radeonsi and llvmpipe (26 of 26,
+`litprobe.py`), so `TAU = 6.28318530718` in the shared header is not
+the culprit either.
+
+Bisecting the shader put the boundary between `f` (bit-identical) and
+`gx` (differing). Three spellings of the same `gx`, on radeonsi:
+
+| how the central difference is written | radeonsi |
+|---|---|
+| argument bound to a local, results inline | differs |
+| **results bound to `precise` locals** | **agrees** |
+| fully inline — what the emitter writes today | differs |
+
+The expression is `(A - level) - (B - level)`. Written inline, radeonsi
+is free to cancel it to `A - B`, and does; the rounding changes. **The
+`precise` qualifier on the destination does not prevent that. `precise`
+on the intermediates does.**
+
+This is the darkroom's own rule, arrived at from the other end — the
+comment above `pal()` in `shader.py` reads *"never hand a compound
+expression to a function the bake will rename. Bind it to a local
+first."* Same hazard, wider than the bake: it applies to any compound
+subexpression, not only arguments.
+
+**So Phase 2's fourth item is still not fully done.** Qualifying the
+declared locals took the GPU pairs from 12/50 to 46/50; qualifying the
+*intermediates* is what the last few need. The emitter builds one
+enormous nested expression per statement — `tpms` fits its whole
+surface function, four times over, on a single line — and it must hoist
+sub-expressions into named `precise` temporaries instead. That is the
+next concrete change, and it is likely to close `hyper`, `lyap` and
+`mirage` as well.
 
 ### Phase 4 — across the matrix
 

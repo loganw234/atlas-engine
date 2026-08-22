@@ -296,6 +296,9 @@ def main(argv=None):
                     help="also run every plate and record the hashes")
     ap.add_argument("--compare", action="store_true",
                     help="compare the recorded runs across stacks")
+    ap.add_argument("--dump", metavar="PLATE",
+                    help="save one plate's raw output, for diffing "
+                         "sample by sample rather than by hash")
     a = ap.parse_args(argv)
 
     if a.compare:
@@ -323,6 +326,41 @@ def main(argv=None):
     base = pre + "\n" + detlib + "\n" + detpre + "\n"
 
     bad = do_compile(ctx, HEAD + base)
+
+    if a.dump:
+        import numpy as np
+        q, r, seed = inputs()
+        for variant, root in (("pinned", PINNED), ("unpinned", UNPINNED)):
+            f = root / f"{a.dump}.glsl"
+            if not f.exists():
+                continue
+            body = f.read_text(encoding="utf-8")
+            src = RUN_HEAD + base + body + RUN_TAIL % entry(body)
+            prog = ctx.compute_shader(src)
+            bq = ctx.buffer(q.tobytes())
+            br = ctx.buffer(r.tobytes())
+            bs = ctx.buffer(seed.tobytes())
+            bo = ctx.buffer(reserve=4 * 6 * NRUN)
+            bq.bind_to_storage_buffer(0)
+            br.bind_to_storage_buffer(1)
+            bs.bind_to_storage_buffer(2)
+            bo.bind_to_storage_buffer(3)
+            prog["uN"].value = NRUN
+            try:
+                prog["uT"].value = 0.375
+            except KeyError:
+                pass
+            prog.run(group_x=(NRUN + 127) // 128)
+            ctx.finish()
+            arr = np.frombuffer(bo.read(), np.float32).reshape(NRUN, 6)
+            out = PINNED / f"dump-{a.dump}-{variant}-{a.run or 'x'}.npy"
+            np.save(out, arr)
+            print(f"  dumped {variant} -> {out.name}")
+        try:
+            ctx.release()
+        except Exception:
+            pass
+        return 0
 
     if a.run:
         rec = {"renderer": renderer,
