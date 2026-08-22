@@ -56,7 +56,17 @@ The practice reads photographically, so the language does too.
 
 ## Status
 
-Vocabulary stage. No syntax exists and none is sacred: combinators
-come first, discovered from the corpus, and syntax arrives only if
-the vocabulary stops moving. The first implementation milestone is
-stated at the end of `docs/VOCABULARY.md`.
+The measure core exists and the first positive is verified.
+`positives/critical.pos.mjs` restates LVIII in the approved shape
+(`docs/PREVIEW-critical.md`); `core/measure.mjs` runs it natively as
+the CPU evaluator and `core/emit.mjs` parses the same source into
+registry-contract GLSL, refusing what it cannot prove honest.
+Verified on the bench (`harness/bench.html`, a fixed orthographic
+view with an invertible tonemap): the two evaluators agree per cell
+at r = 0.9915 over 6,560 level-4 cells, addressed survivorship
+classifies 100.0% (1,095 kept, 351 dead, zero errors), and total
+light against the original plate lands at 1.002. The law itself is
+held by the pooled-world native test at 0.4%
+(`tools/native-law.mjs`), because a plate is one world and the law
+lives in the ensemble. Next: the windowed layer, with LXVI as the
+second positive.
