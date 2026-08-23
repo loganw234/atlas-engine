@@ -30,17 +30,26 @@
 // the reach index alone, so the index is the cell. The tributary's
 // address is a PATH rather than an index, and a path cannot be a uint
 // chain here because an orbit's fields are floats, so it rides as a
-// shift register over the side bits exactly the way LXII's cascade
-// rides its child digits: ten bits of path in the cell, the reach it
-// left the trunk from beside it, and the ORDER in the octave, since two
-// different levels can hold the same ten bits and must not share an
-// address. That is exact for the first ten junctions and keeps only the
-// low bits below them, which is honest about what a lattice 1024 wide
-// holds: at defaults the tenth junction's reach is already 7.7e-4 wide
-// against a span of 2.8, under half a pixel at 2048, and what is below
-// a pixel is statistics rather than structure. The three attributes of
-// a junction are separated by octave rather than by cell, so no two
-// attributes of any two junctions can collide.
+// shift register over the side bits, the way LXII's cascade rides its
+// child digits and LVII's tree its forks. The lattice folds at 1024 in
+// each coordinate, so the two together hold twenty bits, and the
+// register is laid across both: the low word takes each new fork and
+// the high word catches the bit the low word loses. DEPTH reaches
+// twenty two, so twenty junctions of every path are held exactly and
+// only the last two can alias, which is honest about what the lattice
+// holds and is far below the point where it could be seen: at defaults
+// the tenth junction's reach is already 8e-4 wide against a span of
+// 2.8, under two thirds of a pixel at 2048, and every junction after
+// it is half the one before.
+//
+// The reach the basin hangs off and the ORDER of the junction ride in
+// the OCTAVE rather than the cell. The reach because the shader seeds
+// this chain from the trunk's own address, so it is part of the
+// address and not an attribute; the order because path 1 at the first
+// junction and path 0,0,1 at the third leave the same bits in the
+// register, and the shader's chain tells them apart by its length. The
+// three attributes of a junction are separated by octave too, so no
+// two attributes of any two junctions can collide.
 //
 // What the point draws for itself is what the shader draws from pt and
 // rnd: how far up the orders it walks, which reach it leaves from,
@@ -114,35 +123,46 @@ export default positive("drainage_pos", {
   // channel the seat is scattered across further down.
   const B = s.orbit(d, {
     px: T.px, py: T.py, dx: T.dx, dy: T.dy,
-    len: segLen * 0.9, wid: 0.010, addr: 0.0,
+    len: segLen * 0.9, wid: 0.010, alo: 0.0, ahi: 0.0,
   }, (v, k) => {
     const coin = s.u();
     const side = (coin < 0.5) ? -1.0 : 1.0;
     const bit = (side < 0.0) ? 0.0 : 1.0;
-    const na = mod(v.addr * 2.0 + bit, 1024.0);
+    // the path, as a twenty bit shift register laid across the two
+    // lattice coordinates: the low word takes the fork just made and
+    // the high word catches the bit the low word is about to lose,
+    // which is twenty junctions held exactly out of the twenty two
+    // DEPTH can reach
+    const nlo = mod(v.alo * 2.0 + bit, 1024.0);
+    const nhi = mod(v.ahi * 2.0 + Math.floor(v.alo / 512.0), 1024.0);
+    // the reach the basin hangs off and the ORDER both ride in the
+    // octave, the first because the shader seeds this chain from the
+    // trunk's own address and the second because two different orders
+    // can hold the same bits and must not share a junction
+    const oc = 4096 + segT * 66 + 3 * k;
 
-    const jitter = s.vnoise(na, segT, 3 * k + 1) * 0.55;
+    const jitter = s.vnoise(nlo, nhi, oc + 1) * 0.55;
     const a = side * angRad * (1.0 + jitter);
     const c = Math.cos(a);
     const sn = Math.sin(a);
     const rx = v.dx * c - v.dy * sn;
     const ry = v.dx * sn + v.dy * c;
 
-    const mw = s.vnoise(na, segT, 3 * k + 2) * P.wander * (0.4 + 0.08 * k);
+    const mw = s.vnoise(nlo, nhi, oc + 2) * P.wander * (0.4 + 0.08 * k);
     const mc = Math.cos(mw);
     const ms = Math.sin(mw);
     const nx = rx * mc - ry * ms;
     const ny = rx * ms + ry * mc;
 
     const nl = v.len * (P.lratio + 0.5 * (1.0 - P.lratio)
-                        * (s.vnoise(na, segT, 3 * k + 3) + 0.5));
+                        * (s.vnoise(nlo, nhi, oc + 3) + 0.5));
     return {
       px: v.px + nx * nl,
       py: v.py + ny * nl,
       dx: nx, dy: ny,
       len: nl,
       wid: v.wid * 0.60,
-      addr: na,
+      alo: nlo, ahi: nhi,
     };
   });
 

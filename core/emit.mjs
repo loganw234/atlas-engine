@@ -997,7 +997,30 @@ export function emitWalk(pos, opts = {}) {
         // THIS pow DECIDES AN INTEGER. A last-place difference in it
         // flips the depth at a boundary, so the walk does not go a
         // slightly different way - it goes a different way.
-        put(`int ${dv} = int(${pin ? "det_pow" : "pow"}(u2f(pt), ${bias}) * float(${maxVar}));`);
+        //
+        // AND AT bias 1.0 THERE IS NO pow TO TAKE. det_pow(x, y) is
+        // det_exp2(y * det_log2(x)), so at y = 1 it is a log/exp round
+        // trip - correctly rounded at each step and still not x:
+        // measured, it moves 16.27% of inputs by up to 10 ULP. The CPU
+        // evaluator meanwhile computes Math.pow(x, 1.0), which IS
+        // exactly x, so the two backends disagreed about the depth of
+        // roughly one point in a million and that point then walked a
+        // different path.
+        //
+        // This never broke GPU-to-GPU parity - det_pow is bit-identical
+        // on every stack measured - which is why no census ever caught
+        // it. It broke the property everything else rests on: that the
+        // evaluator says what the shader will say. Found by an agent
+        // converting breakdown, which noticed the emitted GLSL had a
+        // pow where the plate had a bare multiply.
+        //
+        // 1.0 is the DEFAULT bias, so this is the common path, not an
+        // edge case.
+        const unbiased = bias === "1.0" || Number(bias) === 1;
+        const draw0 = "u2f(pt)";
+        const biased = unbiased ? draw0
+          : `${pin ? "det_pow" : "pow"}(${draw0}, ${bias})`;
+        put(`int ${dv} = int(${biased} * float(${maxVar}));`);
         return { type: "int", code: dv, staticMax };
       }
       case "descend": err("s.descend must be bound directly: const x = s.descend(...)");
