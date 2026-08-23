@@ -1,40 +1,43 @@
 {
- "what": "Which of the darkroom's 68 plates can be authored as engine positives today, and what blocks the rest. Measured from the registry GLSL, not estimated.",
+ "what": "Which of the darkroom's 68 plates can be authored as engine positives today, and what blocks the rest. Measured from the registry GLSL.",
  "dated": "2026-08-22",
- "why_a_class_and_not_a_backlog": "\"Port the rest when there is time\" hides the fact that most of them cannot be ported at all with the vocabulary that exists. The blocker is one missing construct, and naming it turns fourteen open-ended tasks into one decision.",
+ "corrected": "An earlier version of this file said twelve plates were blocked on a missing stateful-loop construct. That was WRONG: `s.orbit` already is that construct - static bound, runtime break off a lever, named fields carried across iterations, and every update computed into a temporary before any field is assigned back, which is the correctness requirement such a loop has. `collatz` has been using it to emulate uint arithmetic in exact small floats since before this file existed. The claim was made from reading emit.mjs's `sum` and `descend` and not looking further. Ten of the fourteen are portable today; four are not.",
  "have_positives": 54,
  "plates_total": 68,
- "blocked": 14,
  "the_vocabulary_that_exists": {
-  "sum(n, k => term)": "a bounded float reduction. Emits a real for-loop with a static bound and a runtime break off a lever, which is exactly the plates' own `for(o=0;o<12;o++){ if(o>=octs) break; ... }` idiom. It accumulates ONE float and carries nothing else.",
-  "descend(grid2(...), levels, {child, keep})": "a hierarchical subdivision walk. Carries a cell, a scale and an address hash, but its shape is fixed - the child arrow must be `(a) => a.child(ex, ey)` and a keep predicate decides survival."
- },
- "what_is_missing": {
-  "construct": "a bounded loop that carries arbitrary state across iterations",
-  "why": "Twelve of the fourteen advect or accumulate something that is not a float and not a subdivision address: a vec2 trail, a vec3 point, a rolling hash, a running anisotropy. `sum` cannot express them because it accumulates one float; `descend` cannot because its body shape is fixed.",
-  "shape_it_would_need": "the same static-bound-plus-runtime-break emission sum() already does, generalised to a tuple of carried values, each bound to a `precise` local per iteration so nothing in the loop body becomes a contraction candidate.",
-  "unlocks": 12,
-  "note": "This is the single change that would take the emitted corpus from 54 to 66. It is also the change that would let `cascade` be emitted, which matters because cascade is the one plate that still splits across cards AND has no positive - every other splitter either has one already or was fixed by getting one."
+  "sum(n, k => term)": "a bounded float reduction, no carried state.",
+  "descend(grid2(...), levels, {child, keep})": "a hierarchical subdivision walk with a fixed body shape.",
+  "s.orbit(n, init, (st, k) => ({...}), {until})": "THE stateful bounded loop. Carries named float fields; a vec2 rides as two fields and a uint hash as exact small floats, which is what collatz does. Returns the fields plus `count` and `escaped`."
  },
  "portable_today": {
-  "starfield": {"glsl_chars": 7004, "loops": 0},
-  "throughput": {"glsl_chars": 36291, "loops": 0,
-                 "note": "loop-free but large; the port is long rather than blocked."}
+  "count": 10,
+  "no_loop_at_all": [
+   "starfield",
+   "throughput"
+  ],
+  "one_flat_loop_orbit_expresses": [
+   "billiards",
+   "breakdown",
+   "diffract",
+   "dissipation",
+   "drainage",
+   "nodal",
+   "tangle",
+   "vlsi"
+  ],
+  "note": "throughput is 36,291 chars and vlsi 25,450 - long ports rather than blocked ones. None of these ten currently splits across the three cards, so porting them is robustness rather than a fix."
  },
- "blocked_on_a_stateful_loop": {
-  "billiards": {"loops": 2, "carries": "a reflecting point and its direction"},
-  "breakdown": {"loops": 2, "carries": "a walking point and a rolling hash"},
-  "cascade": {"loops": 3, "carries": "a vec2 trail, a rolling hash, and a running height through nested step-by-octave advection",
-              "priority": "HIGHEST - the only plate that both still splits across cards and has no positive"},
-  "diffract": {"loops": 3, "carries": "an accumulating complex amplitude"},
-  "dissipation": {"loops": 1, "carries": "a cell, a scale, an address hash, a log-weight and an anisotropy - close to descend's shape but with no keep predicate and a hashed child rather than a chosen one"},
-  "drainage": {"loops": 2, "carries": "a descending point and a rolling hash"},
-  "nodal": {"loops": 2, "carries": "an accumulating displacement"},
-  "rule30": {"loops": 10, "carries": "a cellular automaton row"},
-  "rulespace": {"loops": 9, "carries": "a cellular automaton row and a rule index"},
-  "tangle": {"loops": 1, "carries": "a vec3 point through a harmonic sum"},
-  "universal": {"loops": 10, "carries": "a cellular automaton row"},
-  "vlsi": {"loops": 4, "carries": "a routed path"}
+ "blocked": {
+  "count": 4,
+  "plates": [
+   "cascade",
+   "rule30",
+   "rulespace",
+   "universal"
+  ],
+  "the_actual_blocker": "orbit's step arrow must BE an object literal - `(st, k) => ({ ... })`. emit.mjs refuses any other body outright. So the step cannot declare an intermediate, and cannot contain a nested sum() or a nested orbit. These four have loops nested two and three deep: cascade advects a parcel through a per-step sum over octaves; rule30, rulespace and universal step a cellular automaton row.",
+  "the_change_that_unlocks_them": "allow the step arrow a BLOCK body - local `const` declarations followed by a returned object literal - so a nested sum() or orbit can be declared inside it. The emitter already emits statements into the enclosing indent, and orbit already sequences its writeback correctly, so this is a parser and body-shape change rather than a new loop.",
+  "priority": "cascade is the one that matters: it is the only plate that both still splits across the three cards and has no positive. Every other splitter either has a positive already or was fixed by getting one."
  },
- "how_this_was_measured": "darkroom/spec.py load_plates(), then counting for-loops in each plate's `glsl` and reading what each loop body assigns back into a variable declared outside it. A loop whose only carried value is a float accumulator would be expressible as sum(); none of the twelve is."
+ "how_this_was_measured": "darkroom/spec.py load_plates(), then per plate: count for-loops inside shape_*, and track brace depth to find the deepest nesting. Nesting >= 2 is the blocked set."
 }

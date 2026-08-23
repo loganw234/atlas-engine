@@ -201,7 +201,28 @@ function parse(src) {
         while (peek().t === ",") { next(); params.push(eat("id").v); }
         if (peek().t === ")" && toks[p + 1].t === "=>") { next(); next(); isArrow = true; }
       } else if (peek().t === ")" && toks[p + 1].t === "=>") { next(); next(); isArrow = true; }
-      if (isArrow) return { t: "arrow", params, body: expr() };
+      if (isArrow) {
+        // `=> {` IS A BLOCK, exactly as JavaScript reads it, and an
+        // object return needs the parens: `=> ({ ... })`. That is not
+        // a stylistic preference. A positive is REAL JAVASCRIPT - the
+        // CPU evaluator runs the same function this parser reads - so
+        // any place the two disagree is a place the oracle and the
+        // shader compute different things while looking identical.
+        //
+        // This is what lets an orbit step declare an intermediate, and
+        // so hold a nested sum() or orbit. Before it, the step arrow
+        // had to BE an object literal, which is why cascade, rule30,
+        // rulespace and universal could not be authored at all: their
+        // loops nest two and three deep.
+        if (peek().t === "{") {
+          next();
+          const b = [];
+          while (peek().t !== "}") b.push(statement());
+          eat("}");
+          return { t: "arrow", params, block: b };
+        }
+        return { t: "arrow", params, body: expr() };
+      }
       p = save;
       next();
       const e = expr();
@@ -1220,10 +1241,46 @@ export function emitWalk(pos, opts = {}) {
     }
     syms.set(stepArrow.params[0], { kind: "orbitstate", fields });
     if (stepArrow.params[1]) syms.set(stepArrow.params[1], { kind: "scalar", type: "int", v: kv });
-    const body = stepArrow.body;
-    const stepObj = body.t === "object" ? body
-                  : (body.t === "paren" && body.e.t === "object") ? body.e
-                  : err("orbit step must return an object literal: (st, k) => ({ ... })");
+    // A BLOCK BODY, so the step can declare an intermediate.
+    //
+    // The step used to have to BE an object literal, and that single
+    // restriction is what made four plates unauthorable: cascade,
+    // rule30, rulespace and universal nest loops two and three deep,
+    // and a nested sum() or orbit has to be DECLARED before its result
+    // can appear in a field. Everything needed to allow it was already
+    // here - statements emit into the enclosing indent, and the
+    // writeback below already sequences correctly - so this is a body
+    // shape being accepted, not a new loop being built.
+    //
+    // Names declared in the block are scoped to it. They are emitted
+    // inside the for, so a name surviving into the enclosing scope
+    // would refer to a GLSL local that is out of scope there - a
+    // compile error at best, and at worst a collision with a later
+    // fresh() name.
+    let stepObj;
+    const declared = [];
+    if (stepArrow.block) {
+      const before = new Set(syms.keys());
+      const last = stepArrow.block[stepArrow.block.length - 1];
+      if (!last || last.t !== "return")
+        err("an orbit step with a block body must end in `return { ... };`");
+      for (const st of stepArrow.block) {
+        if (st === last) break;
+        if (st.t === "return")
+          err("an orbit step may return only once, and only at the end");
+        stmt(st);
+      }
+      const re = last.e;
+      stepObj = re.t === "object" ? re
+              : (re.t === "paren" && re.e.t === "object") ? re.e
+              : err("an orbit step must return an object literal");
+      for (const k of syms.keys()) if (!before.has(k)) declared.push(k);
+    } else {
+      const body = stepArrow.body;
+      stepObj = body.t === "object" ? body
+              : (body.t === "paren" && body.e.t === "object") ? body.e
+              : err("orbit step must return an object literal: (st, k) => ({ ... })");
+    }
     const temps = [];
     for (const pr of stepObj.props) {
       if (!(pr.key in fields)) err(`orbit step writes unknown field ${pr.key}`);
@@ -1234,6 +1291,7 @@ export function emitWalk(pos, opts = {}) {
     }
     syms.delete(stepArrow.params[0]);
     if (stepArrow.params[1]) syms.delete(stepArrow.params[1]);
+    for (const k of declared) syms.delete(k);
     for (const [fv, tv] of temps) put(`${fv} = ${tv};`);
     put(`${cnt} += 1;`);
     indent = indent.slice(2);
