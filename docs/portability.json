@@ -39,5 +39,47 @@
   "the_change_that_unlocks_them": "allow the step arrow a BLOCK body - local `const` declarations followed by a returned object literal - so a nested sum() or orbit can be declared inside it. The emitter already emits statements into the enclosing indent, and orbit already sequences its writeback correctly, so this is a parser and body-shape change rather than a new loop.",
   "priority": "cascade is the one that matters: it is the only plate that both still splits across the three cards and has no positive. Every other splitter either has a positive already or was fixed by getting one."
  },
- "how_this_was_measured": "darkroom/spec.py load_plates(), then per plate: count for-loops inside shape_*, and track brace depth to find the deepest nesting. Nesting >= 2 is the blocked set."
+ "how_this_was_measured": "darkroom/spec.py load_plates(), then per plate: count for-loops inside shape_*, and track brace depth to find the deepest nesting. Nesting >= 2 is the blocked set.",
+ "vocabulary_gaps_found_by_the_sweep": {
+  "dated": "2026-08-22",
+  "how_these_were_found": "Not by design review. Each was hit by an agent converting a plate, reported rather than worked around, and in two cases hit independently by three agents before anyone wrote it down.",
+  "s.window is unreachable for the sheet plates": {
+   "reported_by": [
+    "rule30",
+    "rulespace",
+    "universal"
+   ],
+   "two_independent_causes": [
+    "its `span` wants the cell count as an INT, and the emitter refuses a lever whose step is not 1 - `lever cells used where an integer is required, but it is not an integer lever` (CELLS has step 32)",
+    "the window result exposes only seat(); `const lo = w.win;` fails with `cannot bind lo: unhandled value`, and these plates read win.x/y/z/w in up to five places"
+   ],
+   "what_the_agents_did": "wrote the sheet lattice in floats instead, and measured the cost rather than waving at it. rule30 enumerated all 30,096 lever settings with f32 rounding: the visible row and cell ranges are IDENTICAL to the plate's integer window at every one, bounds differing by at most 8/1024 of a cell and never crossing an edge. universal enumerated its 8,208 settings: 15 of 16,416 window components differ, always by exactly one lattice unit, all at the single corner where the plate's own arithmetic exceeds f32's exact-integer range.",
+   "verdict": "not blocking, measured, and worth closing anyway - three plates paying the same tax is a vocabulary problem rather than three plate problems"
+  },
+  "no float to int conversion": {
+   "reported_by": [
+    "universal",
+    "throughput"
+   ],
+   "detail": "Math.trunc is in the subset only as trunc(int/int); s.pick and s.depth take a literal or a lever, never a runtime bound. So `tl = rlo + int(u * (rhi - rlo + 1))` cannot be an int at all.",
+   "consequence": "a runtime-computed index cannot address anything the vocabulary indexes by int, which is why universal could not have fed seat() even if win were readable"
+  },
+  "no uint, no bitwise operators, no hashu": {
+   "reported_by": [
+    "throughput",
+    "drainage",
+    "breakdown",
+    "starfield",
+    "tangle",
+    "dissipation",
+    "diffract",
+    "rule30",
+    "rulespace",
+    "universal"
+   ],
+   "detail": "Ten of the thirteen conversions re-keyed an addressed hash chain through s.vnoise at whole lattice coordinates. That restates the law and draws a different member of the same ensemble, which the CONVERSION.md rule now explicitly permits.",
+   "the_one_case_it_costs_something": "throughput reads overlapping BITFIELDS of one word rather than successive draws off a chain, so the substitution changes the arrangement visibly - an 18x27 core where the shader lays out 20x24. It names the exact construct that would close it: a uint-typed expression in the subset, hashu over an int expression plus ^ & | >> << % and u2f. NOT a re-seedable sub-stream.",
+   "verdict": "the largest single gap in the vocabulary, and the only one that has changed a picture rather than only a hash"
+  }
+ }
 }

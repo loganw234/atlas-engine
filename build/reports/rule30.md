@@ -229,6 +229,18 @@ notes: THE CARRIED STATE IS A ROW OF BITS AND ORBIT FIELDS ARE FLOATS.
        0.93 (worst relative 3.3e+2), the tone slope 0.45 to 0.44
        (1.0e-2), and the hue base 0.12 to 0.11 (4.4e+1).
 
+       THE OFF-CENTRE SEAT AT HASHED LEVERS B IS THE PLATE'S, and it
+       is worth saying because smoke prints it and it looks wrong.
+       MAGNIFY 11.5 with COLUMNS 6 leaves a window narrower than one
+       cell, so the drawn cell's low corner can sit up to 1024 lattice
+       units to one side of the window centre while the seat is scaled
+       by km = unit * mag, and x comes out in [1.09, 3.31] rather than
+       about the origin. The cross-check runs those exact levers as one
+       of its nine settings: 410 deposits, worst relative delta
+       0.00e+0, so the literal transcription of the shader puts every
+       point in the same place. Nothing is off-centre that the plate
+       does not put off-centre.
+
        NOT VOLUMETRIC. The sheet is flat, z is the jitter alone at
        +-0.01, and the points lie on a lattice rather than through a
        volume, so the qjulia and bulb shot-noise argument does not
