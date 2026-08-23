@@ -158,6 +158,44 @@ your walk is wrong.
 Do not run browsers, CDP, or verify-pair; picture conformance runs
 centrally after conversion.
 
+## The bound you print is the bound the unroller reads
+
+A positive can emit, smoke, and prove fully pinned, and still not
+exist on a GPU. `universal` did: its GLSL would not link.
+
+```
+Internal error: assembly compile error for compute shader
+line 65654: error: too many instructions
+```
+
+Drivers fully unroll loops whose trip count is small and known, and
+NESTED small bounds MULTIPLY. Written as rows containing 32 tiles
+containing 14 cells, the outer body became 32 x 14 = 448 copies of the
+cell step, and the assembler stopped. Neither the emitter nor any
+scan can see this - only a link can.
+
+Two remedies, both measured on this plate 2026-08-23:
+
+- **Fuse nested small loops into one flat walk.** The 32-tile loop
+  became part of the row loop, carrying the tile phase in its own
+  state and ticking the row counter when it wraps. One loop of a
+  million steps instead of 32,768 loops of 32, and the body shrank
+  by a factor of thirty-two. This is the honest fix and it is free:
+  the same arithmetic in the same order.
+- **Move a small count out of the bound and into the state.** The
+  fourteen-cell loop was still expanded fourteen times inside a loop
+  running a million, and that alone was over the ceiling. Written as
+  `s.orbit(4096, {..., i: 0.0}, step, { until: (b) => b.i >= 14.0 })`
+  it runs the same fourteen iterations and the unroller declines. The
+  count is a float in the state, which the compiler will not reason
+  through.
+
+The second rests on a HEURISTIC and is worth using only where the
+first is not enough. Both fail loudly - a link error at bake time,
+before any picture exists - so neither can quietly produce a wrong
+plate. The budget scales with trip count: at these body sizes a bound
+of 262,144 linked and 1,048,576 did not.
+
 ## When the vocabulary cannot say it
 
 Stop on that plate. Do not extend `core/`, do not approximate, do not

@@ -464,8 +464,36 @@ export function emitWalk(pos, opts = {}) {
         if (n.op === "&&" || n.op === "||")
           return { type: "bool", code: `(${l.code} ${n.op} ${r.code})` };
         if (["<", ">", "<=", ">=", "==", "!="].includes(n.op)) {
-          if (l.type === r.type) return { type: "bool", code: `(${l.code} ${n.op} ${r.code})` };
-          return { type: "bool", code: `(${asFloat(l)} ${n.op} ${asFloat(r)})` };
+          // A COMPARISON HAS NO PRECISE DESTINATION, and that is the
+          // hole this closes. `precise` qualifies a variable; the
+          // result of a comparison is a bool and cannot be one. So a
+          // compound expression that feeds a comparison and nothing
+          // else reaches no precise variable at all, and the compiler
+          // is free to contract or reassociate it - the one place in
+          // an emitted plate where that freedom survived.
+          //
+          // Measured on mirage. Its leapfrog switches on
+          // `n*n - C*C > 0.0`, which the emitter bound down to
+          // `((pb_79 - pb_80) > 0.0)`: both products pinned, the
+          // subtraction between them floating free as an fma
+          // candidate. n and C are both near 1.02 and the difference
+          // is the ray's turning point, so it cancels to nothing -
+          // over a sweep of 345,600 rays, 23.2% present that
+          // comparison a value SMALLER THAN THE ROUNDING ERROR OF ITS
+          // OWN SUBTRACTION, and 11.8% get within 1e-9 of zero. Which
+          // side of zero a single- or double-rounded evaluation lands
+          // on is then arbitrary, the ray turns a step apart, and the
+          // plate splits NVIDIA against Mesa - which is exactly the
+          // two-way split the emitted census found.
+          //
+          // Comparisons are where control flow lives, so this is the
+          // most expensive place in the emitter to leave unpinned. Int
+          // comparisons are exact and stay bare.
+          if (l.type === r.type && l.type !== "float")
+            return { type: "bool", code: `(${l.code} ${n.op} ${r.code})` };
+          const lc = pin ? bindPrecise(asFloat(l)) : asFloat(l);
+          const rc = pin ? bindPrecise(asFloat(r)) : asFloat(r);
+          return { type: "bool", code: `(${lc} ${n.op} ${rc})` };
         }
         // arithmetic
         if (n.op === "%") {
@@ -801,7 +829,17 @@ export function emitWalk(pos, opts = {}) {
                     sinh: "sinh", cosh: "cosh", tanh: "tanh",
                     exp: "exp", log: "log", sign: "sign", round: "round" };
       if (!(target.name in MAP)) err(`Math.${target.name} is not in the subset`);
-      const args = n.args.map(a => asFloat(emit(a)));
+      // AND THE ARGUMENTS ARE BOUND, for the same reason the operands
+      // of a division are. `det_sqrt((pb_115 - pb_116))` puts a
+      // cancelling subtraction inside a call argument, where the only
+      // precise destination is the call's RESULT - and tpms measured
+      // on radeonsi that a precise destination does not protect a
+      // compound expression handed to it inline. Same sites in mirage,
+      // same fix, one line: never hand a compound expression onward.
+      const args = n.args.map(a => {
+        const c = asFloat(emit(a));
+        return pin ? bindPrecise(c) : c;
+      });
 
       // Math.round IS NOT GLSL round(), and this was wrong before any
       // determinism question arose. JS rounds a half toward +Infinity;

@@ -97,6 +97,43 @@ const HEADER_UNPINNED = {
   csqrt: "sqrt(), twice",
 };
 
+// A COMPARISON WHOSE OPERAND STILL CARRIES ARITHMETIC, which is the
+// one hole in "fully pinned" that this scan used to walk straight
+// past.
+//
+// `precise` qualifies a VARIABLE. The result of a comparison is a
+// bool, which cannot be one, so an expression that feeds a comparison
+// and nothing else reaches no precise destination at all and the
+// compiler may contract or reassociate it freely. Every other float
+// operation in an emitted plate ends up bound to a `precise` local;
+// these did not.
+//
+// It was worth exactly what it looked like. `mirage` switches its
+// leapfrog on `n*n - C*C > 0.0` with n and C both near 1.02, so the
+// difference cancels to below its own rounding error on 23% of rays,
+// and the plate split NVIDIA against Mesa for want of one binding.
+// 66 of the 69 positives carried at least one such comparison.
+//
+// So it is a gate rather than a memory. The emitter binds them now;
+// this fails loudly if that ever stops being true.
+const CMP = /([A-Za-z0-9_.\[\]]+|\([^()]*\))\s*(<=|>=|==|!=|<|>)\s*([A-Za-z0-9_.\[\]]+|\([^()]*\))/g;
+function looseComparisons(text) {
+  const out = [];
+  for (const m of text.matchAll(CMP)) {
+    for (const side of [m[1], m[3]]) {
+      const s = side.trim();
+      if (!(s.startsWith("(") && s.endsWith(")"))) continue;
+      const inner = s.slice(1, -1).trim();
+      // a bare negation, a name, a literal or a scientific-notation
+      // exponent is a single value and needs no binding
+      const body = inner.replace(/[0-9](?:\.[0-9]*)?e[-+]?[0-9]+/gi, "N")
+                        .replace(/^-/, "");
+      if (/[-+*/]/.test(body)) out.push(s.slice(0, 72));
+    }
+  }
+  return out;
+}
+
 function scan(glsl) {
   // strip comments and det_ names so the scan sees only live calls
   const text = glsl
@@ -123,14 +160,14 @@ function scan(glsl) {
     const n = [...text.matchAll(new RegExp(`\\b${name}\\s*\\(`, "g"))].length;
     if (n) header.set(name, n);
   }
-  return { found, slashes, text, header };
+  return { found, slashes, text, header, loose: looseComparisons(glsl) };
 }
 
 const only = process.argv[2];
 const files = readdirSync(POS).filter(f => f.endsWith(".pos.mjs"))
   .filter(f => !only || f.startsWith(only + "."));
 
-const pinned = [], refused = [], dirty = [], intdiv = [], hdr = [];
+const pinned = [], refused = [], dirty = [], intdiv = [], hdr = [], loose = [];
 for (const f of files.sort()) {
   const mod = await import(pathToFileURL(resolve(join(POS, f))).href);
   const pos = mod.default;
@@ -142,7 +179,8 @@ for (const f of files.sort()) {
     refused.push({ id, why: e.message.replace(/^emit: /, "") });
     continue;
   }
-  const { found, slashes, header } = scan(glsl);
+  const { found, slashes, header, loose: lc } = scan(glsl);
+  if (lc.length) loose.push({ id, lc });
   if (header.size) hdr.push({ id, header: [...header] });
   if (found.size) dirty.push({ id, found: [...found], slashes });
   else { pinned.push(id); if (slashes) intdiv.push({ id, slashes }); }
@@ -152,6 +190,15 @@ console.log(`positives: ${files.length}`);
 console.log(`  fully pinned : ${pinned.length}`);
 console.log(`  refused      : ${refused.length}`);
 console.log(`  emitted but still carrying an unpinned op: ${dirty.length}`);
+console.log(`  comparisons reading an unbound expression: ${loose.length}`);
+
+if (loose.length) {
+  console.log("\nUNBOUND COMPARISON OPERANDS - a bool has no `precise`, so");
+  console.log("these expressions reach no precise destination and the");
+  console.log("compiler may contract them. This is what split mirage.");
+  for (const l of loose)
+    console.log(`  ${l.id.padEnd(12)} ${l.lc.length} site(s), e.g. ${l.lc[0]}`);
+}
 
 if (refused.length) {
   console.log("\nREFUSED - and this is the design working, not failing.");

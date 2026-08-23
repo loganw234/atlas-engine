@@ -33,8 +33,15 @@
 // next row. The two neighbours ride as `prev`, the tile just consumed,
 // and `first`, the old tile zero the last step needs after its seat in
 // the register has been overwritten. That is the standard in-place
-// cyclic update, and it is the reason the three loops nest as rows,
-// then tiles, then cells.
+// cyclic update.
+//
+// It is written as TWO loops rather than three - one flat walk of
+// tiles that ticks a row counter when it wraps, and the fourteen cells
+// inside it - because a driver's unroller reads the bounds it is
+// shown, and nested bounds of 32 and 14 expanded into four hundred and
+// forty-eight copies of the cell step and put the plate over NVIDIA's
+// instruction ceiling. Both remedies are at the loops that caused it
+// and both are commented where they sit.
 //
 // THE DEFECTS ARE ADDRESSED, NOT DRAWN. The shader folds a hash chain
 // from WORLD, so every point that visits this sheet must find the same
@@ -205,8 +212,8 @@ export default positive("universal_pos", {
   });
 
   // THE TOLL: tabs applications of rule 110, none of them skippable.
-  // The inner orbit walks the ring one tile at a time and the
-  // innermost walks that tile's fourteen cells from the top down, so
+  // The orbit walks the ring one tile at a time and the inner one
+  // walks that tile's fourteen cells from the top down, so
   // every divisor is a constant and the new tile accumulates by
   // doubling. The window W holds cell 14j-1 at bit 0, the tile at bits
   // 1 to 14 and cell 14j+14 at bit 15, which is the shader's
@@ -214,51 +221,89 @@ export default positive("universal_pos", {
   // instead of twice. The law itself is the plate's line of boolean
   // algebra as a polynomial: (c or r) is c + r - cr, and the and-not
   // of all three is the factor 1 - lcr, both exact on bits.
-  const O = s.orbit(32768, {
+  // ROWS AND TILES ARE ONE LOOP, and that is not tidiness - it is the
+  // difference between a plate that links and one that does not.
+  //
+  // Written as rows containing tiles containing cells, the middle two
+  // bounds are 32 and 14. Both sit under the driver's unroll threshold
+  // and both get expanded, so the outer loop's body becomes 32 x 14 =
+  // 448 copies of the cell step plus 32 copies of a thirty-four-field
+  // register shuffle. NVIDIA's assembler stopped at 65,654
+  // instructions: `too many instructions`, a hard ceiling and not a
+  // clock. The plate could be emitted, smoke-tested and proved pinned,
+  // and still not exist on a GPU.
+  //
+  // So the tile walk is FUSED into the row walk. One loop of a million
+  // steps - far above any unroll threshold - advances the register by
+  // exactly one tile and carries the tile phase in its own state, and
+  // the row counter ticks only when that phase wraps. The body is now
+  // one cell orbit and one shuffle, about a thirty-second of what it
+  // was, and only the fourteen-cell orbit is left to unroll.
+  //
+  // The arithmetic is untouched. `prev` is the tile just consumed, and
+  // at the wrap it must become the NEW row's last tile - the B.acc
+  // this very step computed - because the register has by then rotated
+  // into alignment and the next row reads its own tail. `first` is the
+  // old tile zero the wrap step needs after its seat was overwritten,
+  // and at the wrap it becomes the new tile zero, which is the r1 the
+  // shift is about to move into r0. Getting either of those wrong
+  // reproduces rule 110 faithfully for thirty-one tiles out of every
+  // thirty-two, which is exactly the kind of fault that looks right.
+  const O = s.orbit(1048576, {
     r0: D.r0, r1: D.r1, r2: D.r2, r3: D.r3, r4: D.r4, r5: D.r5,
     r6: D.r6, r7: D.r7, r8: D.r8, r9: D.r9, r10: D.r10, r11: D.r11,
     r12: D.r12, r13: D.r13, r14: D.r14, r15: D.r15, r16: D.r16, r17: D.r17,
     r18: D.r18, r19: D.r19, r20: D.r20, r21: D.r21, r22: D.r22, r23: D.r23,
     r24: D.r24, r25: D.r25, r26: D.r26, r27: D.r27, r28: D.r28, r29: D.r29,
-    r30: D.r30, r31: D.r31, n: 0.0,
+    r30: D.r30, r31: D.r31, prev: D.r31, first: D.r0, ph: 0.0, n: 0.0,
   }, (v) => {
-    const R = s.orbit(32, {
-      r0: v.r0, r1: v.r1, r2: v.r2, r3: v.r3, r4: v.r4, r5: v.r5,
-      r6: v.r6, r7: v.r7, r8: v.r8, r9: v.r9, r10: v.r10, r11: v.r11,
-      r12: v.r12, r13: v.r13, r14: v.r14, r15: v.r15, r16: v.r16, r17: v.r17,
-      r18: v.r18, r19: v.r19, r20: v.r20, r21: v.r21, r22: v.r22, r23: v.r23,
-      r24: v.r24, r25: v.r25, r26: v.r26, r27: v.r27, r28: v.r28, r29: v.r29,
-      r30: v.r30, r31: v.r31, prev: v.r31, first: v.r0,
-    }, (w, j) => {
-      const nx = (j == 31) ? w.first : w.r1;
-      const W = Math.floor(w.prev / 8192.0) + 2.0 * w.r0
-              + 32768.0 * (nx - 2.0 * Math.floor(nx / 2.0));
-      const B = s.orbit(14, { v: W, acc: 0.0 }, (b) => {
-        const a = Math.floor(b.v / 16384.0);
-        const rb = Math.floor(a / 2.0);
-        const cb = a - 2.0 * rb;
-        const lb = Math.floor(b.v / 8192.0) - 2.0 * a;
-        return {
-          v: 2.0 * b.v - 65536.0 * Math.floor((2.0 * b.v) / 65536.0),
-          acc: b.acc * 2.0 + (cb + rb - cb * rb) * (1.0 - lb * cb * rb),
-        };
-      });
+    const last = (v.ph == 31.0);
+    const nx = last ? v.first : v.r1;
+    const W = Math.floor(v.prev / 8192.0) + 2.0 * v.r0
+            + 32768.0 * (nx - 2.0 * Math.floor(nx / 2.0));
+    // FOURTEEN CELLS, WRITTEN AS FOUR THOUSAND AND NINETY-SIX, and
+    // that is the second half of the same ceiling. The bound a driver
+    // PRINTS is what its unroller reads: at 14 it expands the body
+    // fourteen times inside a loop that runs a million, and NVIDIA's
+    // assembler stops at `too many instructions` again - measured, by
+    // raising this one number in the emitted text and re-linking. At
+    // 4096 it declines to unroll and the plate links with the body
+    // intact.
+    //
+    // So the count moves out of the bound and into the state, where it
+    // is a float the compiler will not reason its way through, and the
+    // orbit stops on it. Fourteen iterations either way: `until` is
+    // checked before each step, i starts at zero, and the CPU
+    // evaluator and the GPU walk the same fourteen. What changes is
+    // only what the unroller is told, and the cost is one add and one
+    // compare per cell.
+    //
+    // This rests on a HEURISTIC, not a guarantee, and it is measured
+    // on these four columns rather than proved. If a driver ever
+    // unrolls it anyway the failure is a link error at bake time, loud
+    // and before any picture exists - which is the right way round.
+    const B = s.orbit(4096, { v: W, acc: 0.0, i: 0.0 }, (b) => {
+      const a = Math.floor(b.v / 16384.0);
+      const rb = Math.floor(a / 2.0);
+      const cb = a - 2.0 * rb;
+      const lb = Math.floor(b.v / 8192.0) - 2.0 * a;
       return {
-        r0: w.r1, r1: w.r2, r2: w.r3, r3: w.r4, r4: w.r5, r5: w.r6,
-        r6: w.r7, r7: w.r8, r8: w.r9, r9: w.r10, r10: w.r11, r11: w.r12,
-        r12: w.r13, r13: w.r14, r14: w.r15, r15: w.r16, r16: w.r17, r17: w.r18,
-        r18: w.r19, r19: w.r20, r20: w.r21, r21: w.r22, r22: w.r23, r23: w.r24,
-        r24: w.r25, r25: w.r26, r26: w.r27, r27: w.r28, r28: w.r29, r29: w.r30,
-        r30: w.r31, r31: B.acc, prev: w.r0, first: w.first,
+        v: 2.0 * b.v - 65536.0 * Math.floor((2.0 * b.v) / 65536.0),
+        acc: b.acc * 2.0 + (cb + rb - cb * rb) * (1.0 - lb * cb * rb),
+        i: b.i + 1.0,
       };
-    });
+    }, { until: (b) => b.i >= 14.0 });
     return {
-      r0: R.r0, r1: R.r1, r2: R.r2, r3: R.r3, r4: R.r4, r5: R.r5,
-      r6: R.r6, r7: R.r7, r8: R.r8, r9: R.r9, r10: R.r10, r11: R.r11,
-      r12: R.r12, r13: R.r13, r14: R.r14, r15: R.r15, r16: R.r16, r17: R.r17,
-      r18: R.r18, r19: R.r19, r20: R.r20, r21: R.r21, r22: R.r22, r23: R.r23,
-      r24: R.r24, r25: R.r25, r26: R.r26, r27: R.r27, r28: R.r28, r29: R.r29,
-      r30: R.r30, r31: R.r31, n: v.n + 1.0,
+      r0: v.r1, r1: v.r2, r2: v.r3, r3: v.r4, r4: v.r5, r5: v.r6,
+      r6: v.r7, r7: v.r8, r8: v.r9, r9: v.r10, r10: v.r11, r11: v.r12,
+      r12: v.r13, r13: v.r14, r14: v.r15, r15: v.r16, r16: v.r17, r17: v.r18,
+      r18: v.r19, r19: v.r20, r20: v.r21, r21: v.r22, r22: v.r23, r23: v.r24,
+      r24: v.r25, r25: v.r26, r26: v.r27, r27: v.r28, r28: v.r29, r29: v.r30,
+      r30: v.r31, r31: B.acc,
+      prev: last ? B.acc : v.r0,
+      first: last ? v.r1 : v.first,
+      ph: last ? 0.0 : v.ph + 1.0,
+      n: last ? v.n + 1.0 : v.n,
     };
   }, { until: (v) => v.n >= tabs });
 
