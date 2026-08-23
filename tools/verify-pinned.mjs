@@ -39,6 +39,9 @@ const LOOSE = [
   // That was an assertion, not a measurement, so they are in the scan
   // now and the claim either holds or shows up here.
   "dot", "mix", "fract",
+  // cross was missing, and its absence was a real hole: cross3
+  // emitted a raw cross() under pin and no scan complained.
+  "cross",
 ];
 
 // Admitted, each for a stated reason. This list is the honest part of

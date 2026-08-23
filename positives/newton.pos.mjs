@@ -11,6 +11,24 @@
 // break after the update does; the init f2 of 1.0 is a sentinel that
 // keeps the first check from firing before any step, which the
 // shader never did.
+//
+// AND A DIVERGENCE BAIL, which the shader does not have and which
+// is the difference between this plate being portable and not. The
+// orbit stopped only on CONVERGENCE, so a start whose iterate runs
+// away kept stepping: at degree 5 the derivative is d z^4, and once
+// |z| passes a few thousand that squares past float32's range
+// inside cdiv's modulus. Inf/Inf is NaN, and NaN is where the
+// specification stops promising two implementations the same
+// answer - measured, one sample in roughly 65 million, NVIDIA
+// against radeonsi, and the whole of why this plate still split
+// after four others were fixed by emitting.
+//
+// |z|^2 > 1e6 is |z| > 1000, which keeps d z^4 and its square
+// finite at every degree the lever offers, and no Newton iterate
+// that reaches it was ever going to find a root. Points that used
+// to produce NaN - and be zeroed on the way to the image, which is
+// what tools/bookcrops.py has always done for this plate - now
+// take the did-not-converge arm and deposit a defined colour.
 import { positive, lever, pal, TAU, clamp, mod, mul3, cmul, cdiv, v2 } from "../core/measure.mjs";
 
 export default positive("newton_pos", {
@@ -56,7 +74,7 @@ export default positive("newton_pos", {
         * (cmul(cmul(v2(z.x, z.y), v2(z.x, z.y)), v2(z.x, z.y)).x - 1.0)
         + cmul(cmul(v2(z.x, z.y), v2(z.x, z.y)), v2(z.x, z.y)).y
         * cmul(cmul(v2(z.x, z.y), v2(z.x, z.y)), v2(z.x, z.y)).y,
-    }), { until: (z) => z.f2 < 1.0e-6 });
+    }), { until: (z) => z.f2 < 1.0e-6 || (z.x * z.x + z.y * z.y) > 1.0e6 });
     ox = o.x;
     oy = o.y;
     itv = (o.f2 < 1.0e-6) ? (o.count - 1.0) : K;
@@ -76,7 +94,7 @@ export default positive("newton_pos", {
         * (cmul(cmul(cmul(v2(z.x, z.y), v2(z.x, z.y)), v2(z.x, z.y)), v2(z.x, z.y)).x - 1.0)
         + cmul(cmul(cmul(v2(z.x, z.y), v2(z.x, z.y)), v2(z.x, z.y)), v2(z.x, z.y)).y
         * cmul(cmul(cmul(v2(z.x, z.y), v2(z.x, z.y)), v2(z.x, z.y)), v2(z.x, z.y)).y,
-    }), { until: (z) => z.f2 < 1.0e-6 });
+    }), { until: (z) => z.f2 < 1.0e-6 || (z.x * z.x + z.y * z.y) > 1.0e6 });
     ox = o.x;
     oy = o.y;
     itv = (o.f2 < 1.0e-6) ? (o.count - 1.0) : K;
@@ -96,7 +114,7 @@ export default positive("newton_pos", {
         * (cmul(cmul(cmul(cmul(v2(z.x, z.y), v2(z.x, z.y)), v2(z.x, z.y)), v2(z.x, z.y)), v2(z.x, z.y)).x - 1.0)
         + cmul(cmul(cmul(cmul(v2(z.x, z.y), v2(z.x, z.y)), v2(z.x, z.y)), v2(z.x, z.y)), v2(z.x, z.y)).y
         * cmul(cmul(cmul(cmul(v2(z.x, z.y), v2(z.x, z.y)), v2(z.x, z.y)), v2(z.x, z.y)), v2(z.x, z.y)).y,
-    }), { until: (z) => z.f2 < 1.0e-6 });
+    }), { until: (z) => z.f2 < 1.0e-6 || (z.x * z.x + z.y * z.y) > 1.0e6 });
     ox = o.x;
     oy = o.y;
     itv = (o.f2 < 1.0e-6) ? (o.count - 1.0) : K;

@@ -286,3 +286,23 @@ float det_tanh(float x){
   precise float d = e2 + 1.0;
   return det_div(n, d);
 }
+
+/* normalize on a vec3, through the pinned length and the exact divide.
+
+   The zero-length case is DEFINED here rather than left to the
+   implementation. normalize(vec3(0.0)) is zero over zero in every
+   component and the specification does not say what comes back; a
+   plate that can reach it is not portable, and plates reach it - a
+   gradient that vanishes at a critical point, a tangent basis at a
+   pole. The floor is small enough never to perturb a real direction
+   and large enough that the divide stays finite, which is the same
+   trade newton's divergence bail makes.
+
+   Written componentwise rather than as v / l because a vector divide
+   by a scalar is three divides either way, and this way each one goes
+   through det_div and none of them is a contraction candidate. */
+vec3 det_normalize3(vec3 v){
+  precise float l = det_len3v(v);
+  precise float d = max(l, 1.0e-30);
+  return vec3(det_div(v.x, d), det_div(v.y, d), det_div(v.z, d));
+}

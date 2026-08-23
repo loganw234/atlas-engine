@@ -736,8 +736,21 @@ export function emitWalk(pos, opts = {}) {
         return { type: "float", code: pin
           ? `det_dot3(${v3s[0]}, ${v3s[1]})`
           : `dot(${v3s[0]}, ${v3s[1]})` };
-      if (c.n === "cross3") return { type: "vec3", code: `cross(${v3s[0]}, ${v3s[1]})` };
-      if (c.n === "normalize3") return { type: "vec3", code: `normalize(${v3s[0]})` };
+      // These two emitted RAW under pin while dot3 and length3 beside
+      // them did not, which made cross3 a silent hole - `cross` is not
+      // on verify-pinned's LOOSE list, so nothing caught it - and made
+      // normalize3 a word that could not be used at all, since
+      // `normalize` IS on that list and any positive reaching for it
+      // failed the gate. Found by an agent converting starfield, which
+      // wrote its cross products componentwise to get around it.
+      if (c.n === "cross3")
+        return { type: "vec3", code: pin
+          ? `det_cross(${v3s[0]}, ${v3s[1]})`
+          : `cross(${v3s[0]}, ${v3s[1]})` };
+      if (c.n === "normalize3")
+        return { type: "vec3", code: pin
+          ? `det_normalize3(${v3s[0]})`
+          : `normalize(${v3s[0]})` };
       if (c.n === "length3")
         return { type: "float",
                  code: pin ? `det_len3v(${v3s[0]})` : `length(${v3s[0]})` };
