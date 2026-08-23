@@ -101,3 +101,109 @@ notes: The bounce loop (33-billiards.js lines 202-219) is an orbit in
        xz-plane with LIFT lifting bounce index into y, so the subject is
        a stack of planes, not a volume; sampling can be budgeted as for
        any surface plate.
+
+---
+
+# billiards: converted
+plate GLSL lines: 212   positive lines: 385
+gaps: none
+notes: The block that stood above is closed by exactly the smallest of
+       the three unblocks it asked for, (a), a statement body for the
+       orbit step. `billiards_hit` is now what it is in the shader, a
+       sequence of statements inside the step: a running `best`, a
+       normal beside it, the four surfaces tested in the shader's own
+       order under the same strict `<`, and each intermediate named
+       once. Nothing is re-expanded, so the stadium step is ordinary
+       text rather than the hundred kilobytes the earlier measurement
+       found. The emitted plate is 375 GLSL lines unpinned, 536 pinned.
+
+       THE ORBIT. State is the ray (rox, roy, dx, dy), the running
+       chord sum acc, the seat (ptx, pty), the chord length tlen, and a
+       stop code: 0 running, 1 arrival at bounce kk, 2 the miss or
+       degenerate ray. `until` reads the code before each step, so the
+       step that sets it is the step that freezes the record, and
+       everything after the orbit reads the frozen ray. The bound is
+       the BOUNCES lever itself, which emits `for (j = 0; j < 40; j++)`
+       with `if (j >= li_bounce) break;`, the shader's loop line for
+       line. `int Nb = int(P[1] + 0.5); if (Nb < 1) Nb = 1;` stays
+       vacuous, BOUNCES having minimum 1.
+
+       CHOICES THE NEXT READER SHOULD KNOW. The shader's
+       `for (side = 0; side < 2; side++)` over the two stadium caps is
+       written out twice rather than nested as an orbit; with a
+       statement body each cap is fifteen statements and unrolling
+       keeps the `side == 0 ? ... : ...` gates as the plain
+       inequalities they are. Order still matters in principle, so the
+       right cap is tested before the left, as in the plate. Draw
+       order is the shader's source order, rnd.z then the coin then the
+       chord: `s.centered()`, then `s.u() < 0.5` for the launch
+       handedness, then `s.pick(P.bounce)`. `normalize` has no
+       vocabulary spelling and no deterministic form, so every unit
+       vector is v / length(v) through len2, which is what the pinned
+       emitter wants and what the evaluator computes. The three colour
+       multiplies stay three multiplies, `mul3(mul3(mul3(base, wgt),
+       pulse), gain)`, because folding them into one factor would
+       change the rounding. The far sentinel `vec3(0.0, -999.0, 0.0)`
+       becomes `s.decline()` and emits as -20000, the same conversion
+       collatz and primes already carry.
+
+       s.vnoise IS NOT USED AND SHOULD NOT BE. This plate has no field:
+       both seed hashes are consumed once by a single point and never
+       asked for again by another, so they are a fair coin and a
+       uniform integer, which the stream says directly. A catalogue
+       entry would be answering a question nothing asks.
+
+       GATES. `node tools/smoke-pos.mjs positives/billiards.pos.mjs`
+       passes all four rows with zero declines and zero malformed.
+       `node tools/verify-pinned.mjs billiards` reports 1 of 1 fully
+       pinned, 0 refused, 0 unpinned ops, and no bare slash: every
+       division in the walk goes through det_div.
+
+       THE CROSS-CHECK. The plate's GLSL was transcribed literally into
+       a throwaway JS function in the scratch area, the walk was driven
+       by a draw-recording stream, and the transcription was replayed
+       on the same three draws. Fourteen settings covering all four
+       TABLE arms and eccentricity 0 through 1, 20,000 points each:
+       279,998 deposits and 2 declines, no decline mismatches, and the
+       worst relative delta over x, y, z, r, g, b was EXACTLY ZERO.
+       That is stronger than wave one's 4e-16 to 2e-14 and it is not a
+       surprise: the walk associates every expression the way the
+       shader does, and both sides run in doubles under node, so there
+       is nothing left to round differently. Branch coverage was
+       counted rather than assumed: every stadium and Sinai surface,
+       every start segment, both breaks and both declines were reached.
+
+       NEGATIVE CONTROLS, six of eight fired. Perturbing the circle
+       radius (4.5e-2), the ellipse semi-axis (1.8), the stadium radius
+       (2.0), the Sinai half-width (2.0), the per-bounce nudge (2.0)
+       and the pulse amplitude (3.9e-4) each showed up immediately, so
+       the comparator sees a planted fault in every table arm and in
+       the colour chain. Two did not fire, and both are facts about the
+       plate rather than blindness in the instrument. Swapping the
+       order of the two cap tests changes nothing because a running
+       strict minimum is order-independent except on an exact tie, and
+       no tie occurred. Raising the stadium wall floor from t > 0.0 to
+       t > 1.0e-4 changed nothing either, which confirms the plate's
+       own comment at lines 58-60: no wall hit in 280,000 walks
+       arrived within 1e-4, so the EPS the plate refuses to use would
+       indeed have rejected nothing here. Recorded because the comment
+       asserts it and this measures it.
+
+       ONE ARM OF THE SHADER IS DEAD. In the stadium cap the near root
+       is taken when `v1` holds, and over 1.25 million accepted cap
+       hits `v1` was never true: the far root won every time. That is
+       geometry, not sampling. A ray whose origin is inside the stadium
+       is either inside the cap circle, where t1 is behind it, or left
+       of x = L, where it enters the circle at hx1 < L and fails the
+       gate. The earlier report's reading that "both roots are live" is
+       half right, in that neither can be dropped from the source
+       without changing what the code says, but only t2 is ever
+       selected. The positive carries the same arm under the same
+       condition, so it says the same thing.
+
+       FOR CONFORMANCE. The subject is not volumetric. The table lies
+       in the xz-plane and LIFT is zero by default, so at defaults every
+       deposit sits on the single plane y = 0 and the picture is a
+       plane curve family; no shot-noise allowance of the qjulia or
+       bulb kind is needed. Declines are lawful and rare, 2 in 280,000
+       at these settings, and both evaluators decline the same points.

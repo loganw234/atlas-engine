@@ -108,3 +108,132 @@ notes: What DOES convert, for whoever picks this up once the gaps
        Not volumetric. Every arm seats its point on a plane: z = -1
        for the aperture scenery, z = 0.6 for the screen. Two flat
        sheets, so a normal point budget would do.
+
+---
+
+# diffract: converted
+plate GLSL lines: 230   positive lines: 318
+gaps: none. Both blockers above have closed, and each closed on a
+      construct that did not exist when that report was written. The
+      reasoning above was right at the time; it is superseded, not
+      wrong.
+
+      GAP 1, the frame-constant hash, is s.vnoise read at WHOLE
+      integer coordinates. Its interpolation weights are exactly zero
+      there, so the call returns the lattice corner itself: a pinned
+      hash of (cell, octave) that takes nothing from the stream and so
+      answers every point of a frame identically, which is the one
+      property a per-point draw could never have. The index handed to
+      it is the plate's own, floor(mod(max(t, 0)*997, 16777216)), and
+      it is split across both lattice axes (x = index, y = index/1024)
+      because the lattice wraps every 1024 cells and the index runs to
+      sixteen million. The two octaves are 0x9E37 and 0x79B9, the
+      halves of the golden-ratio constant the shader salts its own
+      hash with.
+
+      GAP 2, iteration with carried state inside another iteration, is
+      an orbit inside an orbit step with a BLOCK body. APERTURE 4 is
+      the exact shape the block body was added for: s.orbit(160, ...)
+      carrying (ex, ey, phx, phy), and inside its step an s.orbit(10,
+      ...) carrying (term, acc) for the J0 series, reached through a
+      plain if/else on the ax < 5 join. Neither hand-compilation the
+      earlier report rejected was needed, and nothing was unrolled.
+      Confirmed in the pinned emission: the 10-step loop opens at line
+      254 inside the 160-step loop spanning 229-295, and no float,
+      vec2 or vec3 local anywhere in that nest is unqualified.
+
+notes: THE ONE SUBSTITUTION, AND WHAT WAS MEASURED. The frame shift is
+       the only quantity that is not the shader's own arithmetic. The
+       plate takes hashu(uint(...) + 0x9e3779b9) and this takes two
+       vnoise lattice corners, so the shift VALUE per frame differs.
+       What had to survive is the law, since GAP 1 was refused
+       precisely because a per-point draw changes the law. Measured
+       the way the earlier report measured it, 20000 points binned
+       into 64 bins of qs.x, the quantity that sets the screen
+       coordinate in every arm:
+
+         t        plate hashu   s.vnoise    per-point draw
+         0        chi2 0.17     chi2 0.15   chi2 58.41
+         0.37     chi2 0.19     chi2 0.15   chi2 58.41
+         1.70     chi2 0.18     chi2 0.16   chi2 58.41
+         4.25     chi2 0.20     chi2 0.20   chi2 58.41
+         11.30    chi2 0.21     chi2 0.17   chi2 58.41
+
+       Worst bin 0.5 to 0.8 percent off uniform for both rotations and
+       12.6 percent for the draw. The vnoise shift is also constant
+       across every point of a frame and across any number of prior
+       stream draws (checked on 15000 points at three clocks), gives
+       4000 distinct shifts over 4000 consecutive frames at 60 fps
+       exactly as the plate's own hash does, and has a
+       consecutive-frame correlation of -0.013. So the stratification
+       slides and stays; the grain the caption sells is the plate's.
+
+       THE CROSS-CHECK. The plate's GLSL was transcribed literally
+       into JS (all five helpers and the whole shape body), the walk
+       driven by a draw-recording stream, and the transcription
+       replayed on the same draws with the walk's own frame shift
+       injected for the one substituted quantity. Nine settings
+       covering all five APERTURE arms and clocks 0 to 11.3, 4000
+       points each: 35828 deposits compared, 0 decline/deposit
+       disagreements, worst relative difference 0.000e+0 on every
+       field. Bit-identical rather than merely close, because the
+       association was copied as well as the constants.
+
+       The comparator was validated against six planted faults, one
+       per helper plus one global: 0.28 in wl2rgb (3854 fields), the
+       6.0 in the sinc2 series (24 fields), the ax < 5 join in J0
+       (15453), the (kf+2) denominator in the J1 recurrence (15054),
+       the 60.0 phase budget in arago (34560), and the 0.9 in lift
+       (107484). All six fired. A check that cannot see a planted
+       fault is not evidence, and this one can see faults in both
+       nested loops.
+
+       ASSOCIATION IS COPIED, NOT JUST CONSTANTS. col = tint*(inten/
+       max(pdf,1e-6))*K*lift is a vec3 times three scalars in source
+       order, so it is written mul3(mul3(mul3(tint, bright), K),
+       lift). Folding the scalars first would have been an ULP off and
+       the cross-check would have said so. Same reason E *= 0.5*dt is
+       E.ex * (0.5 * dtq).
+
+       GUARDS: NONE ADDED. Every branch the shader writes as if/else
+       is an if/else here rather than a ternary, so no dead arm is
+       ever evaluated and there was nothing to bound. diffract_af's
+       early return became the inverted guard if(abs(sp) >= 1e-4),
+       same values. diffract_sinc2 keeps its two ternaries because the
+       plate already made its divisor never zero. The only constant in
+       the walk that is not the plate's is 0.0009765625, which is
+       2^-10 and belongs to the frame-index split, not to the optics.
+       A lever-corner sweep (five arms x three corners of all seven
+       levers x seven clocks including -5 and 3600, 63000 points)
+       found 0 non-finite fields and a largest field magnitude of 5.8.
+
+       DRAWS. Three, spent unconditionally at the top of the walk in
+       the shader's z, x, y order so no arm can change what a later
+       arm sees: uz gates the scenery at 0.04, ux picks uniform
+       against Rayleigh in both the 2D and 1D arms, uy is the
+       Gaussian's angle in the 1D arm. All texture, all lawfully
+       s.u(). The emitted plate therefore reads its own stream rather
+       than rnd.zxy, which is the usual trade.
+
+       ARMS. Scenery (uz < 0.04, the aperture plane at z = -1) and
+       APERTURE 0, 1, 2 are plain arithmetic as the earlier report
+       predicted. diffract_af is called at two sites with different N
+       and is written out twice, the tpms pattern, under two separate
+       ifs rather than an if/else because the shader uses two separate
+       ifs. APERTURE 3 is one top-level 10-step orbit for J1.
+       APERTURE 4 is the nest. The far sentinel -999 appears at three
+       sites (an opening between the bars, rad > L, |s| > L) and all
+       three are s.decline().
+
+       ONE THING TO WATCH, and it is the plate's own. The frame index
+       is a floor of t*997, so a last-place difference in that product
+       changes the whole frame's shift, not one point's. The shader
+       has exactly the same sensitivity through uint(mod(uT*997,...)),
+       so this is inherited rather than introduced, but a frame-level
+       picture diff that disagrees wholesale while every arm agrees
+       bit for bit is this and nothing deeper.
+
+       NOT VOLUMETRIC, confirming the earlier report. Every arm seats
+       its point on a plane, z = -1 for the aperture scenery and
+       z = 0.6 for the screen. Two flat sheets, so a normal point
+       budget is right and no shot-noise allowance is needed.
