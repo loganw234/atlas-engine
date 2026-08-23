@@ -343,7 +343,7 @@ strict column, `lyap` and `arnold`, differ *only* in the sign of a
 zero — which deposits into the same pixel and which the census, hashing
 accumulated counts, cannot see at all.
 
-It took four things, and each was found rather than designed:
+It took five things, and each was found rather than designed:
 
 1. **`precise` on every declared local** — 12/50 → 46/50.
 2. **Operand hoisting**, because `precise` on the destination does not
@@ -353,10 +353,29 @@ It took four things, and each was found rather than designed:
    `det_cmul`, `det_cdiv`, `det_cinv`, `det_csqrt` — so an emitted
    plate no longer reaches an unpinned `cos()` at one remove. 38 of 54
    positives did.
-4. **Hoisting inside ternary branches too**, which closed `mirage`.
-   It costs: a bound branch is computed whether or not it is selected,
-   `tpms` pays for four of them, and `mirage`'s emitted source roughly
-   doubles. Correctness over speed is what the `pin` flag is for.
+4. **Hoisting inside ternary branches too**, which closed `mirage` at
+   this size. It costs: a bound branch is computed whether or not it is
+   selected, `tpms` pays for four of them, and `mirage`'s emitted
+   source roughly doubles. Correctness over speed is what the `pin`
+   flag is for.
+5. **Binding the operands of COMPARISONS**, 2026-08-23, which is what
+   actually closed `mirage` — item 4 did not, and the census found it
+   still split NVIDIA against Mesa. A comparison's result is a `bool`
+   and cannot be `precise`, so an expression feeding one and nothing
+   else reached no precise destination at all. `mirage` switches its
+   leapfrog on `n*n - C*C > 0.0` where the two are both near 1.02 and
+   the difference is the ray's turning point: 23.2% of 345,600 rays
+   present that comparison a value below the rounding error of its own
+   subtraction. **66 of 69 positives carried at least one such
+   comparison**, so the hole was general and `mirage` was only the
+   plate sitting on a knife edge. `Math.*` call arguments were bound at
+   the same time for the same reason. `verify-pinned` gates it, and the
+   gate was faulted against the previous emitter first.
+
+   Adding it moved NVIDIA's hash on ZERO of 67 plates re-censused on
+   the same card, and moved Mesa's on `mirage`. So NVIDIA already read
+   `precise` as reaching through the comparison and Mesa did not; the
+   binding removes the need for either reading.
 
 And then the last plate found a defect in the det library itself. See
 below.
