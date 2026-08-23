@@ -167,6 +167,46 @@ needed. A blocked plate with a precise gap report is a good outcome;
 a plate that silently says something different from its shader is the
 one forbidden result.
 
+## What a positive owes the plate, and what it does not
+
+Settled 2026-08-22, because the sweep kept running into it and every
+agent asked the question a slightly different way.
+
+**A positive owes the plate its LAW. It does not owe the plate its
+ARRANGEMENT.**
+
+A positive is a re-authoring, not a transliteration. Where the subset
+cannot say a thing the way the shader said it - and the recurring case
+is a hash: the subset has no uint, no bitwise operators and no `hashu`,
+so an addressed hash chain has to be re-keyed through `s.vnoise` - the
+positive restates the law and draws a different member of the same
+ensemble. That is acceptable.
+
+What that looks like in practice, from this sweep:
+
+- `throughput` matches the shader's district mixture to within 0.39
+  percentage points across all eleven types, and at the default WORLD
+  lays out an 18x27 core where the shader lays out 20x24. A different
+  floor plan of the same city.
+- `drainage` is one 24-sample realisation of the same river, drifting
+  off the original's by about what the plate's own picture moves when
+  its root constant changes.
+- `tangle` draws a different filament catalogue from the same size law.
+
+None of these is a defect and none should be "fixed" by contorting the
+walk. A pixel correlation against the registry plate is the WRONG
+instrument for them; the ensemble is the right one, which is what
+`native-law.mjs` measures.
+
+**What is not acceptable** is a positive whose law differs: a
+distribution that is not the plate's, a gate that admits a different
+set, a constant carried across wrong. That is what the literal
+transcription cross-check exists to catch, and why every negative
+control has to fire before a conversion is done.
+
+So: report the arrangement difference plainly, prove the law, and do
+not apologise for the picture moving.
+
 ## The report
 
 For each assigned plate append to `build/reports/<id>.md`:
