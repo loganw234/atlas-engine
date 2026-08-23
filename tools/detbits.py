@@ -18,7 +18,7 @@ The library is the thing this project's determinism claim rests on, so
 assumption, and until now it has been measured on three GPUs and never
 on a CPU rasteriser.
 
-    python tools/detbits.py <tag> [--stack N]
+    python tools/detbits.py <tag> [--stack N] [--dump name,name]
     python tools/detbits.py --compare
 """
 import argparse
@@ -63,7 +63,72 @@ CALLS = [
     ("det_rodrigues",
      "det_rodrigues(vec3(a, b, a), vec3(0.0, 1.0, 0.0), 0.5, 0.25).x"),
     ("det_len3v", "det_len3v(vec3(a, b, a - b))"),
+    # det_pal was the one colour function this probe never covered, and
+    # emitted logz's colour is what kept diverging between radeonsi and
+    # iris after position had gone bit-identical.
+    ("det_pal1", "det_pal1(clamp(a * 0.03125, -1.0, 1.0), 0.5, 0.42, "
+                 "1.0, 0.02)"),
+    ("det_pal", "det_pal(clamp(a * 0.03125, -1.0, 1.0), "
+                "vec3(0.48), vec3(0.42), vec3(1.0), "
+                "vec3(0.02, 0.36, 0.70)).y"),
+    ("det_fract", "det_fract(a)"),
+    ("fract_raw", "fract(a)"),
+    ("fract_bar", "fract_bar(a)"),
+    ("fract_intp", "fract_intp(a)"),
 ]
+
+# THE SAME QUESTION, ASKED OF EVERY det_ FUNCTION THAT REPLACES A
+# BUILTIN. det_fract was written exactly as the spec defines fract,
+# and on iris it hashed identically to the builtin - because the
+# compiler recognised the identity and folded it back, so the
+# replacement never compiled. Nothing about that is specific to fract.
+#
+# So each det_ function is paired with the builtin it stands in for,
+# over the same inputs. Reading the table:
+#
+#   det_X differs from X on some stack -> the replacement is live
+#   det_X == X on every stack          -> either X already agrees
+#                                         everywhere, or det_X is
+#                                         being folded into it. Both
+#                                         are safe on THESE stacks and
+#                                         neither is safe on a fifth.
+#
+# The pairing is not always exact - det_len2 takes two scalars where
+# length takes a vector - so the builtin form is written to match the
+# det_ call's arguments rather than to look tidy.
+RAW = [
+    ("raw_sin", "sin(a)"),
+    ("raw_cos", "cos(a)"),
+    ("raw_tan", "tan(a)"),
+    ("raw_sqrt", "sqrt(abs(a))"),
+    ("raw_atan", "atan(a, b)"),
+    ("raw_pow", "pow(abs(a) + 1.0e-6, 0.375)"),
+    ("raw_acos", "acos(clamp(a * 0.03125, -1.0, 1.0))"),
+    ("raw_exp2", "exp2(a * 0.25)"),
+    ("raw_log2", "log2(abs(a) + 1.0e-6)"),
+    ("raw_mod", "mod(a, b)"),
+    ("raw_mix", "mix(a, b, 0.375)"),
+    ("raw_smoothstep", "smoothstep(-1.0, 3.0, a)"),
+    ("raw_len2", "length(vec2(a, b))"),
+    ("raw_len3", "length(vec3(a, b, a + b))"),
+    ("raw_dot3", "dot(vec3(a, b, a + b), vec3(b, a, a - b))"),
+    ("raw_div", "a / b"),
+    ("raw_recip", "1.0 / b"),
+]
+CALLS = CALLS + RAW
+
+# det_ name -> the raw name it should be compared against
+PAIRS = {
+    "det_sin": "raw_sin", "det_cos": "raw_cos", "det_tan": "raw_tan",
+    "det_sqrt": "raw_sqrt", "det_atan": "raw_atan",
+    "det_pow": "raw_pow", "det_acos": "raw_acos",
+    "det_exp2": "raw_exp2", "det_log2": "raw_log2",
+    "det_mod": "raw_mod", "det_mix": "raw_mix",
+    "det_smoothstep": "raw_smoothstep", "det_len2": "raw_len2",
+    "det_len3": "raw_len3", "det_dot3": "raw_dot3",
+    "det_div": "raw_div", "det_recip": "raw_recip",
+    "det_fract": "fract_raw",
+}
 
 # PI and TAU come from the registry's shared header, and detpre's
 # det_pal needs TAU. Declared here so this probe compiles the same
@@ -76,6 +141,40 @@ layout(std430, binding = 2) writeonly buffer Out { float o[]; };
 uniform uint uN;
 const float PI  = 3.14159265359;
 const float TAU = 6.28318530718;
+
+/* CANDIDATE forms of fract, carried by this probe only.
+
+   det_fract as written - floor, then subtract - produced the SAME
+   hash as the bare builtin on every stack, including the one whose
+   builtin disagrees with the other three. That cannot happen
+   honestly: floor is exact and agrees bit for bit everywhere
+   measured, and x - floor(x) is an exact subtraction, so two
+   conforming stacks are obliged to agree on it. The only reading
+   left is that the compiler recognised the idiom and folded it back
+   into the very instruction it was written to avoid - which would
+   also explain why routing the emitter's fract through det_fract
+   changed exactly nothing.
+
+   These two put the question a different way. `bar` sets a bitcast
+   round trip between the floor and the subtract; `intp` never calls
+   floor at all, rebuilding it from a truncating int conversion. If
+   one is bit-identical across stacks while the builtin is not, the
+   fold is real and that one is the fix. */
+float fract_bar(float x){
+  precise float f = floor(x);
+  f = uintBitsToFloat(floatBitsToUint(f));
+  precise float r = x - f;
+  return r;
+}
+float fract_intp(float x){
+  /* |x| >= 2^23 is already an integer in float32, so its fraction is
+     exactly zero - and the int() below would overflow. */
+  if (abs(x) >= 8388608.0) return 0.0;
+  precise float t = float(int(x));
+  precise float f = (x < 0.0 && t != x) ? t - 1.0 : t;
+  precise float r = x - f;
+  return r;
+}
 """
 
 
@@ -114,7 +213,7 @@ def inputs():
     return x.astype(np.float32), y.astype(np.float32)
 
 
-def run(tag, stack):
+def run(tag, stack, dump=()):
     import numpy as np
     import moderngl
     kw = {"standalone": True, "require": 430}
@@ -149,6 +248,22 @@ def run(tag, stack):
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / f"{tag}.json").write_text(json.dumps(rec, indent=1),
                                      encoding="utf-8")
+    # A hash names WHICH function disagrees and nothing more. When a
+    # disagreement has to be characterised - for a driver bug report,
+    # say - the inputs that produce it are the whole story, so one
+    # named column can be kept alongside the record. One column is a
+    # megabyte; all twenty would be twenty-one, which is why this is a
+    # flag rather than the default.
+    if dump:
+        names = [n for n, _ in CALLS]
+        cols = [c for c in dump if c in names]
+        if len(cols) != len(dump):
+            sys.exit(f"unknown column(s): "
+                     f"{sorted(set(dump) - set(names))}")
+        np.savez_compressed(
+            OUT / f"{tag}-cols.npz", x=x, y=y,
+            **{c: a[names.index(c)] for c in cols})
+        print(f"    kept {', '.join(cols)} in {tag}-cols.npz")
     for name, h in rec["hashes"].items():
         print(f"    {name:16} {h}")
     return 0
@@ -188,6 +303,36 @@ def compare():
         print("\n  the whole library is bit-identical across every stack "
               "measured,")
         print("  so a plate that disagrees is disagreeing above it.")
+
+    # THE FOLD AUDIT. A det_ function is only doing something if it
+    # produces different bits from the builtin it replaces. When it
+    # matches the builtin on every stack, one of two things is true
+    # and the hashes alone cannot tell them apart: the builtin already
+    # agrees everywhere, or the replacement is being folded back into
+    # it. det_fract looked exactly like the first and was the second -
+    # written as the spec defines fract, and compiled as the builtin
+    # on the one stack whose builtin is wrong.
+    print("\n  DOES THE REPLACEMENT REPLACE ANYTHING?")
+    print(f"    {'function':16} {'vs builtin':>12}   reading")
+    live = same = 0
+    for det, raw in PAIRS.items():
+        diff = [t for t in names
+                if recs[t]["hashes"].get(det) != recs[t]["hashes"].get(raw)]
+        if diff:
+            live += 1
+            note = ("differs on every stack" if len(diff) == len(names)
+                    else "differs on " + " ".join(diff))
+            print(f"    {det:16} {'LIVE':>12}   {note}")
+        else:
+            same += 1
+            spread = len({recs[t]["hashes"].get(raw) for t in names})
+            note = ("builtin already agrees everywhere - safe here, "
+                    "unproven elsewhere" if spread == 1 else
+                    "BUILTIN DISAGREES ACROSS STACKS AND det_ MATCHES "
+                    "IT -> FOLDED")
+            print(f"    {det:16} {'identical':>12}   {note}")
+    print(f"    {live} replacement(s) live, {same} identical to the "
+          f"builtin on every stack.")
     return 1 if split else 0
 
 
@@ -195,13 +340,17 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog="detbits")
     ap.add_argument("tag", nargs="?")
     ap.add_argument("--stack", type=int, default=None)
+    ap.add_argument("--dump", default="",
+                    help="comma-separated column names to "
+                         "keep alongside the hashes")
     ap.add_argument("--compare", action="store_true")
     a = ap.parse_args(argv)
     if a.compare:
         return compare()
     if not a.tag:
         ap.error("a tag is required unless --compare")
-    return run(a.tag, a.stack)
+    return run(a.tag, a.stack,
+               tuple(c for c in a.dump.split(',') if c))
 
 
 if __name__ == "__main__":

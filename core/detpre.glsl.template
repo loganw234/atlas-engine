@@ -207,3 +207,36 @@ vec2 det_csqrt(vec2 z){
   precise float im = (z.y < 0.0) ? -i0 : i0;
   return vec2(re, im);
 }
+
+/* fract, rebuilt from a truncating int conversion rather than from
+   floor.
+
+   The obvious form - floor, then subtract - is exact in principle:
+   floor is exact and agrees bit for bit on every stack measured, and
+   x - floor(x) is an exact subtraction, so no two conforming stacks
+   can disagree on it. It still produced iris's answer on iris. The
+   compiler recognises the idiom and folds it straight back into the
+   instruction it was written to avoid; a bitcast round trip between
+   the floor and the subtract does not stop it either. Both were
+   measured, and both came back bit-identical to the bare builtin.
+
+   That matters because the builtin is wrong there: Intel's fract is
+   one ULP low for x in (-0.5, 0) - exactly the inputs whose result
+   lands in [0.5, 1), where rounding is actually required - on 5.58%
+   of the probe's sample set. So the fold was quietly reintroducing a
+   real disagreement, which is also why routing the emitter's fract
+   through det_fract had measured no change at all.
+
+   Building floor out of int() leaves the optimiser nothing to
+   recognise. Measured bit-identical on NVIDIA, radeonsi, iris and
+   llvmpipe. (The darkroom's bake defines this too and its version
+   wins there; the two are kept in step deliberately.) */
+float det_fract(float x){
+  /* |x| >= 2^23 is already an integer in float32: its fraction is
+     exactly zero, and the int() below would overflow. */
+  if (abs(x) >= 8388608.0) return 0.0;
+  precise float t = float(int(x));
+  precise float f = (x < 0.0 && t != x) ? t - 1.0 : t;
+  precise float r = x - f;
+  return r;
+}

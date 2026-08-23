@@ -38,7 +38,7 @@ const LOOSE = [
   // dot and mix were once "admitted because nothing emitted uses them".
   // That was an assertion, not a measurement, so they are in the scan
   // now and the claim either holds or shows up here.
-  "dot", "mix",
+  "dot", "mix", "fract",
 ];
 
 // Admitted, each for a stated reason. This list is the honest part of
@@ -52,7 +52,6 @@ const ADMITTED = {
   sign: "exact",
   clamp: "min/max composed, exact",
   step: "a comparison, exact",
-  fract: "x - floor(x); exact given floor is, and it is",
 };
 
 // Pinned rather than admitted - each replaces a builtin the emitter
@@ -65,6 +64,7 @@ const PINNED = {
   det_mix: "mix(), whose association was free",
   det_smoothstep: "smoothstep(), through the exact divide",
   det_mod: "mod(), through the exact divide",
+  det_fract: "fract() - iris rounds it toward zero where x - floor(x) rounds to nearest, one ULP low on 45% of x in (-0.5, 0). Rebuilt from float(int(x)) rather than from floor, because the compiler folds the floor form back into the builtin",
   det_pow: "pow(), including the one deciding a descend depth",
   det_sin: "sin()", det_cos: "cos()", det_tan: "tan()",
   det_sqrt: "sqrt()", det_acos: "acos()", det_atan: "atan()",

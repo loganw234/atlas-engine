@@ -481,17 +481,62 @@ A second thing fell out: the control's NVIDIA hashes reproduce the
 made today are hash-preserving on NVIDIA at the full-render level, not
 just per-function.
 
-**What remains.** `logz` and `stdmap` still differ, and emitted and
-control agree with each other to two figures there — so the residue is
-not in the plate. With a genuine integer count, "not conserved" reads
-properly: one stack deposits about 50 samples of roughly 2.9 billion
-that the other does not. That is a **cull**, not a moved position.
+#### The residue was `fract`, and the fix had never compiled
+
+Two readings of what remained were wrong before the right one. It was
+not a cull — `cullcount.py` gave every early `return` an atomic
+counter and found all five sites agreeing exactly, 574,767 survivors
+on both stacks. It was not a moved pixel either: `depositdiff.py`,
+eight stores at one site indexed by sample, found **0 pixels
+differing** and 427 colours, with the plate's own `col` differing
+before the camera scaled it.
+
+Then four candidate fixes measured **exactly zero** in a row — vector
+hoisting, routing `fract` through `det_fract`, pinning `vCol`, and the
+reverted deposit-tail binding. Four zeroes is not four facts about the
+plate; it is a reason to doubt the compilation.
+
+`detbits.py`, which isolates one library function per column, found
+it. `det_fract` — written as the spec defines it, `precise f =
+floor(x); precise r = x - f;` — hashed **identically to the bare
+builtin on iris**. That is impossible honestly: `floor` is exact and
+bit-identical on all four stacks, and the subtraction is one IEEE
+operation. The compiler was pattern-matching the identity and folding
+it back into the instruction it was written to replace. A bitcast
+round trip on the intermediate does not stop it; that was measured
+too.
+
+The builtin it folded back into is wrong: **iris rounds `fract`
+toward zero** where `x - floor(x)` rounds to nearest — one ULP low,
+never high, on 45.5% of `x ∈ (-0.5, 0)`, and on nothing outside that
+range. Confirmed against exact rational arithmetic, 869 of 869 both
+ways. Drafted for filing at
+`docs/bug-reports/mesa-iris-fract-rounds-toward-zero.md` in the
+darkroom.
+
+Rebuilding `floor` from `float(int(x))` leaves no idiom to match and
+gives one hash on NVIDIA, radeonsi, iris and llvmpipe. With that in
+both the engine's `detpre` and the bake's own definition:
+
+```
+  reached the deposit on both : 1,149,528
+  PIXEL differs  : 0 (0.0000% of live)
+  COLOUR differs : 0 (0.0000% of live)
+```
+
+Zero, on 128× the samples of the run that found 427.
+
+**The lesson worth keeping** is not about `fract`. A determinism fix
+that measures *exactly* zero should be suspected of not having been
+compiled, and tested in isolation — one function, hashed across
+stacks — before the search moves on. Prefer a replacement built from a
+different primitive over the textbook identity, because the textbook
+identity is precisely what the peephole matches.
 
 One camera fix was tried and **reverted**: binding every intermediate
 in `px = ivec2(floor(win))`'s chain — the shape that broke `tpms` here
-— changed the delta by exactly zero. It measured nothing and would
-have invalidated the bundle, so it went back. `campath.py` is the
-instrument for the next attempt.
+— changed the delta by exactly zero, and the cull counts later
+explained why: nothing was crossing a bounds test at all.
 
 Full record in the darkroom at
 `docs/test-records/2026-08-22d-emitted-plates-through-the-ladder.md`.

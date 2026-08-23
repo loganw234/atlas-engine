@@ -299,6 +299,14 @@ export function emitWalk(pos, opts = {}) {
    *  something that did not need it, the cost is a redundant local the
    *  compiler removes; if it misses something that did, a plate stops
    *  agreeing across vendors, which is far more expensive. */
+  /** The same binding, for a vector expression. */
+  function bindPreciseV(code, type) {
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(code)) return code;
+    const t = `pv_${vn++}`;
+    put(`precise ${type} ${t} = ${code};`);
+    return t;
+  }
+
   function bindPrecise(code) {
     // NOTE: hoisting DOES descend into ternary branches. Binding a
     // branch computes it whether or not it is selected - harmless,
@@ -437,8 +445,32 @@ export function emitWalk(pos, opts = {}) {
         if (l.type === "int" && r.type === "int" && (n.op === "+" || n.op === "-" || n.op === "*"))
           return { type: "int", code: `(${l.code} ${n.op} ${r.code})` };
         if (l.type === "vec2" || r.type === "vec2" || l.type === "vec3" || r.type === "vec3") {
-          if (l.type === r.type && (n.op === "+" || n.op === "-"))
-            return { type: l.type, code: `(${l.code} ${n.op} ${r.code})` };
+          if (l.type === r.type && (n.op === "+" || n.op === "-")) {
+            // VECTORS NEED BINDING TOO. `precise vec3 c = (a * 0.30) +
+            // (vec3(...) * (b * 0.95));` is the same compound-inline
+            // shape that broke tpms, and the float path's hoisting
+            // never reached it.
+            //
+            // WHAT THIS DID NOT FIX, recorded because the honest
+            // reading cost a long detour. It was written to close the
+            // colour divergence left on logz after position had gone
+            // bit-identical - 427 of 8,977 deposits landing in the
+            // SAME pixel with a different colour, radeonsi against
+            // iris - and it changed that number by EXACTLY ZERO. So
+            // did three other candidates. The cause was det_fract:
+            // written as the spec defines fract, folded straight back
+            // into the builtin by the compiler, and so never actually
+            // compiled. Four zeroes in a row are not four facts about
+            // the plate; they are a reason to doubt the compilation.
+            //
+            // This stays because the shape is genuinely unpinned and
+            // tpms proves it can bite - but it is prophylactic, not a
+            // fix, and calling it one would leave the next reader
+            // hunting a divergence that is already closed.
+            const lv = pin ? bindPreciseV(l.code, l.type) : l.code;
+            const rv = pin ? bindPreciseV(r.code, r.type) : r.code;
+            return { type: l.type, code: `(${lv} ${n.op} ${rv})` };
+          }
           err(`use the vector helpers (add3, mul3, .scale) instead of ${n.op} on mixed vector types`);
         }
         // THE ONE LINE WHERE A FLOAT DIVISION BECOMES GLSL. Every `/`
@@ -606,8 +638,16 @@ export function emitWalk(pos, opts = {}) {
       // exact floor, and two selections - so they are emitted as they
       // stand under pinning too. mod, mix and smoothstep are not, and
       // each has a pinned form.
+      // `fract` LOOKED EXACT AND IS NOT. It was admitted on the
+      // reasoning that it is x - floor(x) and floor is exact.
+      // Measured 2026-08-22 over 262,144 inputs: iris returns a
+      // different hash for fract than NVIDIA, radeonsi and llvmpipe,
+      // while floor is identical on all four - so iris does not
+      // compute it that way. It was the last thing keeping emitted
+      // colour from agreeing after position had gone bit-identical.
       const PINNED_VOCAB = { mod: "det_mod", mix: "det_mix",
-                             smoothstep: "det_smoothstep" };
+                             smoothstep: "det_smoothstep",
+                             fract: "det_fract" };
       if (pin && c.n in PINNED_VOCAB)
         return { type: "float",
                  code: `${PINNED_VOCAB[c.n]}(${args.join(", ")})` };
@@ -642,8 +682,21 @@ export function emitWalk(pos, opts = {}) {
         return emit(a);
       });
       const v3s = vs.filter(v => v.type === "vec3").map(v => v.code);
-      if (c.n === "add3") return { type: "vec3", code: `(${v3s[0]} + ${v3s[1]})` };
-      if (c.n === "mul3") return { type: "vec3", code: `(${v3s[0]} * ${asFloat(vs[1])})` };
+      // add3 and mul3 emit inline, which is how a compound vec3
+      // expression reached a `precise` local unbound - the tpms shape
+      // again, and the reason colour kept diverging after position had
+      // gone bit-identical. Measured on logz: every deposit landed in
+      // the SAME pixel while 427 of 8,977 carried a different colour.
+      if (c.n === "add3") {
+        const a3 = pin ? bindPreciseV(v3s[0], "vec3") : v3s[0];
+        const b3 = pin ? bindPreciseV(v3s[1], "vec3") : v3s[1];
+        return { type: "vec3", code: `(${a3} + ${b3})` };
+      }
+      if (c.n === "mul3") {
+        const a3 = pin ? bindPreciseV(v3s[0], "vec3") : v3s[0];
+        const k3 = pin ? bindPrecise(asFloat(vs[1])) : asFloat(vs[1]);
+        return { type: "vec3", code: `(${a3} * ${k3})` };
+      }
       if (c.n === "mix3")
         return { type: "vec3", code: pin
           ? `det_mix3(${v3s[0]}, ${v3s[1]}, ${asFloat(vs[2])})`
