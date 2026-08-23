@@ -240,3 +240,49 @@ float det_fract(float x){
   precise float r = x - f;
   return r;
 }
+
+/* asin and the three hyperbolics.
+
+   These were the engine's only expressive gap: `verify-pinned` refused
+   four of fifty-four positives - domain on cosh, and rainbow,
+   relativity and wavecat on asin - not because those plates were hard
+   but because nothing here could pin the call. The darkroom's bake has
+   carried proven forms for all four for some time, so the gap was one
+   of routing rather than of mathematics, and these are those forms.
+
+   Each is built ONLY from calls that are already pinned - det_sqrt,
+   det_atan, det_exp2, det_recip, det_div - so none of them introduces
+   a new claim about accuracy. They inherit whatever the kernels below
+   already promise, and the constants oracle's bounds cover them by
+   construction rather than by a second measurement.
+
+   The identities, so a reader can check them rather than trust them:
+     asin x  = atan2(x, sqrt(1 - x^2))
+     sinh x  = (e^x - e^-x) / 2
+     cosh x  = (e^x + e^-x) / 2
+     tanh x  = (e^2x - 1) / (e^2x + 1)
+   with e^x written as exp2(x * log2 e), because exp2 is the kernel
+   that was actually verified. */
+float det_asin(float x){
+  precise float t = fma(-x, x, 1.0);
+  precise float r = det_sqrt(t);
+  return det_atan(x, r);
+}
+float det_sinh(float x){
+  precise float e = det_exp2(x * @LOG2E);
+  precise float r = det_recip(e);
+  precise float d = e - r;
+  return 0.5 * d;
+}
+float det_cosh(float x){
+  precise float e = det_exp2(x * @LOG2E);
+  precise float r = det_recip(e);
+  precise float d = e + r;
+  return 0.5 * d;
+}
+float det_tanh(float x){
+  precise float e2 = det_exp2((x + x) * @LOG2E);
+  precise float n = e2 - 1.0;
+  precise float d = e2 + 1.0;
+  return det_div(n, d);
+}

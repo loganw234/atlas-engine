@@ -258,6 +258,16 @@ const DET = {
   // rescale is a pinned multiply rather than a typed-in decimal.
   exp: a => `det_exp2((${a[0]}) * ${oracleGlsl("LOG2E")})`,
   log: a => `(det_log2(${a[0]}) * ${oracleGlsl("LN2")})`,
+  // asin and the hyperbolics. These were the last refusals in the
+  // pinned set - four of fifty-four positives, blocked not on hard
+  // mathematics but on nothing here routing the call. Their bodies
+  // live in detpre and are built only from calls already pinned, so
+  // they add no new accuracy claim: they inherit the kernels' bounds
+  // rather than asserting their own.
+  asin: a => `det_asin(${a[0]})`,
+  sinh: a => `det_sinh(${a[0]})`,
+  cosh: a => `det_cosh(${a[0]})`,
+  tanh: a => `det_tanh(${a[0]})`,
 };
 
 // Exact by construction: selections and sign manipulation, correctly
@@ -269,13 +279,13 @@ const EXACT_BUILTINS = new Set(["abs", "min", "max", "floor", "sign"]);
 // them. `oracle.UNCOVERED` carries the same list so the gap is data.
 // Refusing is the honest outcome: the language gets smaller rather than
 // the guarantee getting vaguer.
-const NO_DET_FORM = {
-  asin: "no det_asin exists. pi/2 - det_acos(x) loses precision near 0, " +
-        "so it is not offered as one",
-  sinh: "no det_sinh exists",
-  cosh: "no det_cosh exists",
-  tanh: "no det_tanh exists",
-};
+// EMPTY, and kept rather than deleted. This is the mechanism that
+// makes "the language gets smaller rather than the guarantee getting
+// vaguer" enforceable, and the next builtin someone reaches for
+// without a det_ form behind it belongs here on the day it is reached,
+// not in a plate. It held asin, sinh, cosh and tanh until 2026-08-22,
+// when the forms the darkroom had been using were routed in.
+const NO_DET_FORM = {};
 
 export function emitWalk(pos, opts = {}) {
   const pin = !!opts.pin;

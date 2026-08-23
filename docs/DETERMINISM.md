@@ -432,10 +432,44 @@ Planometer already does this. Emitted plates go through the ladder on
 every proven stack.
 
 **Done when:** an emitted positive produces one hash across radeonsi,
-iris, NVIDIA and llvmpipe — the case that today only `collatz`, at
-0.166% lit, manages.
+iris, NVIDIA and llvmpipe — the case that when this was written only
+`collatz`, at 0.166% lit, managed.
 
-#### MET on one plate, 2026-08-22 — and the first attempt was wrong
+**MET**, on all three emitted plates, at 16384², on NVIDIA + radeonsi
++ iris. llvmpipe is struck for the measured reason below. For scale
+against the original bar: on the corrected bundle the *conversion*
+path now gets 61 of 68 hand-written plates to one hash across those
+same three cards, where before the correction exactly one plate
+managed it.
+
+#### MET on all three emitted plates at full size, 2026-08-22
+
+Final state of this phase, measured last and stated first. Three
+engine-emitted plates at **16384 × 16384** — the census's `full`
+geometry, 268 megapixels, sixteen supertiles of 4096 at 256 passes —
+on three cards from three vendors:
+
+| plate | hash | lit |
+|---|---|---|
+| `hilbert` | `87c7744ece6e32d68e98449c4df3cce2` | 95.35% |
+| `logz` | `b500ebc7735498ac8bc928f65087bff4` | 79.81% |
+| `stdmap` | `38eec4663a4eb74a5552a74cae76f2cb` | 84.39% |
+
+RTX 5060 Ti, RX 7600 on `radeonsi-aco`, Arc B580 on `iris`. One hash
+each. Same emitted bundle on every box by sha256 —
+`192c572fc614ebd8…`, stamped into each census file rather than
+asserted.
+
+`hilbert` is the sharp case: on the hand-written archive bundle it is
+the **only plate in sixty-eight on which no two of those three cards
+agree**, and the other six splits there are two-way (both Mesa cards on
+one side). Three hashes hand-written, one hash emitted, same picture,
+same three cards.
+
+The rest of this section is how it got there, including two readings
+that were wrong.
+
+#### MET on one plate — and the first attempt was wrong
 
 One correction to the criterion first: **llvmpipe is struck**, for the
 measured reason in Phase 3. It cannot single-round `fma`, so requiring

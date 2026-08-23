@@ -184,4 +184,11 @@ export const COVERS = {
 /** GLSL builtins the emitter can reach today with no deterministic
  *  form behind them. Phase 2 must either grow one or refuse them; this
  *  list is here so that decision is made from data. */
-export const UNCOVERED = ["asin", "sinh", "cosh", "tanh", "round", "sign"];
+export const UNCOVERED = ["round", "sign"];
+// asin, sinh, cosh and tanh left this list on 2026-08-22: their
+// forms are in detpre, built only from kernels already covered
+// above, so COVERS reaches them transitively. round and sign stay
+// for different reasons - Math.round is emitted as floor(x + 0.5),
+// which is exact and needs no kernel, and sign is exact by
+// construction. Neither is a gap; both are here so the next reader
+// finds the reason instead of the absence.

@@ -72,6 +72,11 @@ CALLS = [
                 "vec3(0.48), vec3(0.42), vec3(1.0), "
                 "vec3(0.02, 0.36, 0.70)).y"),
     ("det_fract", "det_fract(a)"),
+    # the four that closed the emitter's last refusals
+    ("det_asin", "det_asin(clamp(a * 0.03125, -1.0, 1.0))"),
+    ("det_sinh", "det_sinh(clamp(a, -20.0, 20.0))"),
+    ("det_cosh", "det_cosh(clamp(a, -20.0, 20.0))"),
+    ("det_tanh", "det_tanh(clamp(a, -20.0, 20.0))"),
     ("fract_raw", "fract(a)"),
     ("fract_bar", "fract_bar(a)"),
     ("fract_intp", "fract_intp(a)"),
@@ -114,6 +119,10 @@ RAW = [
     ("raw_dot3", "dot(vec3(a, b, a + b), vec3(b, a, a - b))"),
     ("raw_div", "a / b"),
     ("raw_recip", "1.0 / b"),
+    ("raw_asin", "asin(clamp(a * 0.03125, -1.0, 1.0))"),
+    ("raw_sinh", "sinh(clamp(a, -20.0, 20.0))"),
+    ("raw_cosh", "cosh(clamp(a, -20.0, 20.0))"),
+    ("raw_tanh", "tanh(clamp(a, -20.0, 20.0))"),
 ]
 CALLS = CALLS + RAW
 
@@ -128,6 +137,8 @@ PAIRS = {
     "det_len3": "raw_len3", "det_dot3": "raw_dot3",
     "det_div": "raw_div", "det_recip": "raw_recip",
     "det_fract": "fract_raw",
+    "det_asin": "raw_asin", "det_sinh": "raw_sinh",
+    "det_cosh": "raw_cosh", "det_tanh": "raw_tanh",
 }
 
 # PI and TAU come from the registry's shared header, and detpre's
