@@ -1,0 +1,101 @@
+# The engine's gates, which until 2026-08-23 ran only when somebody
+# typed them.
+#
+# That was tolerable while this was an experiment beside the darkroom.
+# It stopped being tolerable the moment the plan had this repository
+# owning the GLSL every photograph is made from: a positive that stops
+# emitting, or an emitter change that leaves an operation unpinned, is
+# not something to find during a census on four machines.
+#
+# WHAT RUNS HERE, AND WHY IT IS ONLY THIS MUCH. Everything below is
+# pure node over pure JavaScript - no GPU, no GL context, no browser,
+# no sibling checkout. That is not a compromise; it is the honest
+# boundary of what a hosted runner can answer. The gates that need
+# more are named in the last step so their absence is a statement
+# rather than a silence.
+name: gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# One answer per branch. A newer push makes the older run's verdict
+# something nobody will read - the same reasoning the darkroom's
+# tests.yml records.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # 1. Does every positive still EMIT, pinned, with nothing loose?
+      #
+      # Two failures live here and they are different things. `dirty`
+      # is an unpinned builtin surviving into emitted text. `loose` is
+      # an expression feeding a COMPARISON and nothing else - which
+      # reaches no `precise` destination, because a bool cannot carry
+      # the qualifier, and which is what split `mirage` across vendors
+      # until 2026-08-23. 66 of 69 positives carried one.
+      - name: pinned set - no unpinned op, no unbound comparison
+        run: node tools/verify-pinned.mjs
+
+      # 2. Does the emitter still produce a file for every positive?
+      #
+      # A refusal exits nonzero here. bakeemitted reads
+      # build/pinned/<id>.glsl, and a file that was not rewritten this
+      # run is a file left over from the last one, so a silent refusal
+      # is a stale bake waiting to happen.
+      - name: every positive compiles to pinned and unpinned GLSL
+        run: node tools/compile-pinned.mjs
+
+      # 3. Does every positive still DRAW? Deposit rate, finiteness,
+      #    seat bounds, nonzero light, at four lever settings each.
+      #    Three fail today and are named, with the measurement, in
+      #    docs/known-smoke-failures.json - and that list fails both
+      #    ways, so it cannot rot in either direction.
+      - name: smoke, against the record of what is known to fail
+        run: node tools/ci-smoke.mjs
+
+      # 4. The orbit block body: nested loops, scoped locals, `precise`
+      #    on every float inside, and the CPU evaluator agreeing.
+      - name: orbit block bodies hold
+        run: node tools/verify-orbit-block.mjs
+
+      # 5. WHAT THIS JOB DOES NOT COVER, printed rather than assumed.
+      #    A reader who sees a green tick should be able to find out
+      #    what it is green ABOUT without reading this file.
+      - name: what a green tick here does not mean
+        if: always()
+        run: |
+          cat <<'EOF'
+          Covered above: emission, the pinned set, the comparison gate,
+          smoke over every positive, orbit block bodies. All pure node.
+
+          NOT covered here, and each needs something a hosted runner
+          does not have:
+
+            tools/compile-pinned.py --run   a real GL context; the text
+                                            scans above cannot catch a
+                                            name that does not resolve
+            tools/detbits.py                a GPU per column - it is the
+                                            instrument that found det_fract
+            tools/verify-critical.mjs       Chrome, via CDP
+            tools/verify-hopf.mjs           Chrome
+            tools/verify-nested-pos.mjs     Chrome
+            tools/verify-pair.mjs           Chrome, and a PrettyCloud checkout
+            tools/verify-constants.py       mpmath, and atlas-darkroom as the
+                                            upstream the constants came from
+            the census                      four cards, and hours
+
+          So: green means the text is what it claims to be. It does not
+          mean the plates agree across vendors. That is measured by
+          censusdet in atlas-darkroom and recorded there.
+          EOF

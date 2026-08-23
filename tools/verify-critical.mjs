@@ -17,12 +17,13 @@
 //   cell (its own surviving subcells sit off-centre), so the CPU must
 //   bin only deposits landing inside the same window, or the two
 //   evaluators are being asked different questions.
-import { launchChrome, pageSession, evalIn } from "./cdp.mjs";
+import { launchChrome, pageSession, evalIn, benchUrl, chromeProfile }
+  from "./cdp.mjs";
 import def from "../positives/critical.pos.mjs";
 import { evaluate, leverDefaults, Address } from "../core/measure.mjs";
 
-const BENCH = "file:///C:/Users/logan/source/repos/atlas-engine/harness/bench.html";
-const PROFILE = "C:/Users/logan/AppData/Local/Temp/claude/C--Users-logan-source-repos-PrettyCloud/5bec1cbb-f19f-414e-ada6-4189040214dd/scratchpad/chrome-profile";
+const BENCH = benchUrl();
+const PROFILE = chromeProfile();
 const PORT = 9223;
 
 const GRID = 81, B = 3, SCALE = 1.9, EXT = 1.6, RAD = 3;

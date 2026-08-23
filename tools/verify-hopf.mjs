@@ -8,12 +8,13 @@
 //      differ, while each matches the plate at its own t
 //   E  absence: cells the CPU says are empty read as background
 // No chains and no world here: the subject is a law alone.
-import { launchChrome, pageSession, evalIn } from "./cdp.mjs";
+import { launchChrome, pageSession, evalIn, benchUrl, chromeProfile }
+  from "./cdp.mjs";
 import def from "../positives/hopf.pos.mjs";
 import { evaluate, leverDefaults } from "../core/measure.mjs";
 
-const BENCH = "file:///C:/Users/logan/source/repos/atlas-engine/harness/bench.html";
-const PROFILE = "C:/Users/logan/AppData/Local/Temp/claude/C--Users-logan-source-repos-PrettyCloud/5bec1cbb-f19f-414e-ada6-4189040214dd/scratchpad/chrome-profile";
+const BENCH = benchUrl();
+const PROFILE = chromeProfile();
 const PORT = 9223;
 
 const GRID = 96, EXTENT = 1.55, EXT = 1.6, RAD = 3;

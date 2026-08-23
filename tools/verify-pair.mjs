@@ -5,14 +5,15 @@
 // bins both onto a cell grid, and scores per-cell correlation with
 // clipped cells excluded. Also checks the lever contract: a positive
 // must carry the same levers in the same order as its plate.
-import { launchChrome, pageSession, evalIn } from "./cdp.mjs";
+import { launchChrome, pageSession, evalIn, benchUrl, chromeProfile }
+  from "./cdp.mjs";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const BENCH = "file:///" + join(root, "harness", "bench-all.html").replace(/\\/g, "/");
-const PROFILE = "C:/Users/logan/AppData/Local/Temp/claude/C--Users-logan-source-repos-PrettyCloud/5bec1cbb-f19f-414e-ada6-4189040214dd/scratchpad/chrome-profile";
+const PROFILE = chromeProfile();
 const PORT = 9223;
 const GRID = 96, EXTENT = 1.55, RAD = 3;
 // 2^22 distinct points at 30 frames: frames only re-expose the same

@@ -245,4 +245,10 @@ for (const [k, v] of Object.entries(ADMITTED))
 console.log(`\nNo deterministic form at all (oracle.UNCOVERED): ` +
             UNCOVERED.join(", "));
 
-process.exit(dirty.length ? 1 : 0);
+// AND THE COMPARISON GATE HAS TO FAIL, not merely print. It was added
+// on 2026-08-23 reporting `loose.length` and exiting on `dirty.length`
+// alone, which is a gate that cannot fail - the exact fault it was
+// written to catch, one layer up. Found by asking what CI would do with
+// it before wiring CI to it.
+const broken = dirty.length + loose.length;
+process.exit(broken ? 1 : 0);

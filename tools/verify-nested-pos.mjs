@@ -11,12 +11,13 @@
 // The layout replica below mirrors the window construct's integer
 // math (which mirrors the plate's - the same formulas the LXVI plate
 // probes verified on pixels).
-import { launchChrome, pageSession, evalIn } from "./cdp.mjs";
+import { launchChrome, pageSession, evalIn, benchUrl, chromeProfile }
+  from "./cdp.mjs";
 import def from "../positives/nested.pos.mjs";
 import { evaluate, leverDefaults, levels } from "../core/measure.mjs";
 
-const BENCH = "file:///C:/Users/logan/source/repos/atlas-engine/harness/bench.html";
-const PROFILE = "C:/Users/logan/AppData/Local/Temp/claude/C--Users-logan-source-repos-PrettyCloud/5bec1cbb-f19f-414e-ada6-4189040214dd/scratchpad/chrome-profile";
+const BENCH = benchUrl();
+const PROFILE = chromeProfile();
 const PORT = 9223;
 const fr = Math.fround;
 const IDX_PLATE = 4, IDX_POS = 5;

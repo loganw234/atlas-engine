@@ -7,8 +7,12 @@ import { createHash, randomBytes } from "node:crypto";
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HOST = "127.0.0.1";
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 export function httpJson(port, path) {
   return new Promise((resolve, reject) => {
@@ -123,15 +127,53 @@ export class WS {
   close() { try { this.sock.end(); } catch (e) {} }
 }
 
+// WHERE CHROME IS, ON MORE THAN ONE OPERATING SYSTEM. This listed
+// three Windows paths, which is what it needed on the bench and is not
+// what a reader of a public repository has. CHROME env var first, so
+// nobody has to edit a source file to name their own browser.
 const CHROME_CANDIDATES = [
+  process.env.CHROME,
+  // Windows
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-  process.env.LOCALAPPDATA + "\\Google\\Chrome\\Application\\chrome.exe",
-];
+  process.env.LOCALAPPDATA
+    ? process.env.LOCALAPPDATA + "\\Google\\Chrome\\Application\\chrome.exe"
+    : null,
+  // macOS
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  // Linux
+  "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable",
+  "/usr/bin/chromium", "/usr/bin/chromium-browser",
+  "/snap/bin/chromium",
+].filter(Boolean);
 
-export async function launchChrome({ port = 9223, profile, url, fresh = false }) {
+/** The repository's own harness page, as a file:// URL.
+ *
+ *  Three tools each carried an absolute path to one developer's
+ *  checkout. Derived from this module's location instead, so the
+ *  harness is wherever the repository is. */
+export function benchUrl(page = "bench.html") {
+  return pathToFileURL(join(HERE, "..", "harness", page)).href;
+}
+
+/** A scratch Chrome profile that is not somebody's session directory.
+ *
+ *  This was a hard-coded path into a temp folder named after another
+ *  repository and a session uuid - broken for every reader, and not
+ *  something to publish. ATLAS_CHROME_PROFILE overrides. */
+export function chromeProfile() {
+  return process.env.ATLAS_CHROME_PROFILE
+      || join(tmpdir(), "atlas-engine-chrome-profile");
+}
+
+export async function launchChrome({ port = 9223, profile = chromeProfile(),
+                                     url, fresh = false }) {
   const exe = CHROME_CANDIDATES.find(existsSync);
-  if (!exe) throw new Error("chrome.exe not found");
+  if (!exe)
+    throw new Error(
+      "no Chrome found. Set CHROME to the executable, or install one of:\n  "
+      + CHROME_CANDIDATES.slice(1).join("\n  "));
   mkdirSync(profile, { recursive: true });
   const args = [
     `--remote-debugging-port=${port}`,

@@ -67,6 +67,19 @@ for (const f of readdirSync(POS).filter(x => x.endsWith(".pos.mjs")).sort()) {
 }
 console.log(`build/pinned:   detlib.glsl, detpre.glsl, and ${ok} plates`);
 console.log(`build/unpinned: ${ctrl} of the same plates, as the control`);
-if (refused)
-  console.log(`  ${refused} refused by the pinned set: ${skipped.join(" ")}`);
 console.log("  now: python tools/compile-pinned.py --run <tag>");
+
+// A REFUSAL IS A REGRESSION HERE, whatever it is elsewhere. Refusing an
+// unpinnable construct is the design working when somebody is writing a
+// positive; in a corpus where all sixty-nine emit, a plate that stops
+// emitting is a plate that stops existing, and this printed it as a
+// note and exited 0. Nothing downstream would have noticed: bakeemitted
+// reads build/pinned/<id>.glsl, and a file that was not rewritten this
+// run is a file left over from the last one - which is precisely the
+// staleness its own guard exists to refuse.
+if (refused) {
+  console.log(`\n  ${refused} REFUSED by the pinned set: ${skipped.join(" ")}`);
+  console.log("  build/pinned still holds whatever the last successful run");
+  console.log("  left for those, so nothing here is safe to bake.");
+  process.exit(1);
+}

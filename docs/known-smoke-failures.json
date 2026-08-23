@@ -1,0 +1,26 @@
+{
+  "what": "Positives whose smoke has a FAILING row today, each with the measurement that put it here.",
+  "why_a_file": "CI has to be green to be read, and a red build nobody can act on is a build nobody looks at. But a suite that quietly tolerates three failures is worse than one that fails: the point of naming them here is that tools/ci-smoke.mjs fails BOTH ways - if a plate not on this list starts failing, and if a plate on it starts passing. The list cannot rot in either direction.",
+  "not_an_excuse": "Every entry is a real signal. None of them is a determinism question - smoke runs the CPU evaluator, and the emitter never enters it - but two are a plate that lights almost nothing at one lever setting and one is a plate that throws points off the sheet, and all three deserve the work.",
+  "measured_on": "2026-08-23, against positives/ at commit a4463f7",
+  "plates": {
+    "buddha": {
+      "row": "hashed levers B",
+      "measured": "101/20000 deposit (19899 decline), 0 malformed, 0 far-out",
+      "rule": "smoke wants kept > 5% of 20000; this is 0.5%",
+      "why": "One hashed lever combination leaves almost every point declining. Predates the emitter work by at least a sweep - unchanged before and after 2026-08-23's comparison binding, which was checked rather than assumed."
+    },
+    "qjulia": {
+      "row": "hashed levers A",
+      "measured": "419/20000 deposit (19581 decline), 0 malformed, 0 far-out",
+      "rule": "smoke wants kept > 5% of 20000; this is 2.1%",
+      "why": "Same shape as buddha: a lever corner where the escape test rejects nearly everything. Also unchanged across the 2026-08-23 emitter work."
+    },
+    "vlsi": {
+      "row": "hashed levers B",
+      "measured": "9552/20000 deposit, 4127 far-out, x [-1431.45, 792.21] y [-3640.94, 1683.07]",
+      "rule": "smoke wants far-out < 2% of 20000; this is 20.6%",
+      "why": "The sharpest of the three, and NOT the same class as the other two: at one lever setting the walk puts 4,127 points more than 24 units from the origin, where at defaults everything sits inside 1.30. Most likely an unguarded divide or a runaway iteration. positives/vlsi.pos.mjs has not changed since it was converted in b337609."
+    }
+  }
+}
