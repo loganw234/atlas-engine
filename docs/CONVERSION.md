@@ -231,7 +231,11 @@ notes: <anything the next reader must know - constants of concern,
 House style for comments: prose about the mathematics, in sentences,
 no em dashes. Comments say what a stanza means, not what a line does.
 Look at `positives/hopf.pos.mjs` and `positives/jong.pos.mjs` for the
-register to aim at.
+register to aim at, and `docs/TEMPLATE.pos.mjs` for an annotated
+skeleton of every construct the subset has. That template is a REAL
+positive and is meant to stay one - `node tools/smoke-pos.mjs
+docs/TEMPLATE.pos.mjs` must pass. If it stops emitting, the vocabulary
+moved under it and that is the first thing to fix rather than the last.
 
 ## The cross-check that wave one invented
 
