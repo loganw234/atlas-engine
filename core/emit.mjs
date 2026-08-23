@@ -917,6 +917,13 @@ export function emitWalk(pos, opts = {}) {
       // floor is exact on every conforming stack, so the cell offset
       // x - floor(x) is written out here rather than through fract(),
       // which iris rounds toward zero. Same reason det_fract exists.
+      // The locals are declared plain. `precise` is added by the
+      // post-process under `pin`, which is how every other
+      // primitive here does it - emitting it directly put
+      // `precise` into the UNPINNED variant too, and that variant
+      // feeds a #version 330 vertex shader where `precise` is a
+      // syntax error. The plate compiled as compute and failed as
+      // a preview, which is the one path a census never exercises.
       case "vnoise": {
         if (n.args.length !== 3) err("s.vnoise wants (x, y, octave)");
         const X = asFloat(emit(n.args[0]));
@@ -928,15 +935,15 @@ export function emitWalk(pos, opts = {}) {
         // would evaluate it twice. For a pure expression that is only
         // wasteful; for `s.vnoise(s.u(), ...)` it would advance the
         // stream twice and silently change the picture.
-        put(`precise float ${g}_x = ${X};`);
-        put(`precise float ${g}_y = ${Y};`);
-        put(`precise float ${g}_ix = floor(${g}_x);`);
-        put(`precise float ${g}_iy = floor(${g}_y);`);
-        put(`precise float ${g}_fx = ${g}_x - ${g}_ix;`);
-        put(`precise float ${g}_fy = ${g}_y - ${g}_iy;`);
-        put(`precise float ${g}_wx = (${g}_fx * ${g}_fx) * ` +
+        put(`float ${g}_x = ${X};`);
+        put(`float ${g}_y = ${Y};`);
+        put(`float ${g}_ix = floor(${g}_x);`);
+        put(`float ${g}_iy = floor(${g}_y);`);
+        put(`float ${g}_fx = ${g}_x - ${g}_ix;`);
+        put(`float ${g}_fy = ${g}_y - ${g}_iy;`);
+        put(`float ${g}_wx = (${g}_fx * ${g}_fx) * ` +
             `(3.0 - (2.0 * ${g}_fx));`);
-        put(`precise float ${g}_wy = (${g}_fy * ${g}_fy) * ` +
+        put(`float ${g}_wy = (${g}_fy * ${g}_fy) * ` +
             `(3.0 - (2.0 * ${g}_fy));`);
         put(`uint ${g}_bx = uint(int(${g}_ix) & 1023);`);
         put(`uint ${g}_by = uint(int(${g}_iy) & 1023);`);
@@ -944,18 +951,18 @@ export function emitWalk(pos, opts = {}) {
         const corner = (dx, dy) =>
           `u2f(hashu(${g}_oc ^ hashu((${g}_bx + ${dx}u) * 374761393u + ` +
           `(${g}_by + ${dy}u) * 668265263u)))`;
-        put(`precise float ${g}_00 = ${corner(0, 0)};`);
-        put(`precise float ${g}_10 = ${corner(1, 0)};`);
-        put(`precise float ${g}_01 = ${corner(0, 1)};`);
-        put(`precise float ${g}_11 = ${corner(1, 1)};`);
+        put(`float ${g}_00 = ${corner(0, 0)};`);
+        put(`float ${g}_10 = ${corner(1, 0)};`);
+        put(`float ${g}_01 = ${corner(0, 1)};`);
+        put(`float ${g}_11 = ${corner(1, 1)};`);
         // the lerps as a + (b - a) * w, matching the evaluator term
         // for term. mix() is not used: its association is free and the
         // CPU side has to agree with this bit for bit.
-        put(`precise float ${g}_a = ${g}_00 + ` +
+        put(`float ${g}_a = ${g}_00 + ` +
             `((${g}_10 - ${g}_00) * ${g}_wx);`);
-        put(`precise float ${g}_b = ${g}_01 + ` +
+        put(`float ${g}_b = ${g}_01 + ` +
             `((${g}_11 - ${g}_01) * ${g}_wx);`);
-        put(`precise float ${g}_v = ` +
+        put(`float ${g}_v = ` +
             `(${g}_a + ((${g}_b - ${g}_a) * ${g}_wy)) - 0.5;`);
         return { type: "float", code: `${g}_v` };
       }
