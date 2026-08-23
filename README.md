@@ -47,6 +47,27 @@ The practice reads photographically, so the language does too.
 
 ## Contents
 
+Start here:
+
+- `positives/` - the corpus. Sixty-eight plates plus `psf`, each a
+  positive: real JavaScript that the CPU evaluator RUNS and the emitter
+  READS. Read `hopf.pos.mjs` and `jong.pos.mjs` first; they are the
+  register the rest aim at.
+- `core/measure.mjs` - the evaluator. The stream, the orbit, the
+  descent, the deposit.
+- `core/emit.mjs` - the emitter. The same source parsed into
+  registry-contract GLSL, pinned, refusing what it cannot prove honest.
+  It never writes an unpinned float operation - not in an expression,
+  not in a call argument, and since 2026-08-23 not in a comparison
+  either, which is the one place arithmetic decides control flow.
+- `docs/CONVERSION.md` - how to write one, what the subset refuses, and
+  the two loop shapes that keep a driver's unroller off a plate.
+- `docs/TEMPLATE.pos.mjs` - an annotated positive to copy. It is a real
+  one and is meant to stay one: if it stops emitting, the vocabulary
+  moved under it.
+
+And the rest:
+
 - `tools/survey.mjs` - measures the construct vocabulary of the whole
   plate corpus (reads the darkroom's `plates.json` dump; the survey
   names the corpus commit it measured).
@@ -71,17 +92,51 @@ The practice reads photographically, so the language does too.
 
 ## Status
 
-The measure core exists and the first positive is verified.
-`positives/critical.pos.mjs` restates LVIII in the approved shape
-(`docs/PREVIEW-critical.md`); `core/measure.mjs` runs it natively as
-the CPU evaluator and `core/emit.mjs` parses the same source into
-registry-contract GLSL, refusing what it cannot prove honest.
-Verified on the bench (`harness/bench.html`, a fixed orthographic
-view with an invertible tonemap): the two evaluators agree per cell
-at r = 0.9915 over 6,560 level-4 cells, addressed survivorship
-classifies 100.0% (1,095 kept, 351 dead, zero errors), and total
-light against the original plate lands at 1.002. The law itself is
-held by the pooled-world native test at 0.4%
-(`tools/native-law.mjs`), because a plate is one world and the law
-lives in the ensemble. Next: the windowed layer, with LXVI as the
-second positive.
+**Sixty-eight of sixty-eight, on four columns.** Every plate in the
+atlas has a positive; the engine emits all of them pinned; and the
+bundle those emit into produces ONE HASH on an RTX 5060 Ti, a GTX 1080,
+an RX 7600 and an Arc B580 - three vendors, four architectures, two
+NVIDIA generations seven years apart and two independent Mesa drivers,
+with no plate erroring on any column. Since 2026-08-23 that bundle is
+what the darkroom renders photographs from, in place of the
+hand-written GLSL it corrected afterwards for a year.
+
+The record of how, including what it cost:
+`atlas-darkroom/docs/test-records/2026-08-23b-…`.
+
+What that number rests on, stated so it cannot be read as more than it
+is: the `cpu` rung, 1024 square; these four columns and not "any card";
+and llvmpipe excluded for a measured reason (it does not single-round
+`fma()` even under `precise`, which is a fault in its own lowering and
+puts no GPU at risk).
+
+### Running the gates
+
+```
+node tools/verify-pinned.mjs      no unpinned op, no unbound comparison
+node tools/compile-pinned.mjs     every positive emits, pinned and plain
+node tools/ci-smoke.mjs           all 69 walks, against a named record
+node tools/verify-orbit-block.mjs orbit block bodies
+```
+
+Those four are pure node and run in CI (`.github/workflows/gates.yml`),
+whose last step prints what a green tick does NOT cover. The rest -
+`tools/compile-pinned.py --run`, `tools/detbits.py`, the four CDP
+probes, `tools/verify-constants.py` - need a GL context, a browser, a
+GPU per column or the darkroom beside this checkout, and are named
+there rather than left as a silence.
+
+### Three of the sixty-nine fail one smoke row
+
+`buddha`, `qjulia` and `vlsi`, each at one hashed lever setting, with
+the measurement and the rule it trips in
+`docs/known-smoke-failures.json`. They are real signals and none is a
+determinism question. The list fails both ways: an unlisted plate that
+starts failing stops the build, and a listed plate that starts passing
+stops it too.
+
+## License
+
+MIT, the same as the atlas the plates come from. Expand it, adopt it,
+alter it - the notation is meant to outlive this corpus, and a language
+nobody else may change is not one.
