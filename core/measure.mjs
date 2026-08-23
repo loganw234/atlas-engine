@@ -156,6 +156,40 @@ export class Stream {
     return Math.min(Math.trunc(this.u() * n), n - 1);
   }
   jitter2() { const x = this.centered(); const y = this.centered(); return new Vec2(x, y); }
+  // VALUE NOISE ON A HASHED LATTICE, as a primitive rather than as
+  // something each plate hand-rolls.
+  //
+  // Every plate that wants a field wants this, and letting each one
+  // build its own hash is precisely the "text nobody controls"
+  // problem the engine exists to remove: a hand-rolled lattice hash
+  // is unpinned arithmetic in a plate body, which is where the last
+  // cross-vendor residues have all lived.
+  //
+  // It draws NOTHING from the stream. The value is a function of the
+  // lattice coordinate and the octave alone, which is what makes it a
+  // field rather than a sequence - two points that land in the same
+  // cell must see the same value however many draws came before them.
+  //
+  // Returns [-0.5, 0.5). fract-free by construction: the cell origin
+  // comes from floor, which is exact everywhere, and the offset is
+  // the exact subtraction x - floor(x) written as a single expression
+  // the emitter pins rather than as the builtin that iris gets wrong.
+  vnoise(x, y, oc) {
+    const ix = Math.floor(x), iy = Math.floor(y);
+    const fx = fr(x - ix), fy = fr(y - iy);
+    const wx = fr(fr(fx * fx) * fr(3.0 - fr(2.0 * fx)));
+    const wy = fr(fr(fy * fy) * fr(3.0 - fr(2.0 * fy)));
+    const bx = (ix | 0) & 1023, by = (iy | 0) & 1023;
+    const o = (oc | 0) >>> 0;
+    const at = (gx, gy) => u2f(hashu(o ^ hashu(
+      (Math.imul(gx >>> 0, 374761393) >>> 0)
+      + (Math.imul(gy >>> 0, 668265263) >>> 0) >>> 0)));
+    const h00 = at(bx, by), h10 = at(bx + 1, by);
+    const h01 = at(bx, by + 1), h11 = at(bx + 1, by + 1);
+    const a = fr(h00 + fr(fr(h10 - h00) * wx));
+    const b = fr(h01 + fr(fr(h11 - h01) * wx));
+    return fr(fr(a + fr(fr(b - a) * wy)) - 0.5);
+  }
   // the budget: how deep this point walks; bias < 1 leans deep
   depth(max, opts = {}) {
     const bias = opts.bias === undefined ? 1.0 : opts.bias;

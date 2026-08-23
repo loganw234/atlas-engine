@@ -897,6 +897,68 @@ export function emitWalk(pos, opts = {}) {
         draw(); put(`vec2 ${v} = vec2(${vx}, u2f(pt) - 0.5);`);
         return { type: "vec2", code: v };
       }
+      // s.vnoise(x, y, oc): value noise on a hashed lattice.
+      //
+      // A FIELD, NOT A SEQUENCE, and that is the whole reason it is a
+      // primitive. It draws nothing from the stream: the value is a
+      // function of the lattice cell and the octave alone, so two
+      // points landing in the same cell see the same value however
+      // many draws came before them. A plate cannot get that from
+      // s.u() no matter how it is arranged.
+      //
+      // It is here rather than in a plate because a hand-rolled
+      // lattice hash is unpinned arithmetic in a plate body, which is
+      // where every cross-vendor residue in this project has lived.
+      // The integer half is exact by construction - hashu and the
+      // multiplies are uint, which wrap identically everywhere - and
+      // the float half is written through named `precise` locals so
+      // no interpolation step is a contraction candidate.
+      //
+      // floor is exact on every conforming stack, so the cell offset
+      // x - floor(x) is written out here rather than through fract(),
+      // which iris rounds toward zero. Same reason det_fract exists.
+      case "vnoise": {
+        if (n.args.length !== 3) err("s.vnoise wants (x, y, octave)");
+        const X = asFloat(emit(n.args[0]));
+        const Y = asFloat(emit(n.args[1]));
+        const OC = asInt(emit(n.args[2]));
+        const g = fresh("vn");
+        // BIND THE ARGUMENTS ONCE. Each is used twice below - floor,
+        // then the subtraction - and emitting the expression twice
+        // would evaluate it twice. For a pure expression that is only
+        // wasteful; for `s.vnoise(s.u(), ...)` it would advance the
+        // stream twice and silently change the picture.
+        put(`precise float ${g}_x = ${X};`);
+        put(`precise float ${g}_y = ${Y};`);
+        put(`precise float ${g}_ix = floor(${g}_x);`);
+        put(`precise float ${g}_iy = floor(${g}_y);`);
+        put(`precise float ${g}_fx = ${g}_x - ${g}_ix;`);
+        put(`precise float ${g}_fy = ${g}_y - ${g}_iy;`);
+        put(`precise float ${g}_wx = (${g}_fx * ${g}_fx) * ` +
+            `(3.0 - (2.0 * ${g}_fx));`);
+        put(`precise float ${g}_wy = (${g}_fy * ${g}_fy) * ` +
+            `(3.0 - (2.0 * ${g}_fy));`);
+        put(`uint ${g}_bx = uint(int(${g}_ix) & 1023);`);
+        put(`uint ${g}_by = uint(int(${g}_iy) & 1023);`);
+        put(`uint ${g}_oc = uint(${OC});`);
+        const corner = (dx, dy) =>
+          `u2f(hashu(${g}_oc ^ hashu((${g}_bx + ${dx}u) * 374761393u + ` +
+          `(${g}_by + ${dy}u) * 668265263u)))`;
+        put(`precise float ${g}_00 = ${corner(0, 0)};`);
+        put(`precise float ${g}_10 = ${corner(1, 0)};`);
+        put(`precise float ${g}_01 = ${corner(0, 1)};`);
+        put(`precise float ${g}_11 = ${corner(1, 1)};`);
+        // the lerps as a + (b - a) * w, matching the evaluator term
+        // for term. mix() is not used: its association is free and the
+        // CPU side has to agree with this bit for bit.
+        put(`precise float ${g}_a = ${g}_00 + ` +
+            `((${g}_10 - ${g}_00) * ${g}_wx);`);
+        put(`precise float ${g}_b = ${g}_01 + ` +
+            `((${g}_11 - ${g}_01) * ${g}_wx);`);
+        put(`precise float ${g}_v = ` +
+            `(${g}_a + ((${g}_b - ${g}_a) * ${g}_wy)) - 0.5;`);
+        return { type: "float", code: `${g}_v` };
+      }
       case "depth": {
         const a = n.args[0];
         if (!(a.t === "member" && a.o.t === "id" && a.o.n === P)) err("s.depth wants a lever for its maximum");
