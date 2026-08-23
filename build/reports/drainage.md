@@ -82,20 +82,29 @@ notes: THE PLATE IS ADDRESSED AND THAT IS THE PLATE. Two hash chains
        in both languages, so bank is zero there either way, but 0 times
        NaN is not zero and that is the whole reason the floor is there.
 
-       TWO PLACES WHERE THE ENGINE'S SPELLING IS NOT THE SHADER'S, both
-       tiny and both worth knowing. First, `segTarget` is `s.pick(24)`,
-       which clamps with min(.., 23) where the shader writes a bare
-       int(u2f * 24.0). They differ only when u2f returns exactly 1.0,
-       which needs the hash in the top 128 of 2^32, about 3e-8 per
-       point, and the clamp was never hit in 180,000 points per
-       setting. Second, `s.depth` emits pow(u, 1.0) where the shader
-       has no pow. Math.pow(x, 1) is exactly x in JS so the CPU
-       evaluator is the shader; det_pow is exp2(1.0 * log2(x)) and is
-       not obliged to be, and this pow DECIDES AN INTEGER, so a
-       last-place move flips a point's depth by one. Order 1e-6 of
-       points at risk. Engine-level and shared with LXII, recorded here
-       because on this plate the flip changes which tributary a point
-       rides rather than shading it slightly.
+       ONE PLACE WHERE THE ENGINE'S SPELLING IS NOT THE SHADER'S, and
+       it is tiny. `segTarget` is `s.pick(24)`, which clamps with
+       min(.., 23) where the shader writes a bare int(u2f * 24.0). They
+       differ only when u2f returns exactly 1.0, which needs the hash
+       in the top 128 of 2^32, about 3e-8 per point, and the clamp was
+       never hit in 180,000 points per setting. In the one case it
+       would bind, segTarget 24 and 23 differ by one trunk reach for
+       one point in tens of millions.
+
+       There was a second, and it closed under this plate while the
+       conversion was running, which is worth recording because it bore
+       directly here. `s.depth` used to emit pow(u, 1.0) where the
+       shader has no pow, and that pow DECIDES AN INTEGER: on this
+       plate a last-place move flips which tributary a point rides,
+       not how brightly it shades. The agent converting breakdown
+       measured it (det_pow at exponent 1 moves 16.27% of inputs by up
+       to 10 ULP, so the two backends disagreed about depth for about
+       one point in a million) and core/emit.mjs now writes the bare
+       multiply at the default bias. Verified against the current core:
+       the emitted line is `int depth_3 = int(u2f(pt) *
+       float(li_depth));` against the plate's `int d = int(u2f(pt) *
+       float(maxD));`, character for character. Every gate and every
+       number in this report was re-run against that core.
 
        CROSS-CHECK (scratchpad, this session). 59-drainage.js
        transcribed literally into f64 JS, the walk driven by a
