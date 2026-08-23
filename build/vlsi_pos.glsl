@@ -1,0 +1,1443 @@
+vec3 shape_vlsi_pos(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){
+  uint pt = hashu(seed ^ hashu(floatBitsToUint(q.x))
+                       ^ hashu(floatBitsToUint(q.y) * 2176959123u));
+  pt = hashu(pt ^ floatBitsToUint(rnd.x));
+  float maxD_1 = floor((P[0] + 0.5));
+  float mag_2 = pow(2.0, P[1]);
+  float maskNo_3 = floor((P[2] + 0.5));
+  float cacheF_4 = P[3];
+  float metals_5 = floor((P[4] + 0.5));
+  float util_6 = P[5];
+  float stAmt_7 = (((P[6] - 0.35)) * 2.6);
+  float fillL_8 = P[7];
+  float hwin_9 = floor((5160960.0 / mag_2));
+  float winx_10 = (5160960.0 - hwin_9);
+  float winy_11 = (5160960.0 - hwin_9);
+  float winz_12 = (5160960.0 + hwin_9);
+  float winw_13 = (5160960.0 + hwin_9);
+  float km_14 = (mag_2 * 2.5189112e-7);
+  float bias_15 = mix(0.72, 0.20, clamp((P[1] / 14.0), 0.0, 1.0));
+  pt = hashu(pt);
+  float draw_16 = u2f(pt);
+  float d_17 = floor((pow(draw_16, bias_15) * maxD_1));
+  float fmode_18 = 0.0;
+  float fhz_19 = 1.0;
+  float fa0_20 = 0.0;
+  float fa1_21 = 0.0;
+  float fcc_22 = 0.0;
+  float fw_23 = 0.0;
+  float flox_24 = 0.0;
+  float floy_25 = 0.0;
+  float fhix_26 = 0.0;
+  float fhiy_27 = 0.0;
+  float fctx_28 = 0.0;
+  float fcty_29 = 0.0;
+  float fax_30 = 0.0;
+  float fay_31 = 0.0;
+  float fox_32 = 0.0;
+  float foy_33 = 0.0;
+  float lay_34 = 1.0;
+  float glow_35 = 1.0;
+  float tex_36 = (-1.0);
+  float tBase_37 = 0.0;
+  float tPitch_38 = 1.0;
+  float tN_39 = 1.0;
+  float tR0_40 = 0.0;
+  float tR1_41 = 0.0;
+  float tW_42 = 0.0;
+  float tLayA_43 = 2.0;
+  float tLayB_44 = 2.0;
+  float tTrim_45 = 0.0;
+  float tOcc_46 = 1.0;
+  float tVia_47 = 0.0;
+  float tsx_48 = 0.0;
+  float tsy_49 = 0.0;
+  float rlox_50 = 0.0;
+  float rloy_51 = 0.0;
+  float rhix_52 = 0.0;
+  float rhiy_53 = 0.0;
+  float rwnm_54 = 0.0;
+  if ((d_17 == 0.0)) {
+    pt = hashu(pt);
+    float draw_55 = u2f(pt);
+    float u0_56 = draw_55;
+    if ((u0_56 < 0.52)) {
+      bool outer_57 = (u0_56 < 0.38);
+      float inset_58 = ((outer_57) ? 46080.0 : 69120.0);
+      fmode_18 = 6.0;
+      rlox_50 = inset_58;
+      rloy_51 = inset_58;
+      rhix_52 = (10321920.0 - inset_58);
+      rhiy_53 = (10321920.0 - inset_58);
+      rwnm_54 = ((outer_57) ? 11520.0 : 5760.0);
+      fw_23 = rwnm_54;
+      lay_34 = ((outer_57) ? min(4.0, metals_5) : 1.0);
+      glow_35 = ((outer_57) ? 1.1 : 1.0);
+    } else {
+      if ((u0_56 < 0.68)) {
+        pt = hashu(pt);
+        float draw_59 = u2f(pt);
+        float ucn_60 = draw_59;
+        float cnr_61 = floor((ucn_60 * 4.0));
+        float cc2x_62 = (((((cnr_61 == 1.0) || (cnr_61 == 3.0)))) ? ((10321920.0 - 115200.0)) : 115200.0);
+        float cc2y_63 = ((((cnr_61 >= 2.0))) ? ((10321920.0 - 115200.0)) : 115200.0);
+        pt = hashu(pt);
+        float draw_64 = u2f(pt);
+        float uhz_65 = draw_64;
+        fhz_19 = ((((uhz_65 < 0.5))) ? 1.0 : 0.0);
+        float m0_66 = ((((fhz_19 > 0.5))) ? cc2x_62 : cc2y_63);
+        fmode_18 = 5.0;
+        tBase_37 = ((((fhz_19 > 0.5))) ? cc2y_63 : cc2x_62);
+        tN_39 = 1.0;
+        tR0_40 = (m0_66 - 17280.0);
+        tR1_41 = (m0_66 + 17280.0);
+        tW_42 = 5760.0;
+        tLayA_43 = 0.0;
+        tLayB_44 = 0.0;
+        tsx_48 = (300.0 + cnr_61);
+        tsy_49 = 301.0;
+        glow_35 = 1.2;
+      } else {
+        pt = hashu(pt);
+        float draw_67 = u2f(pt);
+        float ug_68 = draw_67;
+        float g_69 = floor((ug_68 * 4.0));
+        float gx0_70 = (10075680.0 + (g_69 * 50400.0));
+        float ob_71_on = 0.0;
+        float ob_71_bx = 0.0;
+        float ob_71_by = 0.0;
+        int ob_71_count = 0;
+        bool ob_71_esc = false;
+        for (int ok_72 = 0; ok_72 < 5; ok_72++) {
+          if ((ob_71_on > 0.5)) { ob_71_esc = true; break; }
+          pt = hashu(pt);
+          float draw_73 = u2f(pt);
+          float ubx_74 = draw_73;
+          float bx_75 = floor((ubx_74 * 5.0));
+          pt = hashu(pt);
+          float draw_76 = u2f(pt);
+          float uby_77 = draw_76;
+          float by_78 = floor((uby_77 * 5.0));
+          float rw_79 = ((((g_69 == 0.0))) ? (((((by_78 == 0.0))) ? 30.0 : ((((by_78 == 1.0))) ? 17.0 : ((((by_78 == 2.0))) ? 30.0 : ((((by_78 == 3.0))) ? 16.0 : 16.0))))) : ((((g_69 == 1.0))) ? (((((by_78 == 0.0))) ? 15.0 : ((((by_78 == 1.0))) ? 16.0 : ((((by_78 == 2.0))) ? 16.0 : ((((by_78 == 3.0))) ? 16.0 : 15.0))))) : ((((g_69 == 2.0))) ? (((((by_78 == 0.0))) ? 14.0 : ((((by_78 == 1.0))) ? 16.0 : ((((by_78 == 2.0))) ? 30.0 : ((((by_78 == 3.0))) ? 17.0 : 14.0))))) : (((((by_78 == 0.0))) ? 30.0 : ((((by_78 == 1.0))) ? 1.0 : ((((by_78 == 2.0))) ? 14.0 : ((((by_78 == 3.0))) ? 1.0 : 30.0))))))));
+          float pw_80 = ((((bx_75 == 0.0))) ? 16.0 : ((((bx_75 == 1.0))) ? 8.0 : ((((bx_75 == 2.0))) ? 4.0 : ((((bx_75 == 3.0))) ? 2.0 : 1.0))));
+          float bit_81 = mod(floor((rw_79 / pw_80)), 2.0);
+          float ob_71_t_82 = bit_81;
+          float ob_71_t_83 = bx_75;
+          float ob_71_t_84 = by_78;
+          ob_71_on = ob_71_t_82;
+          ob_71_bx = ob_71_t_83;
+          ob_71_by = ob_71_t_84;
+          ob_71_count += 1;
+        }
+        if ((ob_71_on > 0.5)) {
+          fmode_18 = 3.0;
+          fctx_28 = (gx0_70 + (ob_71_bx * 7200.0));
+          fcty_29 = (5040.0 + (((4.0 - ob_71_by)) * 7200.0));
+          fw_23 = 2520.0;
+        }
+        lay_34 = 8.0;
+        glow_35 = 1.3;
+      }
+    }
+  } else {
+    if ((d_17 == 1.0)) {
+      pt = hashu(pt);
+      float draw_85 = u2f(pt);
+      float usd_86 = draw_85;
+      float sd2_87 = floor((usd_86 * 4.0));
+      pt = hashu(pt);
+      float draw_88 = u2f(pt);
+      float u1_89 = draw_88;
+      pt = hashu(pt);
+      float draw_90 = u2f(pt);
+      float uk_91 = draw_90;
+      float kp_92 = floor((uk_91 * 85.0));
+      float pc_93 = (322560.0 + (kp_92 * 115200.0));
+      if ((u1_89 < 0.34)) {
+        float al0_94 = (pc_93 - 34560.0);
+        float ac0_95 = 57600.0;
+        float al1_96 = (pc_93 + 34560.0);
+        float ac1_97 = 126720.0;
+        float p0x_98 = ((((sd2_87 == 0.0))) ? al0_94 : ((((sd2_87 == 1.0))) ? al0_94 : ((((sd2_87 == 2.0))) ? ac0_95 : ((10321920.0 - ac0_95)))));
+        float p0y_99 = ((((sd2_87 == 0.0))) ? ac0_95 : ((((sd2_87 == 1.0))) ? ((10321920.0 - ac0_95)) : al0_94));
+        float p1x_100 = ((((sd2_87 == 0.0))) ? al1_96 : ((((sd2_87 == 1.0))) ? al1_96 : ((((sd2_87 == 2.0))) ? ac1_97 : ((10321920.0 - ac1_97)))));
+        float p1y_101 = ((((sd2_87 == 0.0))) ? ac1_97 : ((((sd2_87 == 1.0))) ? ((10321920.0 - ac1_97)) : al1_96));
+        fmode_18 = 2.0;
+        flox_24 = min(p0x_98, p1x_100);
+        floy_25 = min(p0y_99, p1y_101);
+        fhix_26 = max(p0x_98, p1x_100);
+        fhiy_27 = max(p0y_99, p1y_101);
+        lay_34 = 6.0;
+        glow_35 = 1.35;
+        float vn_102_x = sd2_87;
+        float vn_102_y = kp_92;
+        float vn_102_ix = floor(vn_102_x);
+        float vn_102_iy = floor(vn_102_y);
+        float vn_102_fx = vn_102_x - vn_102_ix;
+        float vn_102_fy = vn_102_y - vn_102_iy;
+        float vn_102_wx = (vn_102_fx * vn_102_fx) * (3.0 - (2.0 * vn_102_fx));
+        float vn_102_wy = (vn_102_fy * vn_102_fy) * (3.0 - (2.0 * vn_102_fy));
+        uint vn_102_bx = uint(int(vn_102_ix) & 1023);
+        uint vn_102_by = uint(int(vn_102_iy) & 1023);
+        uint vn_102_oc = uint(23);
+        float vn_102_00 = u2f(hashu(vn_102_oc ^ hashu((vn_102_bx + 0u) * 374761393u + (vn_102_by + 0u) * 668265263u)));
+        float vn_102_10 = u2f(hashu(vn_102_oc ^ hashu((vn_102_bx + 1u) * 374761393u + (vn_102_by + 0u) * 668265263u)));
+        float vn_102_01 = u2f(hashu(vn_102_oc ^ hashu((vn_102_bx + 0u) * 374761393u + (vn_102_by + 1u) * 668265263u)));
+        float vn_102_11 = u2f(hashu(vn_102_oc ^ hashu((vn_102_bx + 1u) * 374761393u + (vn_102_by + 1u) * 668265263u)));
+        float vn_102_a = vn_102_00 + ((vn_102_10 - vn_102_00) * vn_102_wx);
+        float vn_102_b = vn_102_01 + ((vn_102_11 - vn_102_01) * vn_102_wx);
+        float vn_102_v = (vn_102_a + ((vn_102_b - vn_102_a) * vn_102_wy)) - 0.5;
+        tex_36 = (vn_102_v + 0.5);
+      } else {
+        if ((u1_89 < 0.50)) {
+          float bl0_103 = (pc_93 - 40320.0);
+          float bc0_104 = 51840.0;
+          float bl1_105 = (pc_93 + 40320.0);
+          float bc1_106 = 132480.0;
+          float q0x_107 = ((((sd2_87 == 0.0))) ? bl0_103 : ((((sd2_87 == 1.0))) ? bl0_103 : ((((sd2_87 == 2.0))) ? bc0_104 : ((10321920.0 - bc0_104)))));
+          float q0y_108 = ((((sd2_87 == 0.0))) ? bc0_104 : ((((sd2_87 == 1.0))) ? ((10321920.0 - bc0_104)) : bl0_103));
+          float q1x_109 = ((((sd2_87 == 0.0))) ? bl1_105 : ((((sd2_87 == 1.0))) ? bl1_105 : ((((sd2_87 == 2.0))) ? bc1_106 : ((10321920.0 - bc1_106)))));
+          float q1y_110 = ((((sd2_87 == 0.0))) ? bc1_106 : ((((sd2_87 == 1.0))) ? ((10321920.0 - bc1_106)) : bl1_105));
+          fmode_18 = 6.0;
+          rlox_50 = min(q0x_107, q1x_109);
+          rloy_51 = min(q0y_108, q1y_110);
+          rhix_52 = max(q0x_107, q1x_109);
+          rhiy_53 = max(q0y_108, q1y_110);
+          rwnm_54 = 5760.0;
+          fw_23 = 5760.0;
+          lay_34 = min(5.0, metals_5);
+        } else {
+          if ((u1_89 < 0.76)) {
+            pt = hashu(pt);
+            float draw_111 = u2f(pt);
+            float ugi_112 = draw_111;
+            float gi_113 = floor((ugi_112 * 16.0));
+            pt = hashu(pt);
+            float draw_114 = u2f(pt);
+            float ugj_115 = draw_114;
+            float gj_116 = floor((ugj_115 * 8.0));
+            float eal_117 = (((pc_93 - 23040.0) + (gi_113 * 2880.0)) + 1440.0);
+            float eac_118 = ((138240.0 + (gj_116 * 2880.0)) + 1440.0);
+            fmode_18 = 3.0;
+            fctx_28 = ((((sd2_87 == 0.0))) ? eal_117 : ((((sd2_87 == 1.0))) ? eal_117 : ((((sd2_87 == 2.0))) ? eac_118 : ((10321920.0 - eac_118)))));
+            fcty_29 = ((((sd2_87 == 0.0))) ? eac_118 : ((((sd2_87 == 1.0))) ? ((10321920.0 - eac_118)) : eal_117));
+            fw_23 = 1080.0;
+            lay_34 = 8.0;
+            glow_35 = 1.1;
+          } else {
+            float a2x_119 = ((((sd2_87 == 0.0))) ? 0.0 : ((((sd2_87 == 1.0))) ? 0.0 : ((((sd2_87 == 2.0))) ? 162720.0 : ((10321920.0 - 162720.0)))));
+            float a2y_120 = ((((sd2_87 == 0.0))) ? 162720.0 : ((((sd2_87 == 1.0))) ? ((10321920.0 - 162720.0)) : 0.0));
+            fmode_18 = 5.0;
+            fhz_19 = ((((sd2_87 < 2.0))) ? 1.0 : 0.0);
+            tBase_37 = ((((fhz_19 > 0.5))) ? a2y_120 : a2x_119);
+            tPitch_38 = (((((sd2_87 == 0.0) || (sd2_87 == 2.0)))) ? 8640.0 : (-8640.0));
+            tN_39 = 3.0;
+            tR0_40 = 230400.0;
+            tR1_41 = 10091520.0;
+            tW_42 = 2880.0;
+            tLayA_43 = min(5.0, metals_5);
+            tLayB_44 = min(4.0, metals_5);
+            tsx_48 = (310.0 + sd2_87);
+            tsy_49 = 311.0;
+            glow_35 = 1.1;
+          }
+        }
+      }
+    } else {
+      float budget_121 = (d_17 - 2.0);
+      float vn_122_x = maskNo_3;
+      float vn_122_y = 3.0;
+      float vn_122_ix = floor(vn_122_x);
+      float vn_122_iy = floor(vn_122_y);
+      float vn_122_fx = vn_122_x - vn_122_ix;
+      float vn_122_fy = vn_122_y - vn_122_iy;
+      float vn_122_wx = (vn_122_fx * vn_122_fx) * (3.0 - (2.0 * vn_122_fx));
+      float vn_122_wy = (vn_122_fy * vn_122_fy) * (3.0 - (2.0 * vn_122_fy));
+      uint vn_122_bx = uint(int(vn_122_ix) & 1023);
+      uint vn_122_by = uint(int(vn_122_iy) & 1023);
+      uint vn_122_oc = uint(1);
+      float vn_122_00 = u2f(hashu(vn_122_oc ^ hashu((vn_122_bx + 0u) * 374761393u + (vn_122_by + 0u) * 668265263u)));
+      float vn_122_10 = u2f(hashu(vn_122_oc ^ hashu((vn_122_bx + 1u) * 374761393u + (vn_122_by + 0u) * 668265263u)));
+      float vn_122_01 = u2f(hashu(vn_122_oc ^ hashu((vn_122_bx + 0u) * 374761393u + (vn_122_by + 1u) * 668265263u)));
+      float vn_122_11 = u2f(hashu(vn_122_oc ^ hashu((vn_122_bx + 1u) * 374761393u + (vn_122_by + 1u) * 668265263u)));
+      float vn_122_a = vn_122_00 + ((vn_122_10 - vn_122_00) * vn_122_wx);
+      float vn_122_b = vn_122_01 + ((vn_122_11 - vn_122_01) * vn_122_wx);
+      float vn_122_v = (vn_122_a + ((vn_122_b - vn_122_a) * vn_122_wy)) - 0.5;
+      float rt0_123 = (vn_122_v + 0.5);
+      float vn_124_x = maskNo_3;
+      float vn_124_y = 4.0;
+      float vn_124_ix = floor(vn_124_x);
+      float vn_124_iy = floor(vn_124_y);
+      float vn_124_fx = vn_124_x - vn_124_ix;
+      float vn_124_fy = vn_124_y - vn_124_iy;
+      float vn_124_wx = (vn_124_fx * vn_124_fx) * (3.0 - (2.0 * vn_124_fx));
+      float vn_124_wy = (vn_124_fy * vn_124_fy) * (3.0 - (2.0 * vn_124_fy));
+      uint vn_124_bx = uint(int(vn_124_ix) & 1023);
+      uint vn_124_by = uint(int(vn_124_iy) & 1023);
+      uint vn_124_oc = uint(2);
+      float vn_124_00 = u2f(hashu(vn_124_oc ^ hashu((vn_124_bx + 0u) * 374761393u + (vn_124_by + 0u) * 668265263u)));
+      float vn_124_10 = u2f(hashu(vn_124_oc ^ hashu((vn_124_bx + 1u) * 374761393u + (vn_124_by + 0u) * 668265263u)));
+      float vn_124_01 = u2f(hashu(vn_124_oc ^ hashu((vn_124_bx + 0u) * 374761393u + (vn_124_by + 1u) * 668265263u)));
+      float vn_124_11 = u2f(hashu(vn_124_oc ^ hashu((vn_124_bx + 1u) * 374761393u + (vn_124_by + 1u) * 668265263u)));
+      float vn_124_a = vn_124_00 + ((vn_124_10 - vn_124_00) * vn_124_wx);
+      float vn_124_b = vn_124_01 + ((vn_124_11 - vn_124_01) * vn_124_wx);
+      float vn_124_v = (vn_124_a + ((vn_124_b - vn_124_a) * vn_124_wy)) - 0.5;
+      float rt1_125 = (vn_124_v + 0.5);
+      float ax0_126 = min(floor((rt0_123 * 1024.0)), 1023.0);
+      float ay0_127 = min(floor((rt1_125 * 1024.0)), 1023.0);
+      float ob_128_lox = 184320.0;
+      float ob_128_loy = 184320.0;
+      float ob_128_hix = 10137600.0;
+      float ob_128_hiy = 10137600.0;
+      float ob_128_ax = ax0_126;
+      float ob_128_ay = ay0_127;
+      float ob_128_typ = 0.0;
+      float ob_128_lvl = 0.0;
+      float ob_128_stop = 0.0;
+      float ob_128_cutY = 0.0;
+      float ob_128_cc = 0.0;
+      float ob_128_chw = 0.0;
+      int ob_128_count = 0;
+      bool ob_128_esc = false;
+      for (int ok_129 = 0; ok_129 < 14; ok_129++) {
+        if ((ob_128_stop > 0.5)) { ob_128_esc = true; break; }
+        float w_130 = (ob_128_hix - ob_128_lox);
+        float h_131 = (ob_128_hiy - ob_128_loy);
+        float longSide_132 = max(w_130, h_131);
+        float vn_133_x = ob_128_ax;
+        float vn_133_y = ob_128_ay;
+        float vn_133_ix = floor(vn_133_x);
+        float vn_133_iy = floor(vn_133_y);
+        float vn_133_fx = vn_133_x - vn_133_ix;
+        float vn_133_fy = vn_133_y - vn_133_iy;
+        float vn_133_wx = (vn_133_fx * vn_133_fx) * (3.0 - (2.0 * vn_133_fx));
+        float vn_133_wy = (vn_133_fy * vn_133_fy) * (3.0 - (2.0 * vn_133_fy));
+        uint vn_133_bx = uint(int(vn_133_ix) & 1023);
+        uint vn_133_by = uint(int(vn_133_iy) & 1023);
+        uint vn_133_oc = uint(11);
+        float vn_133_00 = u2f(hashu(vn_133_oc ^ hashu((vn_133_bx + 0u) * 374761393u + (vn_133_by + 0u) * 668265263u)));
+        float vn_133_10 = u2f(hashu(vn_133_oc ^ hashu((vn_133_bx + 1u) * 374761393u + (vn_133_by + 0u) * 668265263u)));
+        float vn_133_01 = u2f(hashu(vn_133_oc ^ hashu((vn_133_bx + 0u) * 374761393u + (vn_133_by + 1u) * 668265263u)));
+        float vn_133_11 = u2f(hashu(vn_133_oc ^ hashu((vn_133_bx + 1u) * 374761393u + (vn_133_by + 1u) * 668265263u)));
+        float vn_133_a = vn_133_00 + ((vn_133_10 - vn_133_00) * vn_133_wx);
+        float vn_133_b = vn_133_01 + ((vn_133_11 - vn_133_01) * vn_133_wx);
+        float vn_133_v = (vn_133_a + ((vn_133_b - vn_133_a) * vn_133_wy)) - 0.5;
+        float la0_134 = (vn_133_v + 0.5);
+        float vn_135_x = ob_128_ax;
+        float vn_135_y = ob_128_ay;
+        float vn_135_ix = floor(vn_135_x);
+        float vn_135_iy = floor(vn_135_y);
+        float vn_135_fx = vn_135_x - vn_135_ix;
+        float vn_135_fy = vn_135_y - vn_135_iy;
+        float vn_135_wx = (vn_135_fx * vn_135_fx) * (3.0 - (2.0 * vn_135_fx));
+        float vn_135_wy = (vn_135_fy * vn_135_fy) * (3.0 - (2.0 * vn_135_fy));
+        uint vn_135_bx = uint(int(vn_135_ix) & 1023);
+        uint vn_135_by = uint(int(vn_135_iy) & 1023);
+        uint vn_135_oc = uint(12);
+        float vn_135_00 = u2f(hashu(vn_135_oc ^ hashu((vn_135_bx + 0u) * 374761393u + (vn_135_by + 0u) * 668265263u)));
+        float vn_135_10 = u2f(hashu(vn_135_oc ^ hashu((vn_135_bx + 1u) * 374761393u + (vn_135_by + 0u) * 668265263u)));
+        float vn_135_01 = u2f(hashu(vn_135_oc ^ hashu((vn_135_bx + 0u) * 374761393u + (vn_135_by + 1u) * 668265263u)));
+        float vn_135_11 = u2f(hashu(vn_135_oc ^ hashu((vn_135_bx + 1u) * 374761393u + (vn_135_by + 1u) * 668265263u)));
+        float vn_135_a = vn_135_00 + ((vn_135_10 - vn_135_00) * vn_135_wx);
+        float vn_135_b = vn_135_01 + ((vn_135_11 - vn_135_01) * vn_135_wx);
+        float vn_135_v = (vn_135_a + ((vn_135_b - vn_135_a) * vn_135_wy)) - 0.5;
+        float la1_136 = (vn_135_v + 0.5);
+        float vn_137_x = ob_128_ax;
+        float vn_137_y = ob_128_ay;
+        float vn_137_ix = floor(vn_137_x);
+        float vn_137_iy = floor(vn_137_y);
+        float vn_137_fx = vn_137_x - vn_137_ix;
+        float vn_137_fy = vn_137_y - vn_137_iy;
+        float vn_137_wx = (vn_137_fx * vn_137_fx) * (3.0 - (2.0 * vn_137_fx));
+        float vn_137_wy = (vn_137_fy * vn_137_fy) * (3.0 - (2.0 * vn_137_fy));
+        uint vn_137_bx = uint(int(vn_137_ix) & 1023);
+        uint vn_137_by = uint(int(vn_137_iy) & 1023);
+        uint vn_137_oc = uint(13);
+        float vn_137_00 = u2f(hashu(vn_137_oc ^ hashu((vn_137_bx + 0u) * 374761393u + (vn_137_by + 0u) * 668265263u)));
+        float vn_137_10 = u2f(hashu(vn_137_oc ^ hashu((vn_137_bx + 1u) * 374761393u + (vn_137_by + 0u) * 668265263u)));
+        float vn_137_01 = u2f(hashu(vn_137_oc ^ hashu((vn_137_bx + 0u) * 374761393u + (vn_137_by + 1u) * 668265263u)));
+        float vn_137_11 = u2f(hashu(vn_137_oc ^ hashu((vn_137_bx + 1u) * 374761393u + (vn_137_by + 1u) * 668265263u)));
+        float vn_137_a = vn_137_00 + ((vn_137_10 - vn_137_00) * vn_137_wx);
+        float vn_137_b = vn_137_01 + ((vn_137_11 - vn_137_01) * vn_137_wx);
+        float vn_137_v = (vn_137_a + ((vn_137_b - vn_137_a) * vn_137_wy)) - 0.5;
+        float la3_138 = (vn_137_v + 0.5);
+        float vn_139_x = ob_128_ax;
+        float vn_139_y = ob_128_ay;
+        float vn_139_ix = floor(vn_139_x);
+        float vn_139_iy = floor(vn_139_y);
+        float vn_139_fx = vn_139_x - vn_139_ix;
+        float vn_139_fy = vn_139_y - vn_139_iy;
+        float vn_139_wx = (vn_139_fx * vn_139_fx) * (3.0 - (2.0 * vn_139_fx));
+        float vn_139_wy = (vn_139_fy * vn_139_fy) * (3.0 - (2.0 * vn_139_fy));
+        uint vn_139_bx = uint(int(vn_139_ix) & 1023);
+        uint vn_139_by = uint(int(vn_139_iy) & 1023);
+        uint vn_139_oc = uint(14);
+        float vn_139_00 = u2f(hashu(vn_139_oc ^ hashu((vn_139_bx + 0u) * 374761393u + (vn_139_by + 0u) * 668265263u)));
+        float vn_139_10 = u2f(hashu(vn_139_oc ^ hashu((vn_139_bx + 1u) * 374761393u + (vn_139_by + 0u) * 668265263u)));
+        float vn_139_01 = u2f(hashu(vn_139_oc ^ hashu((vn_139_bx + 0u) * 374761393u + (vn_139_by + 1u) * 668265263u)));
+        float vn_139_11 = u2f(hashu(vn_139_oc ^ hashu((vn_139_bx + 1u) * 374761393u + (vn_139_by + 1u) * 668265263u)));
+        float vn_139_a = vn_139_00 + ((vn_139_10 - vn_139_00) * vn_139_wx);
+        float vn_139_b = vn_139_01 + ((vn_139_11 - vn_139_01) * vn_139_wx);
+        float vn_139_v = (vn_139_a + ((vn_139_b - vn_139_a) * vn_139_wy)) - 0.5;
+        float ca0_140 = (vn_139_v + 0.5);
+        float vn_141_x = ob_128_ax;
+        float vn_141_y = ob_128_ay;
+        float vn_141_ix = floor(vn_141_x);
+        float vn_141_iy = floor(vn_141_y);
+        float vn_141_fx = vn_141_x - vn_141_ix;
+        float vn_141_fy = vn_141_y - vn_141_iy;
+        float vn_141_wx = (vn_141_fx * vn_141_fx) * (3.0 - (2.0 * vn_141_fx));
+        float vn_141_wy = (vn_141_fy * vn_141_fy) * (3.0 - (2.0 * vn_141_fy));
+        uint vn_141_bx = uint(int(vn_141_ix) & 1023);
+        uint vn_141_by = uint(int(vn_141_iy) & 1023);
+        uint vn_141_oc = uint(15);
+        float vn_141_00 = u2f(hashu(vn_141_oc ^ hashu((vn_141_bx + 0u) * 374761393u + (vn_141_by + 0u) * 668265263u)));
+        float vn_141_10 = u2f(hashu(vn_141_oc ^ hashu((vn_141_bx + 1u) * 374761393u + (vn_141_by + 0u) * 668265263u)));
+        float vn_141_01 = u2f(hashu(vn_141_oc ^ hashu((vn_141_bx + 0u) * 374761393u + (vn_141_by + 1u) * 668265263u)));
+        float vn_141_11 = u2f(hashu(vn_141_oc ^ hashu((vn_141_bx + 1u) * 374761393u + (vn_141_by + 1u) * 668265263u)));
+        float vn_141_a = vn_141_00 + ((vn_141_10 - vn_141_00) * vn_141_wx);
+        float vn_141_b = vn_141_01 + ((vn_141_11 - vn_141_01) * vn_141_wx);
+        float vn_141_v = (vn_141_a + ((vn_141_b - vn_141_a) * vn_141_wy)) - 0.5;
+        float ca1_142 = (vn_141_v + 0.5);
+        float nstop_143 = 0.0;
+        float ntyp_144 = ob_128_typ;
+        float ncutY_145 = ob_128_cutY;
+        float ncc_146 = ob_128_cc;
+        float nchw_147 = ob_128_chw;
+        float nlox_148 = ob_128_lox;
+        float nloy_149 = ob_128_loy;
+        float nhix_150 = ob_128_hix;
+        float nhiy_151 = ob_128_hiy;
+        float nax_152 = ob_128_ax;
+        float nay_153 = ob_128_ay;
+        float nlvl_154 = ob_128_lvl;
+        if ((ob_128_typ == 2.0)) {
+          if ((longSide_132 <= 1105920.0)) {
+            ntyp_144 = 5.0;
+            nstop_143 = 1.0;
+          }
+        } else {
+          if ((ob_128_typ == 0.0)) {
+            if ((longSide_132 <= 276480.0)) {
+              ntyp_144 = ((((la0_134 < 0.56))) ? 3.0 : ((((la0_134 < 0.72))) ? 4.0 : ((((la0_134 < 0.84))) ? 5.0 : ((((la0_134 < 0.90))) ? 6.0 : 7.0))));
+              nstop_143 = 1.0;
+            } else {
+              if (((longSide_132 <= 829440.0) && (la1_136 < 0.09))) {
+                ntyp_144 = ((((la3_138 < 0.6))) ? 5.0 : 6.0);
+                nstop_143 = 1.0;
+              }
+            }
+          }
+        }
+        if ((nstop_143 < 0.5)) {
+          if ((ob_128_lvl == 0.0)) {
+            ncutY_145 = 1.0;
+            ncc_146 = (ob_128_hiy - floor((cacheF_4 * h_131)));
+          } else {
+            if ((ob_128_typ == 1.0)) {
+              ncutY_145 = 0.0;
+              ncc_146 = floor((((ob_128_lox + ob_128_hix)) / 2.0));
+            } else {
+              ncutY_145 = ((((h_131 > w_130))) ? 1.0 : ((((((h_131 == w_130) && (ca0_140 < 0.5)))) ? 1.0 : 0.0)));
+              float f_155 = (0.34 + (0.32 * ca1_142));
+              float span_156 = ((((ncutY_145 > 0.5))) ? h_131 : w_130);
+              float foot_157 = ((((ncutY_145 > 0.5))) ? ob_128_loy : ob_128_lox);
+              ncc_146 = (foot_157 + floor((f_155 * span_156)));
+            }
+          }
+          ncc_146 = (floor((ncc_146 / 5760.0)) * 5760.0);
+          nchw_147 = (5760.0 * (((((ob_128_lvl == 0.0))) ? 4.0 : ((((ob_128_lvl == 1.0))) ? 3.0 : ((((ob_128_lvl <= 3.0))) ? 2.0 : 1.0)))));
+          float e0_158 = ((((ncutY_145 > 0.5))) ? ob_128_loy : ob_128_lox);
+          float e1_159 = ((((ncutY_145 > 0.5))) ? ob_128_hiy : ob_128_hix);
+          ncc_146 = clamp(ncc_146, ((e0_158 + 69120.0) + nchw_147), ((e1_159 - 69120.0) - nchw_147));
+          if ((ob_128_lvl >= budget_121)) {
+            nstop_143 = 2.0;
+          } else {
+            float a1_160 = (ncc_146 - nchw_147);
+            float b0_161 = (ncc_146 + nchw_147);
+            float w0_162 = ((((ncutY_145 > 0.5))) ? winy_11 : winx_10);
+            float w1_163 = ((((ncutY_145 > 0.5))) ? winw_13 : winz_12);
+            float lA_164 = max(0.0, (min(a1_160, w1_163) - max(e0_158, w0_162)));
+            float lB_165 = max(0.0, (min(e1_159, w1_163) - max(b0_161, w0_162)));
+            if (((lA_164 + lB_165) == 0.0)) {
+              nstop_143 = 3.0;
+            } else {
+              pt = hashu(pt);
+              float draw_166 = u2f(pt);
+              float usd2_167 = draw_166;
+              bool sideA_168 = (lA_164 > (usd2_167 * ((lA_164 + lB_165))));
+              if ((ncutY_145 > 0.5)) {
+                if (sideA_168) {
+                  nhiy_151 = a1_160;
+                } else {
+                  nloy_149 = b0_161;
+                }
+              } else {
+                if (sideA_168) {
+                  nhix_150 = a1_160;
+                } else {
+                  nlox_148 = b0_161;
+                }
+              }
+              if ((ob_128_lvl == 0.0)) {
+                ntyp_144 = ((sideA_168) ? 0.0 : 1.0);
+              }
+              if ((ob_128_typ == 1.0)) {
+                ntyp_144 = 2.0;
+              }
+              float sf_169 = ((sideA_168) ? 1.0 : 0.0);
+              float cx_170 = mod((ob_128_ax + (sf_169 * 397.0)), 1024.0);
+              float cy_171 = mod((ob_128_ay + (sf_169 * 211.0)), 1024.0);
+              float vn_172_x = cx_170;
+              float vn_172_y = cy_171;
+              float vn_172_ix = floor(vn_172_x);
+              float vn_172_iy = floor(vn_172_y);
+              float vn_172_fx = vn_172_x - vn_172_ix;
+              float vn_172_fy = vn_172_y - vn_172_iy;
+              float vn_172_wx = (vn_172_fx * vn_172_fx) * (3.0 - (2.0 * vn_172_fx));
+              float vn_172_wy = (vn_172_fy * vn_172_fy) * (3.0 - (2.0 * vn_172_fy));
+              uint vn_172_bx = uint(int(vn_172_ix) & 1023);
+              uint vn_172_by = uint(int(vn_172_iy) & 1023);
+              uint vn_172_oc = uint(16);
+              float vn_172_00 = u2f(hashu(vn_172_oc ^ hashu((vn_172_bx + 0u) * 374761393u + (vn_172_by + 0u) * 668265263u)));
+              float vn_172_10 = u2f(hashu(vn_172_oc ^ hashu((vn_172_bx + 1u) * 374761393u + (vn_172_by + 0u) * 668265263u)));
+              float vn_172_01 = u2f(hashu(vn_172_oc ^ hashu((vn_172_bx + 0u) * 374761393u + (vn_172_by + 1u) * 668265263u)));
+              float vn_172_11 = u2f(hashu(vn_172_oc ^ hashu((vn_172_bx + 1u) * 374761393u + (vn_172_by + 1u) * 668265263u)));
+              float vn_172_a = vn_172_00 + ((vn_172_10 - vn_172_00) * vn_172_wx);
+              float vn_172_b = vn_172_01 + ((vn_172_11 - vn_172_01) * vn_172_wx);
+              float vn_172_v = (vn_172_a + ((vn_172_b - vn_172_a) * vn_172_wy)) - 0.5;
+              float ch0_173 = (vn_172_v + 0.5);
+              float vn_174_x = cx_170;
+              float vn_174_y = cy_171;
+              float vn_174_ix = floor(vn_174_x);
+              float vn_174_iy = floor(vn_174_y);
+              float vn_174_fx = vn_174_x - vn_174_ix;
+              float vn_174_fy = vn_174_y - vn_174_iy;
+              float vn_174_wx = (vn_174_fx * vn_174_fx) * (3.0 - (2.0 * vn_174_fx));
+              float vn_174_wy = (vn_174_fy * vn_174_fy) * (3.0 - (2.0 * vn_174_fy));
+              uint vn_174_bx = uint(int(vn_174_ix) & 1023);
+              uint vn_174_by = uint(int(vn_174_iy) & 1023);
+              uint vn_174_oc = uint(17);
+              float vn_174_00 = u2f(hashu(vn_174_oc ^ hashu((vn_174_bx + 0u) * 374761393u + (vn_174_by + 0u) * 668265263u)));
+              float vn_174_10 = u2f(hashu(vn_174_oc ^ hashu((vn_174_bx + 1u) * 374761393u + (vn_174_by + 0u) * 668265263u)));
+              float vn_174_01 = u2f(hashu(vn_174_oc ^ hashu((vn_174_bx + 0u) * 374761393u + (vn_174_by + 1u) * 668265263u)));
+              float vn_174_11 = u2f(hashu(vn_174_oc ^ hashu((vn_174_bx + 1u) * 374761393u + (vn_174_by + 1u) * 668265263u)));
+              float vn_174_a = vn_174_00 + ((vn_174_10 - vn_174_00) * vn_174_wx);
+              float vn_174_b = vn_174_01 + ((vn_174_11 - vn_174_01) * vn_174_wx);
+              float vn_174_v = (vn_174_a + ((vn_174_b - vn_174_a) * vn_174_wy)) - 0.5;
+              float ch1_175 = (vn_174_v + 0.5);
+              nax_152 = min(floor((ch0_173 * 1024.0)), 1023.0);
+              nay_153 = min(floor((ch1_175 * 1024.0)), 1023.0);
+              nlvl_154 = (ob_128_lvl + 1.0);
+            }
+          }
+        }
+        float ob_128_t_176 = nlox_148;
+        float ob_128_t_177 = nloy_149;
+        float ob_128_t_178 = nhix_150;
+        float ob_128_t_179 = nhiy_151;
+        float ob_128_t_180 = nax_152;
+        float ob_128_t_181 = nay_153;
+        float ob_128_t_182 = ntyp_144;
+        float ob_128_t_183 = nlvl_154;
+        float ob_128_t_184 = nstop_143;
+        float ob_128_t_185 = ncutY_145;
+        float ob_128_t_186 = ncc_146;
+        float ob_128_t_187 = nchw_147;
+        ob_128_lox = ob_128_t_176;
+        ob_128_loy = ob_128_t_177;
+        ob_128_hix = ob_128_t_178;
+        ob_128_hiy = ob_128_t_179;
+        ob_128_ax = ob_128_t_180;
+        ob_128_ay = ob_128_t_181;
+        ob_128_typ = ob_128_t_182;
+        ob_128_lvl = ob_128_t_183;
+        ob_128_stop = ob_128_t_184;
+        ob_128_cutY = ob_128_t_185;
+        ob_128_cc = ob_128_t_186;
+        ob_128_chw = ob_128_t_187;
+        ob_128_count += 1;
+      }
+      bool stopHere_188 = (ob_128_stop == 2.0);
+      bool dead_189 = (ob_128_stop == 3.0);
+      float lox_190 = ob_128_lox;
+      float loy_191 = ob_128_loy;
+      float hix_192 = ob_128_hix;
+      float hiy_193 = ob_128_hiy;
+      float ax_194 = ob_128_ax;
+      float ay_195 = ob_128_ay;
+      float typ_196 = ob_128_typ;
+      float lvl_197 = ob_128_lvl;
+      float cutY_198 = ob_128_cutY;
+      float cc_199 = ob_128_cc;
+      float chw_200 = ob_128_chw;
+      float w_201 = (hix_192 - lox_190);
+      float h_202 = (hiy_193 - loy_191);
+      float r_203 = ((stopHere_188) ? (-1.0) : min((budget_121 - lvl_197), 6.0));
+      pt = hashu(pt);
+      float draw_204 = u2f(pt);
+      float uF_205 = draw_204;
+      float tintW_206 = mix(0.12, 0.40, fillL_8);
+      if (dead_189) {
+        glow_35 = (glow_35 * 1.0);
+      } else {
+        if ((((stopHere_188 && (uF_205 < tintW_206))) || ((((!stopHere_188) && (r_203 == 0.0)) && (uF_205 < mix(0.30, 0.62, fillL_8)))))) {
+          float vn_207_x = ax_194;
+          float vn_207_y = ay_195;
+          float vn_207_ix = floor(vn_207_x);
+          float vn_207_iy = floor(vn_207_y);
+          float vn_207_fx = vn_207_x - vn_207_ix;
+          float vn_207_fy = vn_207_y - vn_207_iy;
+          float vn_207_wx = (vn_207_fx * vn_207_fx) * (3.0 - (2.0 * vn_207_fx));
+          float vn_207_wy = (vn_207_fy * vn_207_fy) * (3.0 - (2.0 * vn_207_fy));
+          uint vn_207_bx = uint(int(vn_207_ix) & 1023);
+          uint vn_207_by = uint(int(vn_207_iy) & 1023);
+          uint vn_207_oc = uint(18);
+          float vn_207_00 = u2f(hashu(vn_207_oc ^ hashu((vn_207_bx + 0u) * 374761393u + (vn_207_by + 0u) * 668265263u)));
+          float vn_207_10 = u2f(hashu(vn_207_oc ^ hashu((vn_207_bx + 1u) * 374761393u + (vn_207_by + 0u) * 668265263u)));
+          float vn_207_01 = u2f(hashu(vn_207_oc ^ hashu((vn_207_bx + 0u) * 374761393u + (vn_207_by + 1u) * 668265263u)));
+          float vn_207_11 = u2f(hashu(vn_207_oc ^ hashu((vn_207_bx + 1u) * 374761393u + (vn_207_by + 1u) * 668265263u)));
+          float vn_207_a = vn_207_00 + ((vn_207_10 - vn_207_00) * vn_207_wx);
+          float vn_207_b = vn_207_01 + ((vn_207_11 - vn_207_01) * vn_207_wx);
+          float vn_207_v = (vn_207_a + ((vn_207_b - vn_207_a) * vn_207_wy)) - 0.5;
+          float tl_208 = (vn_207_v + 0.5);
+          fmode_18 = 2.0;
+          flox_24 = lox_190;
+          floy_25 = loy_191;
+          fhix_26 = hix_192;
+          fhiy_27 = hiy_193;
+          lay_34 = ((((((typ_196 == 2.0) || (typ_196 == 1.0)) || (typ_196 == 5.0)))) ? 10.0 : ((((typ_196 == 6.0))) ? 9.0 : (((((tl_208 < 0.30) && (typ_196 == 0.0)))) ? 9.0 : 11.0)));
+          glow_35 = (0.24 + (0.40 * fillL_8));
+          float vn_209_x = ax_194;
+          float vn_209_y = ay_195;
+          float vn_209_ix = floor(vn_209_x);
+          float vn_209_iy = floor(vn_209_y);
+          float vn_209_fx = vn_209_x - vn_209_ix;
+          float vn_209_fy = vn_209_y - vn_209_iy;
+          float vn_209_wx = (vn_209_fx * vn_209_fx) * (3.0 - (2.0 * vn_209_fx));
+          float vn_209_wy = (vn_209_fy * vn_209_fy) * (3.0 - (2.0 * vn_209_fy));
+          uint vn_209_bx = uint(int(vn_209_ix) & 1023);
+          uint vn_209_by = uint(int(vn_209_iy) & 1023);
+          uint vn_209_oc = uint(24);
+          float vn_209_00 = u2f(hashu(vn_209_oc ^ hashu((vn_209_bx + 0u) * 374761393u + (vn_209_by + 0u) * 668265263u)));
+          float vn_209_10 = u2f(hashu(vn_209_oc ^ hashu((vn_209_bx + 1u) * 374761393u + (vn_209_by + 0u) * 668265263u)));
+          float vn_209_01 = u2f(hashu(vn_209_oc ^ hashu((vn_209_bx + 0u) * 374761393u + (vn_209_by + 1u) * 668265263u)));
+          float vn_209_11 = u2f(hashu(vn_209_oc ^ hashu((vn_209_bx + 1u) * 374761393u + (vn_209_by + 1u) * 668265263u)));
+          float vn_209_a = vn_209_00 + ((vn_209_10 - vn_209_00) * vn_209_wx);
+          float vn_209_b = vn_209_01 + ((vn_209_11 - vn_209_01) * vn_209_wx);
+          float vn_209_v = (vn_209_a + ((vn_209_b - vn_209_a) * vn_209_wy)) - 0.5;
+          tex_36 = (vn_209_v + 0.5);
+        } else {
+          if ((((stopHere_188 && (uF_205 < (tintW_206 + 0.12)))) || (((!stopHere_188) && (r_203 == 0.0))))) {
+            float inset_210 = ((stopHere_188) ? 5760.0 : 0.0);
+            fmode_18 = 6.0;
+            rlox_50 = (lox_190 + inset_210);
+            rloy_51 = (loy_191 + inset_210);
+            rhix_52 = (hix_192 - inset_210);
+            rhiy_53 = (hiy_193 - inset_210);
+            rwnm_54 = ((stopHere_188) ? 2880.0 : 1440.0);
+            fw_23 = rwnm_54;
+            lay_34 = ((stopHere_188) ? min(5.0, metals_5) : (((((typ_196 == 5.0))) ? 3.0 : 1.0)));
+            glow_35 = ((stopHere_188) ? 1.05 : 0.9);
+          } else {
+            if ((stopHere_188 && (uF_205 < (tintW_206 + 0.20)))) {
+              float pcx_211 = floor((((lox_190 + hix_192)) / 2.0));
+              float pcy_212 = floor((((loy_191 + hiy_193)) / 2.0));
+              float t0_213 = ((((cutY_198 > 0.5))) ? loy_191 : lox_190);
+              float t1_214 = ((((cutY_198 > 0.5))) ? hiy_193 : hix_192);
+              pt = hashu(pt);
+              float draw_215 = u2f(pt);
+              float utg_216 = draw_215;
+              float tgt_217 = ((((utg_216 < 0.5))) ? floor(((((t0_213 + cc_199) - chw_200)) / 2.0)) : floor(((((cc_199 + chw_200) + t1_214)) / 2.0)));
+              float c0_218 = ((((cutY_198 > 0.5))) ? pcy_212 : pcx_211);
+              fmode_18 = 5.0;
+              fhz_19 = ((((cutY_198 > 0.5))) ? 0.0 : 1.0);
+              tN_39 = 1.0;
+              tBase_37 = ((((cutY_198 > 0.5))) ? pcx_211 : pcy_212);
+              tR0_40 = min(c0_218, tgt_217);
+              tR1_41 = max(c0_218, tgt_217);
+              tW_42 = 1440.0;
+              tLayA_43 = min(5.0, metals_5);
+              tLayB_44 = tLayA_43;
+              tsx_48 = mod((ax_194 + 77.0), 1024.0);
+              tsy_49 = mod((ay_195 + 177.0), 1024.0);
+              glow_35 = 1.35;
+            } else {
+              if (stopHere_188) {
+                float pitch_219 = ((((lvl_197 <= 1.0))) ? 11520.0 : ((((lvl_197 <= 3.0))) ? 5760.0 : 1440.0));
+                fmode_18 = 5.0;
+                fhz_19 = cutY_198;
+                tPitch_38 = pitch_219;
+                tN_39 = ((((lvl_197 <= 1.0))) ? floor((((2.0 * chw_200)) / 11520.0)) : ((((lvl_197 <= 3.0))) ? floor((((2.0 * chw_200)) / 5760.0)) : floor((((2.0 * chw_200)) / 1440.0))));
+                tBase_37 = ((cc_199 - chw_200) + (pitch_219 * 0.5));
+                tR0_40 = ((((cutY_198 > 0.5))) ? lox_190 : loy_191);
+                tR1_41 = ((((cutY_198 > 0.5))) ? hix_192 : hiy_193);
+                tW_42 = (pitch_219 * 0.5);
+                tLayA_43 = ((((lvl_197 <= 1.0))) ? min(5.0, metals_5) : ((((lvl_197 <= 3.0))) ? min(4.0, metals_5) : 2.0));
+                tLayB_44 = ((((lvl_197 <= 3.0))) ? tLayA_43 : 3.0);
+                tOcc_46 = (util_6 * 0.92);
+                tTrim_45 = 1.0;
+                tVia_47 = 0.14;
+                tsx_48 = ax_194;
+                tsy_49 = ay_195;
+              } else {
+                if (((typ_196 == 3.0) || (typ_196 == 4.0))) {
+                  float dp_220 = ((((typ_196 == 4.0))) ? 1.0 : 0.0);
+                  if ((r_203 == 1.0)) {
+                    if ((uF_205 < 0.58)) {
+                      fmode_18 = 5.0;
+                      fhz_19 = 1.0;
+                      tBase_37 = loy_191;
+                      tPitch_38 = 5760.0;
+                      tN_39 = (floor((h_202 / 5760.0)) + 1.0);
+                      tR0_40 = lox_190;
+                      tR1_41 = hix_192;
+                      tW_42 = 720.0;
+                      tLayA_43 = 1.0;
+                      tLayB_44 = 1.0;
+                      tsx_48 = mod((ax_194 + 341.0), 1024.0);
+                      tsy_49 = mod((ay_195 + 455.0), 1024.0);
+                      glow_35 = 1.3;
+                    } else {
+                      pt = hashu(pt);
+                      float draw_221 = u2f(pt);
+                      float urr_222 = draw_221;
+                      float rr_223 = floor((urr_222 * floor((h_202 / 5760.0))));
+                      float y0_224 = ((loy_191 + (rr_223 * 5760.0)) + (((((mod(rr_223, 2.0) == 0.0))) ? 2880.0 : 0.0)));
+                      fmode_18 = 2.0;
+                      flox_24 = lox_190;
+                      floy_25 = y0_224;
+                      fhix_26 = hix_192;
+                      fhiy_27 = (y0_224 + 2880.0);
+                      lay_34 = 9.0;
+                      glow_35 = (0.14 + (0.26 * fillL_8));
+                    }
+                  } else {
+                    if ((r_203 == 2.0)) {
+                      bool vert_225 = (uF_205 < (((((dp_220 > 0.5))) ? 0.80 : 0.55)));
+                      fmode_18 = 5.0;
+                      fhz_19 = ((vert_225) ? 0.0 : 1.0);
+                      tBase_37 = ((((vert_225) ? lox_190 : loy_191)) + 720.0);
+                      tPitch_38 = 1440.0;
+                      tN_39 = floor(((((vert_225) ? w_201 : h_202)) / 1440.0));
+                      tR0_40 = ((vert_225) ? loy_191 : lox_190);
+                      tR1_41 = ((vert_225) ? hiy_193 : hix_192);
+                      tW_42 = 720.0;
+                      tLayA_43 = ((vert_225) ? 2.0 : 3.0);
+                      tLayB_44 = tLayA_43;
+                      tOcc_46 = (util_6 * (((vert_225) ? (((((dp_220 > 0.5))) ? 0.95 : 0.60)) : 0.45)));
+                      tTrim_45 = (((((dp_220 > 0.5) && vert_225))) ? 0.0 : 1.0);
+                      tVia_47 = 0.12;
+                      if (vert_225) {
+                        tsx_48 = mod((ax_194 + 503.0), 1024.0);
+                        tsy_49 = mod((ay_195 + 87.0), 1024.0);
+                      } else {
+                        tsx_48 = mod((ax_194 + 61.0), 1024.0);
+                        tsy_49 = mod((ay_195 + 661.0), 1024.0);
+                      }
+                      glow_35 = (((((dp_220 > 0.5) && vert_225))) ? 1.15 : 1.0);
+                    } else {
+                      if ((r_203 >= 3.0)) {
+                        pt = hashu(pt);
+                        float draw_226 = u2f(pt);
+                        float urr_227 = draw_226;
+                        float rr_228 = floor((urr_227 * floor((h_202 / 5760.0))));
+                        pt = hashu(pt);
+                        float draw_229 = u2f(pt);
+                        float usl_230 = draw_229;
+                        float sl_231 = floor((usl_230 * floor((w_201 / 5760.0))));
+                        float slm_232 = mod(sl_231, 4.0);
+                        float slk_233 = ((((dp_220 > 0.5))) ? slm_232 : sl_231);
+                        float c2x_234 = mod((ax_194 + (slk_233 * 13.0)), 1024.0);
+                        float c2y_235 = mod((ay_195 + (rr_228 * 29.0)), 1024.0);
+                        float vn_236_x = c2x_234;
+                        float vn_236_y = c2y_235;
+                        float vn_236_ix = floor(vn_236_x);
+                        float vn_236_iy = floor(vn_236_y);
+                        float vn_236_fx = vn_236_x - vn_236_ix;
+                        float vn_236_fy = vn_236_y - vn_236_iy;
+                        float vn_236_wx = (vn_236_fx * vn_236_fx) * (3.0 - (2.0 * vn_236_fx));
+                        float vn_236_wy = (vn_236_fy * vn_236_fy) * (3.0 - (2.0 * vn_236_fy));
+                        uint vn_236_bx = uint(int(vn_236_ix) & 1023);
+                        uint vn_236_by = uint(int(vn_236_iy) & 1023);
+                        uint vn_236_oc = uint(20);
+                        float vn_236_00 = u2f(hashu(vn_236_oc ^ hashu((vn_236_bx + 0u) * 374761393u + (vn_236_by + 0u) * 668265263u)));
+                        float vn_236_10 = u2f(hashu(vn_236_oc ^ hashu((vn_236_bx + 1u) * 374761393u + (vn_236_by + 0u) * 668265263u)));
+                        float vn_236_01 = u2f(hashu(vn_236_oc ^ hashu((vn_236_bx + 0u) * 374761393u + (vn_236_by + 1u) * 668265263u)));
+                        float vn_236_11 = u2f(hashu(vn_236_oc ^ hashu((vn_236_bx + 1u) * 374761393u + (vn_236_by + 1u) * 668265263u)));
+                        float vn_236_a = vn_236_00 + ((vn_236_10 - vn_236_00) * vn_236_wx);
+                        float vn_236_b = vn_236_01 + ((vn_236_11 - vn_236_01) * vn_236_wx);
+                        float vn_236_v = (vn_236_a + ((vn_236_b - vn_236_a) * vn_236_wy)) - 0.5;
+                        float cfil_237 = (vn_236_v + 0.5);
+                        float vn_238_x = c2x_234;
+                        float vn_238_y = c2y_235;
+                        float vn_238_ix = floor(vn_238_x);
+                        float vn_238_iy = floor(vn_238_y);
+                        float vn_238_fx = vn_238_x - vn_238_ix;
+                        float vn_238_fy = vn_238_y - vn_238_iy;
+                        float vn_238_wx = (vn_238_fx * vn_238_fx) * (3.0 - (2.0 * vn_238_fx));
+                        float vn_238_wy = (vn_238_fy * vn_238_fy) * (3.0 - (2.0 * vn_238_fy));
+                        uint vn_238_bx = uint(int(vn_238_ix) & 1023);
+                        uint vn_238_by = uint(int(vn_238_iy) & 1023);
+                        uint vn_238_oc = uint(21);
+                        float vn_238_00 = u2f(hashu(vn_238_oc ^ hashu((vn_238_bx + 0u) * 374761393u + (vn_238_by + 0u) * 668265263u)));
+                        float vn_238_10 = u2f(hashu(vn_238_oc ^ hashu((vn_238_bx + 1u) * 374761393u + (vn_238_by + 0u) * 668265263u)));
+                        float vn_238_01 = u2f(hashu(vn_238_oc ^ hashu((vn_238_bx + 0u) * 374761393u + (vn_238_by + 1u) * 668265263u)));
+                        float vn_238_11 = u2f(hashu(vn_238_oc ^ hashu((vn_238_bx + 1u) * 374761393u + (vn_238_by + 1u) * 668265263u)));
+                        float vn_238_a = vn_238_00 + ((vn_238_10 - vn_238_00) * vn_238_wx);
+                        float vn_238_b = vn_238_01 + ((vn_238_11 - vn_238_01) * vn_238_wx);
+                        float vn_238_v = (vn_238_a + ((vn_238_b - vn_238_a) * vn_238_wy)) - 0.5;
+                        float cwid_239 = (vn_238_v + 0.5);
+                        float x0_240 = (lox_190 + (sl_231 * 5760.0));
+                        float y0_241 = (loy_191 + (rr_228 * 5760.0));
+                        if ((cfil_237 > (util_6 * 0.94))) {
+                          fmode_18 = 2.0;
+                          flox_24 = x0_240;
+                          floy_25 = y0_241;
+                          fhix_26 = (x0_240 + 5760.0);
+                          fhiy_27 = (y0_241 + 5760.0);
+                          lay_34 = 11.0;
+                          glow_35 = (0.10 + (0.18 * fillL_8));
+                        } else {
+                          float ws_242 = (((2.0 + floor((cwid_239 * 3.0)))) * 1440.0);
+                          pt = hashu(pt);
+                          float draw_243 = u2f(pt);
+                          float uc_244 = draw_243;
+                          if ((uc_244 < 0.34)) {
+                            fmode_18 = 5.0;
+                            fhz_19 = 0.0;
+                            tBase_37 = (x0_240 + 360.0);
+                            tPitch_38 = 720.0;
+                            tN_39 = floor((ws_242 / 720.0));
+                            tR0_40 = (y0_241 + 480.0);
+                            tR1_41 = (y0_241 + 5280.0);
+                            tW_42 = 180.0;
+                            tLayA_43 = 0.0;
+                            tLayB_44 = 0.0;
+                            tVia_47 = 0.22;
+                            tsx_48 = c2x_234;
+                            tsy_49 = c2y_235;
+                            glow_35 = 1.05;
+                          } else {
+                            if ((uc_244 < 0.56)) {
+                              pt = hashu(pt);
+                              float draw_245 = u2f(pt);
+                              float uns_246 = draw_245;
+                              bool nside_247 = (uns_246 < 0.5);
+                              fmode_18 = 2.0;
+                              flox_24 = (x0_240 + 240.0);
+                              floy_25 = (y0_241 + (((nside_247) ? 1080.0 : 3240.0)));
+                              fhix_26 = ((x0_240 + ws_242) - 240.0);
+                              fhiy_27 = (y0_241 + (((nside_247) ? 2520.0 : 4680.0)));
+                              lay_34 = 7.0;
+                              glow_35 = 0.55;
+                            } else {
+                              fmode_18 = 5.0;
+                              fhz_19 = 1.0;
+                              tBase_37 = (y0_241 + 1800.0);
+                              tPitch_38 = 2160.0;
+                              tN_39 = 2.0;
+                              tR0_40 = (x0_240 + 240.0);
+                              tR1_41 = ((x0_240 + ws_242) - 240.0);
+                              tW_42 = 270.0;
+                              tLayA_43 = 1.0;
+                              tLayB_44 = 1.0;
+                              tVia_47 = 0.34;
+                              tsx_48 = mod((c2x_234 + 91.0), 1024.0);
+                              tsy_49 = mod((c2y_235 + 191.0), 1024.0);
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                } else {
+                  if ((typ_196 == 5.0)) {
+                    float bxs_248 = ((((w_201 >= 9953280.0))) ? 3.0 : ((((w_201 >= 4976640.0))) ? 2.0 : ((((w_201 >= 2488320.0))) ? 1.0 : 0.0)));
+                    float bys_249 = ((((h_202 >= 9953280.0))) ? 3.0 : ((((h_202 >= 4976640.0))) ? 2.0 : ((((h_202 >= 2488320.0))) ? 1.0 : 0.0)));
+                    float bxp_250 = ((((bxs_248 == 0.0))) ? 1.0 : ((((bxs_248 == 1.0))) ? 2.0 : ((((bxs_248 == 2.0))) ? 4.0 : 8.0)));
+                    float byp_251 = ((((bys_249 == 0.0))) ? 1.0 : ((((bys_249 == 1.0))) ? 2.0 : ((((bys_249 == 2.0))) ? 4.0 : 8.0)));
+                    float bw_252 = floor((w_201 / bxp_250));
+                    float bh_253 = floor((h_202 / byp_251));
+                    pt = hashu(pt);
+                    float draw_254 = u2f(pt);
+                    float ubi_255 = draw_254;
+                    float bi_256 = floor((ubi_255 * bxp_250));
+                    pt = hashu(pt);
+                    float draw_257 = u2f(pt);
+                    float ubj_258 = draw_257;
+                    float bj_259 = floor((ubj_258 * byp_251));
+                    float blox_260 = (lox_190 + (bi_256 * bw_252));
+                    float bloy_261 = (loy_191 + (bj_259 * bh_253));
+                    float bhix_262 = (blox_260 + bw_252);
+                    float bhiy_263 = (bloy_261 + bh_253);
+                    float ayb_264 = (bloy_261 + 17280.0);
+                    float bax_265 = mod((ax_194 + (bi_256 * 101.0)), 1024.0);
+                    float bay_266 = mod((ay_195 + (bj_259 * 103.0)), 1024.0);
+                    if ((r_203 == 1.0)) {
+                      if ((uF_205 < 0.34)) {
+                        fmode_18 = 2.0;
+                        flox_24 = blox_260;
+                        floy_25 = bloy_261;
+                        fhix_26 = bhix_262;
+                        fhiy_27 = ayb_264;
+                        lay_34 = 11.0;
+                        glow_35 = 0.5;
+                        float vn_267_x = bax_265;
+                        float vn_267_y = bay_266;
+                        float vn_267_ix = floor(vn_267_x);
+                        float vn_267_iy = floor(vn_267_y);
+                        float vn_267_fx = vn_267_x - vn_267_ix;
+                        float vn_267_fy = vn_267_y - vn_267_iy;
+                        float vn_267_wx = (vn_267_fx * vn_267_fx) * (3.0 - (2.0 * vn_267_fx));
+                        float vn_267_wy = (vn_267_fy * vn_267_fy) * (3.0 - (2.0 * vn_267_fy));
+                        uint vn_267_bx = uint(int(vn_267_ix) & 1023);
+                        uint vn_267_by = uint(int(vn_267_iy) & 1023);
+                        uint vn_267_oc = uint(22);
+                        float vn_267_00 = u2f(hashu(vn_267_oc ^ hashu((vn_267_bx + 0u) * 374761393u + (vn_267_by + 0u) * 668265263u)));
+                        float vn_267_10 = u2f(hashu(vn_267_oc ^ hashu((vn_267_bx + 1u) * 374761393u + (vn_267_by + 0u) * 668265263u)));
+                        float vn_267_01 = u2f(hashu(vn_267_oc ^ hashu((vn_267_bx + 0u) * 374761393u + (vn_267_by + 1u) * 668265263u)));
+                        float vn_267_11 = u2f(hashu(vn_267_oc ^ hashu((vn_267_bx + 1u) * 374761393u + (vn_267_by + 1u) * 668265263u)));
+                        float vn_267_a = vn_267_00 + ((vn_267_10 - vn_267_00) * vn_267_wx);
+                        float vn_267_b = vn_267_01 + ((vn_267_11 - vn_267_01) * vn_267_wx);
+                        float vn_267_v = (vn_267_a + ((vn_267_b - vn_267_a) * vn_267_wy)) - 0.5;
+                        tex_36 = (vn_267_v + 0.5);
+                      } else {
+                        if ((uF_205 < 0.62)) {
+                          float sx_268 = floor((((blox_260 + bhix_262)) / 2.0));
+                          fmode_18 = 5.0;
+                          fhz_19 = 1.0;
+                          tBase_37 = (ayb_264 + 720.0);
+                          tPitch_38 = 1440.0;
+                          tN_39 = floor((((bh_253 - 17280.0)) / 1440.0));
+                          tR0_40 = (sx_268 - 11520.0);
+                          tR1_41 = (sx_268 + 11520.0);
+                          tW_42 = 480.0;
+                          tLayA_43 = 0.0;
+                          tLayB_44 = 0.0;
+                          tsx_48 = mod((bax_265 + 13.0), 1024.0);
+                          tsy_49 = mod((bay_266 + 113.0), 1024.0);
+                          glow_35 = 0.9;
+                        } else {
+                          fmode_18 = 6.0;
+                          rlox_50 = blox_260;
+                          rloy_51 = bloy_261;
+                          rhix_52 = bhix_262;
+                          rhiy_53 = bhiy_263;
+                          rwnm_54 = 1440.0;
+                          fw_23 = 1440.0;
+                          lay_34 = 2.0;
+                        }
+                      }
+                    } else {
+                      if ((r_203 == 2.0)) {
+                        bool bl_269 = (uF_205 < 0.60);
+                        fmode_18 = 5.0;
+                        fhz_19 = ((bl_269) ? 0.0 : 1.0);
+                        tBase_37 = ((bl_269) ? ((blox_260 + 1200.0)) : ((ayb_264 + 960.0)));
+                        tPitch_38 = ((bl_269) ? 2400.0 : 1920.0);
+                        tN_39 = ((bl_269) ? floor((bw_252 / 2400.0)) : floor((((bhiy_263 - ayb_264)) / 1920.0)));
+                        tR0_40 = ((bl_269) ? ayb_264 : blox_260);
+                        tR1_41 = ((bl_269) ? bhiy_263 : bhix_262);
+                        tW_42 = ((bl_269) ? 300.0 : 240.0);
+                        tLayA_43 = ((bl_269) ? 2.0 : 0.0);
+                        tLayB_44 = tLayA_43;
+                        if (bl_269) {
+                          tsx_48 = mod((bax_265 + 3.0), 1024.0);
+                          tsy_49 = mod((bay_266 + 103.0), 1024.0);
+                        } else {
+                          tsx_48 = mod((bax_265 + 7.0), 1024.0);
+                          tsy_49 = mod((bay_266 + 107.0), 1024.0);
+                        }
+                        glow_35 = ((bl_269) ? 1.05 : 0.55);
+                      } else {
+                        if ((r_203 >= 3.0)) {
+                          pt = hashu(pt);
+                          float draw_270 = u2f(pt);
+                          float uci_271 = draw_270;
+                          float ci_272 = floor((uci_271 * floor((((bhix_262 - blox_260)) / 2400.0))));
+                          pt = hashu(pt);
+                          float draw_273 = u2f(pt);
+                          float ucj_274 = draw_273;
+                          float cj_275 = floor((ucj_274 * floor((((bhiy_263 - ayb_264)) / 1920.0))));
+                          float cl0x_276 = (blox_260 + (ci_272 * 2400.0));
+                          float cl0y_277 = (ayb_264 + (cj_275 * 1920.0));
+                          bool mx_278 = (mod(ci_272, 2.0) == 1.0);
+                          bool my_279 = (mod(cj_275, 2.0) == 1.0);
+                          pt = hashu(pt);
+                          float draw_280 = u2f(pt);
+                          float uc2_281 = draw_280;
+                          if ((uc2_281 < 0.30)) {
+                            fmode_18 = 5.0;
+                            fhz_19 = 1.0;
+                            tPitch_38 = 960.0;
+                            tN_39 = 2.0;
+                            tBase_37 = (cl0y_277 + 480.0);
+                            tR0_40 = (cl0x_276 + 240.0);
+                            tR1_41 = (cl0x_276 + 2160.0);
+                            tW_42 = 180.0;
+                            tLayA_43 = 0.0;
+                            tLayB_44 = 0.0;
+                            tsx_48 = mod((bax_265 + (ci_272 * 7.0)), 1024.0);
+                            tsy_49 = mod((bay_266 + (cj_275 * 11.0)), 1024.0);
+                          } else {
+                            if ((uc2_281 < 0.60)) {
+                              pt = hashu(pt);
+                              float draw_282 = u2f(pt);
+                              float ulx_283 = draw_282;
+                              float lx0_284 = ((((ulx_283 < 0.5))) ? 480.0 : 1500.0);
+                              float lx_285 = ((mx_278) ? ((1980.0 - lx0_284)) : lx0_284);
+                              fmode_18 = 2.0;
+                              flox_24 = (cl0x_276 + lx_285);
+                              floy_25 = (cl0y_277 + 240.0);
+                              fhix_26 = ((cl0x_276 + lx_285) + 420.0);
+                              fhiy_27 = (cl0y_277 + 1680.0);
+                              lay_34 = 7.0;
+                              glow_35 = 0.6;
+                            } else {
+                              pt = hashu(pt);
+                              float draw_286 = u2f(pt);
+                              float ucx_287 = draw_286;
+                              float cx0_288 = ((((ucx_287 < 0.5))) ? 690.0 : 1710.0);
+                              pt = hashu(pt);
+                              float draw_289 = u2f(pt);
+                              float ucy_290 = draw_289;
+                              float cy0_291 = ((((ucy_290 < 0.5))) ? 480.0 : 1440.0);
+                              float cx2_292 = ((mx_278) ? ((2400.0 - cx0_288)) : cx0_288);
+                              float cy2_293 = ((my_279) ? ((1920.0 - cy0_291)) : cy0_291);
+                              fmode_18 = 3.0;
+                              fctx_28 = (cl0x_276 + cx2_292);
+                              fcty_29 = (cl0y_277 + cy2_293);
+                              fw_23 = 180.0;
+                              lay_34 = 8.0;
+                              glow_35 = 1.3;
+                            }
+                          }
+                        }
+                      }
+                    }
+                  } else {
+                    if (((typ_196 == 6.0) && (r_203 >= 1.0))) {
+                      float c2x_294 = floor((((lox_190 + hix_192)) / 2.0));
+                      float c2y_295 = floor((((loy_191 + hiy_193)) / 2.0));
+                      float ro_296 = floor((((min(w_201, h_202) * 9.0)) / 25.0));
+                      if ((uF_205 < 0.48)) {
+                        pt = hashu(pt);
+                        float draw_297 = u2f(pt);
+                        float uth_298 = draw_297;
+                        float th_299 = (uth_298 * 25.13274);
+                        float k8_300 = cos((mod(th_299, 0.7853982) - 0.3926991));
+                        float rr0_301 = (((ro_296 - ((th_299 * ro_296) * 0.0223))) / k8_300);
+                        pt = hashu(pt);
+                        float draw_302 = u2f(pt);
+                        float uz1_303 = draw_302;
+                        pt = hashu(pt);
+                        float draw_304 = u2f(pt);
+                        float uw1_305 = draw_304;
+                        float v2_306 = ((2.0 * uz1_303) - 1.0);
+                        float rr2_307 = (rr0_301 + ((((((sign(v2_306) * pow(abs(v2_306), 0.35)) * 0.5) + (((uw1_305 - 0.5)) * 0.3))) * ro_296) * 0.045));
+                        fmode_18 = 4.0;
+                        fax_30 = c2x_294;
+                        fay_31 = c2y_295;
+                        fox_32 = (rr2_307 * cos(th_299));
+                        foy_33 = (rr2_307 * sin(th_299));
+                        lay_34 = min(5.0, metals_5);
+                        glow_35 = 1.15;
+                        float vn_308_x = mod((ax_194 + floor((th_299 * 8.0))), 1024.0);
+                        float vn_308_y = ay_195;
+                        float vn_308_ix = floor(vn_308_x);
+                        float vn_308_iy = floor(vn_308_y);
+                        float vn_308_fx = vn_308_x - vn_308_ix;
+                        float vn_308_fy = vn_308_y - vn_308_iy;
+                        float vn_308_wx = (vn_308_fx * vn_308_fx) * (3.0 - (2.0 * vn_308_fx));
+                        float vn_308_wy = (vn_308_fy * vn_308_fy) * (3.0 - (2.0 * vn_308_fy));
+                        uint vn_308_bx = uint(int(vn_308_ix) & 1023);
+                        uint vn_308_by = uint(int(vn_308_iy) & 1023);
+                        uint vn_308_oc = uint(25);
+                        float vn_308_00 = u2f(hashu(vn_308_oc ^ hashu((vn_308_bx + 0u) * 374761393u + (vn_308_by + 0u) * 668265263u)));
+                        float vn_308_10 = u2f(hashu(vn_308_oc ^ hashu((vn_308_bx + 1u) * 374761393u + (vn_308_by + 0u) * 668265263u)));
+                        float vn_308_01 = u2f(hashu(vn_308_oc ^ hashu((vn_308_bx + 0u) * 374761393u + (vn_308_by + 1u) * 668265263u)));
+                        float vn_308_11 = u2f(hashu(vn_308_oc ^ hashu((vn_308_bx + 1u) * 374761393u + (vn_308_by + 1u) * 668265263u)));
+                        float vn_308_a = vn_308_00 + ((vn_308_10 - vn_308_00) * vn_308_wx);
+                        float vn_308_b = vn_308_01 + ((vn_308_11 - vn_308_01) * vn_308_wx);
+                        float vn_308_v = (vn_308_a + ((vn_308_b - vn_308_a) * vn_308_wy)) - 0.5;
+                        tex_36 = (vn_308_v + 0.5);
+                      } else {
+                        if ((uF_205 < 0.72)) {
+                          float qx_309 = (c2x_294 + 11520.0);
+                          float qy_310 = (c2y_295 + 11520.0);
+                          float capS_311 = floor((((min((hix_192 - qx_309), (hiy_193 - qy_310)) - 5760.0)) / 8.0));
+                          if ((capS_311 > 0.0)) {
+                            pt = hashu(pt);
+                            float draw_312 = u2f(pt);
+                            float ugi_313 = draw_312;
+                            float gi_314 = floor((ugi_313 * 8.0));
+                            pt = hashu(pt);
+                            float draw_315 = u2f(pt);
+                            float ugj_316 = draw_315;
+                            float gj_317 = floor((ugj_316 * 8.0));
+                            fmode_18 = 2.0;
+                            flox_24 = (qx_309 + (gi_314 * capS_311));
+                            floy_25 = (qy_310 + (gj_317 * capS_311));
+                            fhix_26 = (flox_24 + floor((((capS_311 * 3.0)) / 5.0)));
+                            fhiy_27 = (floy_25 + floor((((capS_311 * 3.0)) / 5.0)));
+                            lay_34 = min(4.0, metals_5);
+                            glow_35 = 0.9;
+                          }
+                        } else {
+                          float f0x_318 = (lox_190 + 11520.0);
+                          float f0y_319 = (loy_191 + 11520.0);
+                          float fw2_320 = (floor((w_201 / 2.0)) - 17280.0);
+                          float fh2_321 = (floor((h_202 / 2.0)) - 17280.0);
+                          if (((fw2_320 > 2880.0) && (fh2_321 > 5760.0))) {
+                            pt = hashu(pt);
+                            float draw_322 = u2f(pt);
+                            float ufg_323 = draw_322;
+                            if ((ufg_323 < 0.4)) {
+                              fmode_18 = 2.0;
+                              flox_24 = f0x_318;
+                              floy_25 = f0y_319;
+                              fhix_26 = (f0x_318 + fw2_320);
+                              fhiy_27 = (f0y_319 + fh2_321);
+                              lay_34 = 7.0;
+                              glow_35 = 0.5;
+                            } else {
+                              fmode_18 = 5.0;
+                              fhz_19 = 0.0;
+                              tBase_37 = (f0x_318 + 720.0);
+                              tPitch_38 = 1440.0;
+                              tN_39 = floor((fw2_320 / 1440.0));
+                              tR0_40 = (f0y_319 - 720.0);
+                              tR1_41 = ((f0y_319 + fh2_321) + 720.0);
+                              tW_42 = 240.0;
+                              tLayA_43 = 0.0;
+                              tLayB_44 = 0.0;
+                              tsx_48 = mod((ax_194 + 29.0), 1024.0);
+                              tsy_49 = mod((ay_195 + 129.0), 1024.0);
+                              glow_35 = 1.05;
+                            }
+                          }
+                        }
+                      }
+                    } else {
+                      if (((typ_196 == 7.0) && (r_203 >= 1.0))) {
+                        bool vert_324 = (h_202 > w_201);
+                        fmode_18 = 5.0;
+                        fhz_19 = ((vert_324) ? 0.0 : 1.0);
+                        tBase_37 = ((((vert_324) ? lox_190 : loy_191)) + 720.0);
+                        tPitch_38 = 1440.0;
+                        tN_39 = floor(((((vert_324) ? w_201 : h_202)) / 1440.0));
+                        tR0_40 = ((vert_324) ? loy_191 : lox_190);
+                        tR1_41 = ((vert_324) ? hiy_193 : hix_192);
+                        tW_42 = 720.0;
+                        tLayA_43 = 2.0;
+                        tLayB_44 = 3.0;
+                        tOcc_46 = (util_6 * 0.85);
+                        tTrim_45 = 1.0;
+                        tVia_47 = 0.12;
+                        tsx_48 = ax_194;
+                        tsy_49 = ay_195;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  if ((fmode_18 == 6.0)) {
+    pt = hashu(pt);
+    float draw_325 = u2f(pt);
+    float usd3_326 = draw_325;
+    float side_327 = floor((usd3_326 * 4.0));
+    float ob_328_hz = 1.0;
+    float ob_328_a0 = 0.0;
+    float ob_328_a1 = 0.0;
+    float ob_328_cc = 0.0;
+    float ob_328_ok = 0.0;
+    int ob_328_count = 0;
+    bool ob_328_esc = false;
+    for (int ok_329 = 0; ok_329 < 4; ok_329++) {
+      if ((ob_328_ok > 0.5)) { ob_328_esc = true; break; }
+      float sd_330 = mod((side_327 + float(ok_329)), 4.0);
+      float hz_331 = ((((sd_330 < 2.0))) ? 1.0 : 0.0);
+      float ec_332 = ((((sd_330 == 0.0))) ? rloy_51 : ((((sd_330 == 1.0))) ? rhiy_53 : ((((sd_330 == 2.0))) ? rlox_50 : rhix_52)));
+      float bc_333 = (ec_332 + (((((((sd_330 == 0.0) || (sd_330 == 2.0)))) ? rwnm_54 : (-rwnm_54))) * 0.5));
+      float off_334 = ((((hz_331 > 0.5))) ? ((((((bc_333 < winy_11) || (bc_333 > winw_13)))) ? 1.0 : 0.0)) : ((((((bc_333 < winx_10) || (bc_333 > winz_12)))) ? 1.0 : 0.0)));
+      float nok_335 = 0.0;
+      float nhz_336 = ob_328_hz;
+      float na0_337 = ob_328_a0;
+      float na1_338 = ob_328_a1;
+      float ncc_339 = ob_328_cc;
+      if ((off_334 < 0.5)) {
+        nok_335 = 1.0;
+        nhz_336 = hz_331;
+        ncc_339 = bc_333;
+        na0_337 = ((((hz_331 > 0.5))) ? rlox_50 : rloy_51);
+        na1_338 = ((((hz_331 > 0.5))) ? rhix_52 : rhiy_53);
+      }
+      float ob_328_t_340 = nhz_336;
+      float ob_328_t_341 = na0_337;
+      float ob_328_t_342 = na1_338;
+      float ob_328_t_343 = ncc_339;
+      float ob_328_t_344 = nok_335;
+      ob_328_hz = ob_328_t_340;
+      ob_328_a0 = ob_328_t_341;
+      ob_328_a1 = ob_328_t_342;
+      ob_328_cc = ob_328_t_343;
+      ob_328_ok = ob_328_t_344;
+      ob_328_count += 1;
+    }
+    if ((ob_328_ok > 0.5)) {
+      fmode_18 = 1.0;
+      fhz_19 = ob_328_hz;
+      fa0_20 = ob_328_a0;
+      fa1_21 = ob_328_a1;
+      fcc_22 = ob_328_cc;
+    } else {
+      fmode_18 = 0.0;
+    }
+  }
+  if ((fmode_18 == 5.0)) {
+    float ob_345_j = 0.0;
+    float ob_345_kx = 0.0;
+    float ob_345_ky = 0.0;
+    float ob_345_got = 0.0;
+    int ob_345_count = 0;
+    bool ob_345_esc = false;
+    for (int ok_346 = 0; ok_346 < 4; ok_346++) {
+      if ((ob_345_got > 0.5)) { ob_345_esc = true; break; }
+      pt = hashu(pt);
+      float draw_347 = u2f(pt);
+      float uj_348 = draw_347;
+      float jj_349 = floor((uj_348 * tN_39));
+      float jhi_350 = floor((jj_349 / 1024.0));
+      float jlo_351 = (jj_349 - (jhi_350 * 1024.0));
+      float kx_352 = mod((tsx_48 + (jlo_351 * 17.0)), 1024.0);
+      float ky_353 = mod((tsy_49 + (jhi_350 * 13.0)), 1024.0);
+      float vn_354_x = kx_352;
+      float vn_354_y = ky_353;
+      float vn_354_ix = floor(vn_354_x);
+      float vn_354_iy = floor(vn_354_y);
+      float vn_354_fx = vn_354_x - vn_354_ix;
+      float vn_354_fy = vn_354_y - vn_354_iy;
+      float vn_354_wx = (vn_354_fx * vn_354_fx) * (3.0 - (2.0 * vn_354_fx));
+      float vn_354_wy = (vn_354_fy * vn_354_fy) * (3.0 - (2.0 * vn_354_fy));
+      uint vn_354_bx = uint(int(vn_354_ix) & 1023);
+      uint vn_354_by = uint(int(vn_354_iy) & 1023);
+      uint vn_354_oc = uint(50);
+      float vn_354_00 = u2f(hashu(vn_354_oc ^ hashu((vn_354_bx + 0u) * 374761393u + (vn_354_by + 0u) * 668265263u)));
+      float vn_354_10 = u2f(hashu(vn_354_oc ^ hashu((vn_354_bx + 1u) * 374761393u + (vn_354_by + 0u) * 668265263u)));
+      float vn_354_01 = u2f(hashu(vn_354_oc ^ hashu((vn_354_bx + 0u) * 374761393u + (vn_354_by + 1u) * 668265263u)));
+      float vn_354_11 = u2f(hashu(vn_354_oc ^ hashu((vn_354_bx + 1u) * 374761393u + (vn_354_by + 1u) * 668265263u)));
+      float vn_354_a = vn_354_00 + ((vn_354_10 - vn_354_00) * vn_354_wx);
+      float vn_354_b = vn_354_01 + ((vn_354_11 - vn_354_01) * vn_354_wx);
+      float vn_354_v = (vn_354_a + ((vn_354_b - vn_354_a) * vn_354_wy)) - 0.5;
+      float occ_355 = (vn_354_v + 0.5);
+      float ob_345_t_356 = jj_349;
+      float ob_345_t_357 = kx_352;
+      float ob_345_t_358 = ky_353;
+      float ob_345_t_359 = ((((occ_355 < tOcc_46))) ? 1.0 : 0.0);
+      ob_345_j = ob_345_t_356;
+      ob_345_kx = ob_345_t_357;
+      ob_345_ky = ob_345_t_358;
+      ob_345_got = ob_345_t_359;
+      ob_345_count += 1;
+    }
+    if ((ob_345_got > 0.5)) {
+      fcc_22 = (tBase_37 + (ob_345_j * tPitch_38));
+      fa0_20 = tR0_40;
+      fa1_21 = tR1_41;
+      if ((tTrim_45 == 1.0)) {
+        float vn_360_x = ob_345_kx;
+        float vn_360_y = ob_345_ky;
+        float vn_360_ix = floor(vn_360_x);
+        float vn_360_iy = floor(vn_360_y);
+        float vn_360_fx = vn_360_x - vn_360_ix;
+        float vn_360_fy = vn_360_y - vn_360_iy;
+        float vn_360_wx = (vn_360_fx * vn_360_fx) * (3.0 - (2.0 * vn_360_fx));
+        float vn_360_wy = (vn_360_fy * vn_360_fy) * (3.0 - (2.0 * vn_360_fy));
+        uint vn_360_bx = uint(int(vn_360_ix) & 1023);
+        uint vn_360_by = uint(int(vn_360_iy) & 1023);
+        uint vn_360_oc = uint(55);
+        float vn_360_00 = u2f(hashu(vn_360_oc ^ hashu((vn_360_bx + 0u) * 374761393u + (vn_360_by + 0u) * 668265263u)));
+        float vn_360_10 = u2f(hashu(vn_360_oc ^ hashu((vn_360_bx + 1u) * 374761393u + (vn_360_by + 0u) * 668265263u)));
+        float vn_360_01 = u2f(hashu(vn_360_oc ^ hashu((vn_360_bx + 0u) * 374761393u + (vn_360_by + 1u) * 668265263u)));
+        float vn_360_11 = u2f(hashu(vn_360_oc ^ hashu((vn_360_bx + 1u) * 374761393u + (vn_360_by + 1u) * 668265263u)));
+        float vn_360_a = vn_360_00 + ((vn_360_10 - vn_360_00) * vn_360_wx);
+        float vn_360_b = vn_360_01 + ((vn_360_11 - vn_360_01) * vn_360_wx);
+        float vn_360_v = (vn_360_a + ((vn_360_b - vn_360_a) * vn_360_wy)) - 0.5;
+        float q0_361 = (vn_360_v + 0.5);
+        float vn_362_x = ob_345_kx;
+        float vn_362_y = ob_345_ky;
+        float vn_362_ix = floor(vn_362_x);
+        float vn_362_iy = floor(vn_362_y);
+        float vn_362_fx = vn_362_x - vn_362_ix;
+        float vn_362_fy = vn_362_y - vn_362_iy;
+        float vn_362_wx = (vn_362_fx * vn_362_fx) * (3.0 - (2.0 * vn_362_fx));
+        float vn_362_wy = (vn_362_fy * vn_362_fy) * (3.0 - (2.0 * vn_362_fy));
+        uint vn_362_bx = uint(int(vn_362_ix) & 1023);
+        uint vn_362_by = uint(int(vn_362_iy) & 1023);
+        uint vn_362_oc = uint(56);
+        float vn_362_00 = u2f(hashu(vn_362_oc ^ hashu((vn_362_bx + 0u) * 374761393u + (vn_362_by + 0u) * 668265263u)));
+        float vn_362_10 = u2f(hashu(vn_362_oc ^ hashu((vn_362_bx + 1u) * 374761393u + (vn_362_by + 0u) * 668265263u)));
+        float vn_362_01 = u2f(hashu(vn_362_oc ^ hashu((vn_362_bx + 0u) * 374761393u + (vn_362_by + 1u) * 668265263u)));
+        float vn_362_11 = u2f(hashu(vn_362_oc ^ hashu((vn_362_bx + 1u) * 374761393u + (vn_362_by + 1u) * 668265263u)));
+        float vn_362_a = vn_362_00 + ((vn_362_10 - vn_362_00) * vn_362_wx);
+        float vn_362_b = vn_362_01 + ((vn_362_11 - vn_362_01) * vn_362_wx);
+        float vn_362_v = (vn_362_a + ((vn_362_b - vn_362_a) * vn_362_wy)) - 0.5;
+        float q1_363 = (vn_362_v + 0.5);
+        float rl_364 = (fa1_21 - fa0_20);
+        float cut0_365 = (floor((floor(((q0_361 * 0.5) * rl_364)) / 5760.0)) * 5760.0);
+        float cut1_366 = (floor((floor(((q1_363 * 0.5) * rl_364)) / 5760.0)) * 5760.0);
+        float r1b_367 = (fa1_21 - cut1_366);
+        fa0_20 = (fa0_20 + cut0_365);
+        fa1_21 = max(r1b_367, (fa0_20 + 5760.0));
+      }
+      lay_34 = ((((mod(ob_345_j, 2.0) == 0.0))) ? tLayA_43 : tLayB_44);
+      float vn_368_x = ob_345_kx;
+      float vn_368_y = ob_345_ky;
+      float vn_368_ix = floor(vn_368_x);
+      float vn_368_iy = floor(vn_368_y);
+      float vn_368_fx = vn_368_x - vn_368_ix;
+      float vn_368_fy = vn_368_y - vn_368_iy;
+      float vn_368_wx = (vn_368_fx * vn_368_fx) * (3.0 - (2.0 * vn_368_fx));
+      float vn_368_wy = (vn_368_fy * vn_368_fy) * (3.0 - (2.0 * vn_368_fy));
+      uint vn_368_bx = uint(int(vn_368_ix) & 1023);
+      uint vn_368_by = uint(int(vn_368_iy) & 1023);
+      uint vn_368_oc = uint(57);
+      float vn_368_00 = u2f(hashu(vn_368_oc ^ hashu((vn_368_bx + 0u) * 374761393u + (vn_368_by + 0u) * 668265263u)));
+      float vn_368_10 = u2f(hashu(vn_368_oc ^ hashu((vn_368_bx + 1u) * 374761393u + (vn_368_by + 0u) * 668265263u)));
+      float vn_368_01 = u2f(hashu(vn_368_oc ^ hashu((vn_368_bx + 0u) * 374761393u + (vn_368_by + 1u) * 668265263u)));
+      float vn_368_11 = u2f(hashu(vn_368_oc ^ hashu((vn_368_bx + 1u) * 374761393u + (vn_368_by + 1u) * 668265263u)));
+      float vn_368_a = vn_368_00 + ((vn_368_10 - vn_368_00) * vn_368_wx);
+      float vn_368_b = vn_368_01 + ((vn_368_11 - vn_368_01) * vn_368_wx);
+      float vn_368_v = (vn_368_a + ((vn_368_b - vn_368_a) * vn_368_wy)) - 0.5;
+      tex_36 = (vn_368_v + 0.5);
+      pt = hashu(pt);
+      float draw_369 = u2f(pt);
+      float uvia_370 = draw_369;
+      if ((uvia_370 < tVia_47)) {
+        fmode_18 = 3.0;
+        fw_23 = tW_42;
+        float endv_371 = ((((uvia_370 < (tVia_47 * 0.5)))) ? fa0_20 : fa1_21);
+        fctx_28 = ((((fhz_19 > 0.5))) ? endv_371 : fcc_22);
+        fcty_29 = ((((fhz_19 > 0.5))) ? fcc_22 : endv_371);
+        lay_34 = 8.0;
+        glow_35 = (glow_35 * 1.2);
+      } else {
+        fmode_18 = 1.0;
+        fw_23 = tW_42;
+      }
+    } else {
+      fmode_18 = 0.0;
+    }
+  }
+  float hit_372 = 0.0;
+  if ((fmode_18 == 1.0)) {
+    float c0_373 = ((((fhz_19 > 0.5))) ? winx_10 : winy_11);
+    float c1_374 = ((((fhz_19 > 0.5))) ? winz_12 : winw_13);
+    fa0_20 = max(fa0_20, c0_373);
+    fa1_21 = min(fa1_21, c1_374);
+    if ((fa1_21 > fa0_20)) {
+      pt = hashu(pt);
+      float draw_375 = u2f(pt);
+      float ua_376 = draw_375;
+      float along_377 = (fa0_20 + floor((ua_376 * ((fa1_21 - fa0_20)))));
+      pt = hashu(pt);
+      float draw_378 = u2f(pt);
+      float uz2_379 = draw_378;
+      pt = hashu(pt);
+      float draw_380 = u2f(pt);
+      float uw2_381 = draw_380;
+      float vv_382 = ((2.0 * uz2_379) - 1.0);
+      float bank_383 = ((sign(vv_382) * pow(abs(vv_382), 0.35)) * 0.5);
+      float across_384 = (((bank_383 + (((uw2_381 - 0.5)) * 0.30))) * fw_23);
+      fax_30 = ((((fhz_19 > 0.5))) ? along_377 : fcc_22);
+      fay_31 = ((((fhz_19 > 0.5))) ? fcc_22 : along_377);
+      fox_32 = ((((fhz_19 > 0.5))) ? 0.0 : across_384);
+      foy_33 = ((((fhz_19 > 0.5))) ? across_384 : 0.0);
+      hit_372 = 1.0;
+    }
+  } else {
+    if ((fmode_18 == 2.0)) {
+      flox_24 = max(flox_24, winx_10);
+      floy_25 = max(floy_25, winy_11);
+      fhix_26 = min(fhix_26, winz_12);
+      fhiy_27 = min(fhiy_27, winw_13);
+      if (((fhix_26 > flox_24) && (fhiy_27 > floy_25))) {
+        fax_30 = flox_24;
+        fay_31 = floy_25;
+        pt = hashu(pt);
+        float draw_385 = u2f(pt);
+        float uf1_386 = draw_385;
+        pt = hashu(pt);
+        float draw_387 = u2f(pt);
+        float uf2_388 = draw_387;
+        fox_32 = (uf1_386 * ((fhix_26 - flox_24)));
+        foy_33 = (uf2_388 * ((fhiy_27 - floy_25)));
+        hit_372 = 1.0;
+      }
+    } else {
+      if ((fmode_18 == 3.0)) {
+        if (((((fctx_28 > (winx_10 - fw_23)) && (fctx_28 < (winz_12 + fw_23))) && (fcty_29 > (winy_11 - fw_23))) && (fcty_29 < (winw_13 + fw_23)))) {
+          fax_30 = fctx_28;
+          fay_31 = fcty_29;
+          pt = hashu(pt);
+          float draw_389 = u2f(pt);
+          float uz3_390 = draw_389;
+          pt = hashu(pt);
+          float draw_391 = u2f(pt);
+          float uw3_392 = draw_391;
+          fox_32 = ((((uz3_390 - 0.5)) * ((2.0 * fw_23))) * 0.92);
+          foy_33 = ((((uw3_392 - 0.5)) * ((2.0 * fw_23))) * 0.92);
+          hit_372 = 1.0;
+        }
+      } else {
+        if ((fmode_18 == 4.0)) {
+          hit_372 = 1.0;
+        }
+      }
+    }
+  }
+  if ((hit_372 < 0.5)) {
+    col = vec3(0.0);
+    return vec3(0.0, -20000.0, 0.0);
+  }
+  float seatx_393 = (((((fax_30 - 5160960.0)) + fox_32)) * km_14);
+  float seaty_394 = (((((fay_31 - 5160960.0)) + foy_33)) * km_14);
+  float zl_395 = min((6.0e-6 * mag_2), 0.045);
+  float zi_396 = ((((lay_34 == 0.0))) ? 0.5 : ((((lay_34 <= 6.0))) ? lay_34 : ((((lay_34 == 7.0))) ? 0.0 : ((((lay_34 == 8.0))) ? 0.8 : (-0.6)))));
+  pt = hashu(pt);
+  float draw_397 = u2f(pt);
+  float uzz_398 = draw_397;
+  float z_399 = ((((zi_396 - 2.2)) * zl_395) + ((((uzz_398 - 0.5)) * zl_395) * 0.6));
+  pt = hashu(pt);
+  float draw_400 = u2f(pt);
+  float utex_401 = draw_400;
+  float texv_402 = ((((tex_36 < 0.0))) ? utex_401 : tex_36);
+  float brt_403 = (0.72 + (0.56 * texv_402));
+  float clr_404 = ((((lay_34 == 0.0))) ? 0.95 : ((((lay_34 == 1.0))) ? 1.00 : ((((lay_34 == 2.0))) ? 0.35 : ((((lay_34 == 3.0))) ? 0.16 : ((((lay_34 == 4.0))) ? 0.82 : ((((lay_34 == 5.0))) ? 0.45 : ((((lay_34 == 6.0))) ? 1.00 : ((((lay_34 == 7.0))) ? 0.55 : ((((lay_34 == 8.0))) ? 1.00 : ((((lay_34 == 9.0))) ? 0.10 : ((((lay_34 == 10.0))) ? 0.35 : 0.65)))))))))));
+  float clg_405 = ((((lay_34 == 0.0))) ? 0.50 : ((((lay_34 == 1.0))) ? 0.72 : ((((lay_34 == 2.0))) ? 0.90 : ((((lay_34 == 3.0))) ? 0.72 : ((((lay_34 == 4.0))) ? 0.16 : ((((lay_34 == 5.0))) ? 0.58 : ((((lay_34 == 6.0))) ? 0.85 : ((((lay_34 == 7.0))) ? 0.16 : ((((lay_34 == 8.0))) ? 0.88 : ((((lay_34 == 9.0))) ? 0.16 : ((((lay_34 == 10.0))) ? 0.09 : 0.42)))))))))));
+  float clb_406 = ((((lay_34 == 0.0))) ? 0.10 : ((((lay_34 == 1.0))) ? 0.22 : ((((lay_34 == 2.0))) ? 0.38 : ((((lay_34 == 3.0))) ? 0.62 : ((((lay_34 == 4.0))) ? 0.22 : ((((lay_34 == 5.0))) ? 1.00 : ((((lay_34 == 6.0))) ? 0.45 : ((((lay_34 == 7.0))) ? 0.12 : ((((lay_34 == 8.0))) ? 0.55 : ((((lay_34 == 9.0))) ? 0.42 : ((((lay_34 == 10.0))) ? 0.12 : 0.12)))))))))));
+  float csa_407 = cos(stAmt_7);
+  float sna_408 = sin(stAmt_7);
+  float kg_409 = 0.57735027;
+  float dkc_410 = (kg_409 * (((clr_404 + clg_405) + clb_406)));
+  float xr_411 = (kg_409 * ((clb_406 - clg_405)));
+  float xg_412 = (kg_409 * ((clr_404 - clb_406)));
+  float xb_413 = (kg_409 * ((clg_405 - clr_404)));
+  float sr_414 = (((clr_404 * csa_407) + (xr_411 * sna_408)) + ((kg_409 * dkc_410) * ((1.0 - csa_407))));
+  float sg_415 = (((clg_405 * csa_407) + (xg_412 * sna_408)) + ((kg_409 * dkc_410) * ((1.0 - csa_407))));
+  float sb_416 = (((clb_406 * csa_407) + (xb_413 * sna_408)) + ((kg_409 * dkc_410) * ((1.0 - csa_407))));
+  float gb_417 = (glow_35 * brt_403);
+  float dep_c_418 = seatx_393;
+  float dep_c_419 = seaty_394;
+  float dep_c_420 = z_399;
+  vec3 dep_col_421 = vec3(max((sr_414 * gb_417), 0.0), max((sg_415 * gb_417), 0.0), max((sb_416 * gb_417), 0.0));
+  col = dep_col_421;
+  return vec3(dep_c_418, dep_c_419, dep_c_420);
+}
