@@ -294,6 +294,43 @@ const DET = {
 // Exact by construction: selections and sign manipulation, correctly
 // rounded or bit-exact on every conforming implementation. They need no
 // det_ form and get none.
+/** 1/x as a GLSL literal, when x is a literal power of two - and null
+ *  for everything else, which is the whole point.
+ *
+ *  det_div is a magic-seed reciprocal, FOUR Newton rounds, a multiply,
+ *  a branch and an fma correction. None of it is needed when the
+ *  divisor is 2^k: the quotient is an exponent decrement, so the
+ *  correction term is exactly zero and det_div already returns
+ *  a * 2^-k. Proof, not preference -
+ *
+ *      q = a * det_recip(2^k) = a * 2^-k          exactly
+ *      fma(-2^k, q, a) = a - a = 0                exactly
+ *      q = fma(0, r, q) = q                       so the round does nothing
+ *
+ *  - and measured besides: rewriting these call sites is bit-identical
+ *  on every plate that has one (throughput 32, e8 22, universal 19,
+ *  rulespace 15, vlsi 13, hilbert 7, collatz 7) and takes universal
+ *  from 21.3 to 12.3 seconds a pass on an RTX 5060 Ti, 1.74x, for the
+ *  same picture. universal is 68% of a cpu census by itself.
+ *
+ *  MULTIPLY, NOT DIVIDE. GLSL allows 2.5 ULP on `/`, which is the
+ *  entire reason det_div exists; it says nothing so generous about
+ *  `*`, and this emitter already emits bare multiplies and trusts
+ *  them. 1/2^k is exactly representable, so the product is the same
+ *  exponent decrement the divide would have been.
+ *
+ *  Bounded well inside float32's normal range so no reciprocal here
+ *  can land denormal, where the reasoning above stops holding. */
+function exactRecip(code) {
+  if (!/^[0-9]+(\.[0-9]+)?$/.test(code)) return null;
+  const v = Number(code);
+  if (!(v > 0) || !Number.isFinite(v)) return null;
+  const l = Math.log2(v);
+  if (!Number.isInteger(l) || l < -100 || l > 100) return null;
+  const s = String(1 / v);
+  return /[.e]/.test(s) ? s : `${s}.0`;
+}
+
 const EXACT_BUILTINS = new Set(["abs", "min", "max", "floor", "sign"]);
 
 // Reachable from the subset today, with nothing deterministic behind
@@ -316,7 +353,15 @@ export function emitWalk(pos, opts = {}) {
 
   const lines = [];
   let indent = "  ";
-  const put = (s) => lines.push(indent + s);
+  // WHERE EACH EMITTED TEMPORARY IS DEFINED, so a hoist can be placed
+  // at its definition rather than at its first use. See sincosOf.
+  const defAt = new Map();
+  const put = (s) => {
+    lines.push(indent + s);
+    const m = /^(?:precise\s+)?(?:float|vec2|vec3|vec4)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/
+      .exec(s);
+    if (m) defAt.set(m[1], { at: lines.length - 1, ind: indent });
+  };
   const err = (m, line) => { throw new Error(`emit: ${m}${line ? ` (line ${line})` : ""}`); };
 
   let vn = 0;
@@ -331,6 +376,79 @@ export function emitWalk(pos, opts = {}) {
    *  compiler removes; if it misses something that did, a plate stops
    *  agreeing across vendors, which is far more expensive. */
   /** The same binding, for a vector expression. */
+  /** ONE det_sincos WHERE THE PLATE ASKED FOR SEVERAL.
+   *
+   *  det_sin(x) and det_cos(x) both call det_sincos and throw half of
+   *  it away, and a plate asks the same question over and over: tpms
+   *  makes 786 det_sin/det_cos calls over 235 distinct arguments,
+   *  `det_cos(px_8)` alone appearing 175 times. Across the atlas it is
+   *  4,662 calls over 2,026 arguments - a median redundancy of 2.20x,
+   *  and 60 of 68 plates above 2x. It is not one plate's quirk.
+   *
+   *  Mesa removes it for free. NVIDIA does not: running three
+   *  textually identical calls costs radeonsi 1.10x and iris 1.14x
+   *  against one, and NVIDIA 2.19x (2026-08-24). So the plate that
+   *  agrees on every card costs 60x more on NVIDIA than on Mesa, and a
+   *  third of that is redundancy the emitter is handing over.
+   *
+   *  THIS IS BIT-EXACT AND THAT IS THE ONLY REASON IT IS ALLOWED. The
+   *  same input to the same deterministic function returns the same
+   *  bits, and `precise` constrains HOW an expression is computed, not
+   *  that it must be computed again. The census re-run is what proves
+   *  it rather than this paragraph.
+   *
+   *  Two rules keep it safe:
+   *
+   *  ONLY EMITTER TEMPORARIES. The name must carry the `_<counter>`
+   *  suffix that fresh/bindPrecise/bindPreciseV append from a
+   *  monotonic `vn`, so it is unique for the whole emission and cannot
+   *  be a redefined walk name or a det_ library local (`t`, `k`, `r`,
+   *  `r2` - the only names this emitter ever repeats).
+   *
+   *  AT THE DEFINITION, NOT THE FIRST USE. px_8 is defined at brace
+   *  depth 1 and used at depths 1 and 2; caching at first use would
+   *  put the temporary inside a block and reference it outside. Its
+   *  definition dominates every use by construction, and a hoist
+   *  placed just after it lands in exactly the scope the argument
+   *  itself lives in. */
+  const sincos = new Map();
+  const hoists = [];
+  function sincosOf(code, which) {
+    const fallback = which === "s" ? `det_sin(${code})` : `det_cos(${code})`;
+    if (!/^[A-Za-z_][A-Za-z0-9_]*_[0-9]+$/.test(code)) return fallback;
+    const d = defAt.get(code);
+    if (!d) return fallback;
+    let e = sincos.get(code);
+    if (!e) {
+      const t = `sc_${vn++}`;
+      e = { s: `${t}_s`, c: `${t}_c` };
+      // ONE DECLARATOR PER LINE, so the `precise` post-pass qualifies
+      // both. It matches a single declarator and skips a comma list.
+      //
+      // The comma-list form was tried first, because it reproduces
+      // what det_sin and det_cos already do internally:
+      //
+      //   float det_sin(float x){ float s, c; det_sincos(x,s,c); return s; }
+      //
+      // and it does keep the old hashes. verify-orbit-block refused
+      // it: "2 unpinned local(s) inside the orbit". That gate exists
+      // because an unpinned local inside an orbit is what made mirage
+      // disagree across vendors, so the library's own idiom is a
+      // hazard the emitter must not copy inward.
+      //
+      // Qualified, `precise` propagates back through the out parameter
+      // into det_sincos - a tighter constraint than the old chain, not
+      // a looser one - and the plate's hash moves. That is allowed
+      // where the cards still agree with each other; agreement, not
+      // continuity with a previous number, is the claim.
+      hoists.push({ at: d.at, ind: d.ind, text: [
+        `float ${e.s};`, `float ${e.c};`,
+        `det_sincos(${code}, ${e.s}, ${e.c});`] });
+      sincos.set(code, e);
+    }
+    return which === "s" ? e.s : e.c;
+  }
+
   function bindPreciseV(code, type) {
     if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(code)) return code;
     const t = `pv_${vn++}`;
@@ -550,8 +668,12 @@ export function emitWalk(pos, opts = {}) {
         // expression onward - bind it to a local first.
         const lf = pin ? bindPrecise(asFloat(l)) : asFloat(l);
         const rf = pin ? bindPrecise(asFloat(r)) : asFloat(r);
-        if (pin && n.op === "/")
+        if (pin && n.op === "/") {
+          // a power-of-two divisor needs no refinement - see exactRecip
+          const rec = exactRecip(rf);
+          if (rec) return { type: "float", code: `(${lf} * ${rec})` };
           return { type: "float", code: `det_div(${lf}, ${rf})` };
+        }
         return { type: "float", code: `(${lf} ${n.op} ${rf})` };
       }
       case "array": err("array literal outside pal()");
@@ -707,6 +829,34 @@ export function emitWalk(pos, opts = {}) {
       const PINNED_VOCAB = { mod: "det_mod", mix: "det_mix",
                              smoothstep: "det_smoothstep",
                              fract: "det_fract" };
+      // mod BY A POWER OF TWO carries a det_div that cannot pay.
+      //
+      //   float det_mod(float x, float y){
+      //     precise float q = floor(det_div(x, y));
+      //     precise float r = fma(-y, q, x);
+      //     return r; }
+      //
+      // det_div(x, 2^k) is exactly x * 2^-k (see exactRecip), so this
+      // is the same two operations with the reciprocal folded in -
+      // floor of an exact product, then the same fma. Identical
+      // arithmetic, one Newton reciprocal and four refinement rounds
+      // lighter.
+      //
+      // 165 of the atlas's 415 det_mod calls take a power-of-two
+      // modulus and rule30 alone has 36 of 39, which is why rule30 saw
+      // nothing from the divisor fix: its hot loop asks for
+      // mod(g, 2.0) and mod(e, 131072.0), and both were still routed
+      // through det_div inside det_mod.
+      if (pin && c.n === "mod" && args.length === 2) {
+        const rec = exactRecip(args[1]);
+        if (rec) {
+          // bound, because x appears twice and a compound expression
+          // evaluated twice is the cost this is trying to remove
+          const x = bindPrecise(args[0]);
+          return { type: "float",
+                   code: `fma(-${args[1]}, floor(${x} * ${rec}), ${x})` };
+        }
+      }
       if (pin && c.n in PINNED_VOCAB)
         return { type: "float",
                  code: `${PINNED_VOCAB[c.n]}(${args.join(", ")})` };
@@ -858,6 +1008,11 @@ export function emitWalk(pos, opts = {}) {
               `${NO_DET_FORM[target.name]}. Emitting it would put an ` +
               `operation with spec-permitted ULP latitude in a plate ` +
               `that claims bit-identity`, n.line);
+        // sin and cos route through one det_sincos per distinct
+        // argument; everything else is emitted as written
+        if (target.name === "sin" || target.name === "cos")
+          return { type: "float",
+            code: sincosOf(args[0], target.name === "sin" ? "s" : "c") };
         if (target.name in DET)
           return { type: "float", code: DET[target.name](args) };
         if (!EXACT_BUILTINS.has(target.name))
@@ -1561,13 +1716,29 @@ export function emitWalk(pos, opts = {}) {
 
   ast.body.forEach(stmt);
 
+  // Splice the hoisted sincos in at each argument's definition.
+  // Descending, so an earlier index is still an earlier index after a
+  // later one has grown the array.
+  hoists.sort((a, b) => b.at - a.at);
+  for (const h of hoists)
+    lines.splice(h.at + 1, 0, ...h.text.map(l => h.ind + l));
+
   // ---- assemble the shape function ----
   const salt = ((fnv1a(pos.id) | 1) >>> 0);
   const head = [];
   if (helpers.has("stain")) {
     head.push(`vec3 stain_${pos.id}(vec3 c, float a){`);
-    head.push(pin ? `  float cs = det_cos(a), sn = det_sin(a);`
-                  : `  float cs = cos(a), sn = sin(a);`);
+    // one det_sincos, not one each: det_cos(a) and det_sin(a) both
+    // compute the pair and discard half, and this asks for both.
+    // Qualified here rather than left to the post-pass, which skips a
+    // comma list - and unqualified is the thing verify-orbit-block
+    // exists to refuse.
+    if (pin) {
+      head.push(`  precise float sn, cs;`);
+      head.push(`  det_sincos(a, sn, cs);`);
+    } else {
+      head.push(`  float cs = cos(a), sn = sin(a);`);
+    }
     head.push(`  vec3 k = vec3(0.57735027);`);
     head.push(pin
       ? `  return det_rodrigues(c, k, cs, sn);`

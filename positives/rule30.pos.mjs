@@ -257,15 +257,33 @@ export default positive("rule30_pos", {
       // and the cell above it
       const E = Math.floor(w.prev / 32768.0) + 2.0 * w.c0
               + 131072.0 * mod(rr, 2.0);
-      const B = s.orbit(16, { e: E, acc: 0.0 }, (b) => {
+      // SIXTEEN CELLS, WRITTEN AS FOUR THOUSAND AND NINETY-SIX, for
+      // the reason universal.pos.mjs sets out at length: the bound a
+      // driver PRINTS is what its unroller reads, and at 16 inside a
+      // 32 inside a 131072 the copies multiply until NVIDIA's
+      // assembler answers `too many instructions`.
+      //
+      // This plate did not need it until 2026-08-24, when a power-of-
+      // two divisor stopped being routed through det_div. That made
+      // the body SMALLER, which is what tipped the unroller into
+      // taking it - a cheaper loop is an easier loop to unroll, and
+      // the saving arrived as a link failure. Loud, at bake time,
+      // before any picture existed, exactly as universal's comment
+      // said it would.
+      //
+      // Sixteen iterations either way: `until` is checked before each
+      // step and i starts at zero. What changes is only what the
+      // unroller is told.
+      const B = s.orbit(4096, { e: E, acc: 0.0, i: 0.0 }, (b) => {
         const g = Math.floor(b.e / 32768.0);       // l, then c, then r
         const l = mod(g, 2.0);
         const o = Math.min(Math.floor(g / 2.0), 1.0);
         return {
           e: 2.0 * mod(b.e, 131072.0),
           acc: 2.0 * b.acc + (l + o - 2.0 * l * o),
+          i: b.i + 1.0,
         };
-      });
+      }, { until: (b) => b.i >= 16.0 });
       const nc = B.acc;
       return {
         c0: (0.0 == last) ? nc : w.c1,  c1: (1.0 == last) ? nc : w.c2,
