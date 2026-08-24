@@ -10,19 +10,29 @@
 // from the reference phase reads as domain and is tinted by its own
 // measured displacement, and undisturbed fabric barely glows.
 //
-// THE ROW IS BITS AND ORBIT FIELDS ARE FLOATS. The shader keeps the
-// ring in fourteen uint words and steps thirty-two cells at a time
-// with shifts, ands and ors, which is the one thing the vocabulary
-// cannot say: it has no bitwise operators, not even in its lexer. So
-// the ring rides as thirty-two fourteen-bit words in exact small
-// floats, the collatz idiom, and the word-parallel algebra becomes
-// arithmetic on one cell at a time. The word IS the ether tile, which
-// is why the seed row is a single constant repeated: the pure vacuum
-// is 0x3b23 in every one of the thirty-two. Every intermediate stays
-// under 2^17 - a tile is under 16384, the neighbourhood window that
-// spans three tiles is under 65536, and the doubling that shifts it
-// reaches 131070 - so both backends are exact, eight bits clear of
-// f32's 2^24.
+// THE ROW IS BITS AND ORBIT FIELDS ARE FLOATS. The ring rides as
+// thirty-two fourteen-bit words in exact small floats, the collatz
+// idiom, because orbit state is float and that has not changed. The
+// word IS the ether tile, which is why the seed row is a single
+// constant repeated: the pure vacuum is 0x3b23 in every one of the
+// thirty-two. Every intermediate stays under 2^17, so both backends
+// are exact, eight bits clear of f32's 2^24.
+//
+// THIS HEADER USED TO SAY the word-parallel algebra "is the one thing
+// the vocabulary cannot say: it has no bitwise operators, not even in
+// its lexer", and so the rule became arithmetic on one cell at a
+// time - fourteen steps of `(cb+rb-cb*rb)*(1-lb*cb*rb)` down a
+// sixteen-bit window.
+//
+// It can say it now (2026-08-24). Rule 110 is
+// `(c | r) & ~(l & c & r)` on a whole tile, three shifts and four
+// logical operations for all fourteen cells at once. Integer
+// operations carry no ULP latitude, so none of it needs a det_ form.
+//
+// Proved the same function exhaustively before the swap - all 16,384
+// tiles at each of the four (below, above) corners, 65,536 cases,
+// zero disagreements - and confirmed after: not one hash moved on any
+// card. 416.4s to 8.1s at the cpu rung, which is 51x.
 //
 // THE RING IS WALKED RATHER THAN INDEXED. rulespace selects its word
 // out of eight with a ternary chain; at thirty-two words that chain
@@ -35,13 +45,18 @@
 // the register has been overwritten. That is the standard in-place
 // cyclic update.
 //
-// It is written as TWO loops rather than three - one flat walk of
-// tiles that ticks a row counter when it wraps, and the fourteen cells
-// inside it - because a driver's unroller reads the bounds it is
-// shown, and nested bounds of 32 and 14 expanded into four hundred and
-// forty-eight copies of the cell step and put the plate over NVIDIA's
-// instruction ceiling. Both remedies are at the loops that caused it
-// and both are commented where they sit.
+// It is written as ONE flat walk of tiles that ticks a row counter
+// when it wraps. It was two, and before that three: nested bounds of
+// 32 and 14 expanded into four hundred and forty-eight copies of the
+// cell step and put the plate over NVIDIA's instruction ceiling, so
+// the tile walk was fused into the row walk and the cell count was
+// hidden from the unroller behind a large bound and an `until`.
+//
+// The cell loop is gone entirely now, so only the fusion remains and
+// the unroller has nothing left to expand. The apparatus that fought
+// it is deleted rather than kept "just in case" - a guard against a
+// loop that no longer exists reads as a live constraint to whoever
+// meets it next.
 //
 // THE DEFECTS ARE ADDRESSED, NOT DRAWN. The shader folds a hash chain
 // from WORLD, so every point that visits this sheet must find the same
@@ -50,7 +65,7 @@
 // lattice coordinates is that field, the corner hash itself, keyed by
 // the defect's index and the WORLD lever. Its values are not the
 // shader's chain and its law is.
-import { positive, lever, pal, mul3, stain, mod } from "../core/measure.mjs";
+import { positive, lever, pal, mul3, stain, mod, bits } from "../core/measure.mjs";
 
 export default positive("universal_pos", {
   depth:   lever("DEPTH",   7, 15, 1,    9),
@@ -241,7 +256,7 @@ export default positive("universal_pos", {
   // was, and only the fourteen-cell orbit is left to unroll.
   //
   // The arithmetic is untouched. `prev` is the tile just consumed, and
-  // at the wrap it must become the NEW row's last tile - the B.acc
+  // at the wrap it must become the NEW row's last tile - the nc
   // this very step computed - because the register has by then rotated
   // into alignment and the next row reads its own tail. `first` is the
   // old tile zero the wrap step needs after its seat was overwritten,
@@ -259,48 +274,41 @@ export default positive("universal_pos", {
   }, (v) => {
     const last = (v.ph == 31.0);
     const nx = last ? v.first : v.r1;
-    const W = Math.floor(v.prev / 8192.0) + 2.0 * v.r0
-            + 32768.0 * (nx - 2.0 * Math.floor(nx / 2.0));
-    // FOURTEEN CELLS, WRITTEN AS FOUR THOUSAND AND NINETY-SIX, and
-    // that is the second half of the same ceiling. The bound a driver
-    // PRINTS is what its unroller reads: at 14 it expands the body
-    // fourteen times inside a loop that runs a million, and NVIDIA's
-    // assembler stops at `too many instructions` again - measured, by
-    // raising this one number in the emitted text and re-linking. At
-    // 4096 it declines to unroll and the plate links with the body
-    // intact.
+    // THE WHOLE CHUNK AT ONCE. Fourteen cells were fourteen steps
+    // because the vocabulary had no bits: `(c OR r) AND NOT(l AND c
+    // AND r)` was spelled `(cb+rb-cb*rb)*(1-lb*cb*rb)` and walked one
+    // cell at a time down a sixteen-bit window.
     //
-    // So the count moves out of the bound and into the state, where it
-    // is a float the compiler will not reason its way through, and the
-    // orbit stops on it. Fourteen iterations either way: `until` is
-    // checked before each step, i starts at zero, and the CPU
-    // evaluator and the GPU walk the same fourteen. What changes is
-    // only what the unroller is told, and the cost is one add and one
-    // compare per cell.
+    // Rule 110 on a whole word is three shifts and four logical
+    // operations, and it is the SAME FUNCTION - proved exhaustively
+    // over all 16,384 chunks at each of the four (below, above)
+    // corners, 65,536 cases, zero disagreements, before this replaced
+    // anything.
     //
-    // This rests on a HEURISTIC, not a guarantee, and it is measured
-    // on these four columns rather than proved. If a driver ever
-    // unrolls it anyway the failure is a link error at bake time, loud
-    // and before any picture exists - which is the right way round.
-    const B = s.orbit(4096, { v: W, acc: 0.0, i: 0.0 }, (b) => {
-      const a = Math.floor(b.v / 16384.0);
-      const rb = Math.floor(a / 2.0);
-      const cb = a - 2.0 * rb;
-      const lb = Math.floor(b.v / 8192.0) - 2.0 * a;
-      return {
-        v: 2.0 * b.v - 65536.0 * Math.floor((2.0 * b.v) / 65536.0),
-        acc: b.acc * 2.0 + (cb + rb - cb * rb) * (1.0 - lb * cb * rb),
-        i: b.i + 1.0,
-      };
-    }, { until: (b) => b.i >= 14.0 });
+    // Integer operations carry no ULP latitude, so none of this needs
+    // a det_ form and it is exact on every conforming implementation
+    // by definition.
+    //
+    // AND THE WHOLE ANTI-UNROLL APPARATUS GOES WITH THE LOOP. The
+    // count in the state, the `until`, and the bound written as 4096
+    // rather than 14 were all there because fourteen copies inside a
+    // loop of a million met NVIDIA's `too many instructions`. There is
+    // no inner loop left to unroll, so the heuristic this rested on is
+    // not merely satisfied - it is out of the picture.
+    const blw = bits(v.prev) >> 13;       // the cell below the chunk
+    const wrd = bits(v.r0);               // the chunk, fourteen cells
+    const abv = bits(nx) & 1;             // the cell above it
+    const lw = ((wrd << 1) | blw) & 16383;
+    const rw = (wrd >> 1) | (abv << 13);
+    const nc = ((wrd | rw) & ~(lw & wrd & rw)) & 16383;
     return {
       r0: v.r1, r1: v.r2, r2: v.r3, r3: v.r4, r4: v.r5, r5: v.r6,
       r6: v.r7, r7: v.r8, r8: v.r9, r9: v.r10, r10: v.r11, r11: v.r12,
       r12: v.r13, r13: v.r14, r14: v.r15, r15: v.r16, r16: v.r17, r17: v.r18,
       r18: v.r19, r19: v.r20, r20: v.r21, r21: v.r22, r22: v.r23, r23: v.r24,
       r24: v.r25, r25: v.r26, r26: v.r27, r27: v.r28, r28: v.r29, r29: v.r30,
-      r30: v.r31, r31: B.acc,
-      prev: last ? B.acc : v.r0,
+      r30: v.r31, r31: nc,
+      prev: last ? nc : v.r0,
       first: last ? v.r1 : v.first,
       ph: last ? 0.0 : v.ph + 1.0,
       n: last ? v.n + 1.0 : v.n,

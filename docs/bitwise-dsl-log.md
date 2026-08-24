@@ -184,6 +184,76 @@ fails here rather than in a census four hours later.
 
 All five gates green, including the four that predate this.
 
-## Stage 6 — rule30's inner loop
+## Stages 6-7 — both automata rewritten: DONE
 
-*(next)*
+Each rewrite was **proved equivalent in JavaScript before the positive
+was touched**, exhaustively, not by sampling:
+
+```
+  Rule 30   all 65,536 chunks x 4 (below, above) corners = 262,144 cases
+  Rule 110  all 16,384 chunks x 4                        =  65,536 cases
+  disagreeing: 0 and 0
+```
+
+The word-parallel forms, over a chunk W with the cell below and the
+cell above:
+
+```
+  Rule 30    l = ((W << 1) | below) & 0xFFFF
+             r = (W >> 1) | (above << 15)
+             new = (l ^ (W | r)) & 0xFFFF
+
+  Rule 110   l = ((W << 1) | below) & 0x3FFF      (14-cell chunks)
+             r = (W >> 1) | (above << 13)
+             new = ((W | r) & ~(l & W & r)) & 0x3FFF
+```
+
+### The result
+
+`cpu` census, RTX 5060 Ti, against the 610.5s baseline this whole
+sequence started from:
+
+```
+                       baseline   before bits    after bits
+  universal              416.4s        105.6s          8.1s    51.41x
+  rule30                 110.0s         44.0s          7.0s    15.71x
+  whole census           610.5s        211.1s         76.6s     7.97x
+```
+
+**Zero hashes moved.** Not two, not "moved but agreed" - zero. The
+word-parallel form computes the same function over values that are all
+exact integers, so the same float reaches the accumulator either way.
+The exhaustive proofs predicted precisely this, which is why they were
+run first.
+
+### The anti-unroll apparatus dissolved
+
+`universal` carried the count in its state, an `until`, and a bound
+written as 4096 instead of 14; `rule30` had gained the same three
+hours earlier. All of it existed because fourteen or sixteen copies
+inside a loop of a million met NVIDIA's `too many instructions`.
+
+There is no inner loop left to unroll. The heuristic is not satisfied,
+it is out of the picture - and `rule30`'s emitted shape function came
+out 2.1% SMALLER despite gaining a whole vocabulary.
+
+### What went wrong on the way
+
+* `const P = bits(w.prev) >> 15` shadowed the lever namespace and
+  emitted as `P used bare`, which reads like a missing construct
+  rather than a name clash. Renamed blw/wrd/abv.
+* `const B = { acc: ... }` - a stand-in for the orbit result it
+  replaced - is an object literal, and the emitter admits those only
+  inside known calls. It became a plain const, which is what it should
+  have been.
+
+### Two plate headers are now wrong
+
+Both say the vocabulary has no bits. `rule30.pos.mjs`: *"THE CARRIED
+STATE IS A ROW OF BITS AND THE VOCABULARY HAS NO BITS."*
+`universal.pos.mjs`: *"the shader ... steps thirty-two cells at a time
+with shifts, ands and ors, which is the one thing the vocabulary
+cannot say: it has no bitwise operators, not even in its lexer."*
+
+They were true when written and are now the most misleading lines in
+either file. Rewriting them is part of this work, not a tidy-up.

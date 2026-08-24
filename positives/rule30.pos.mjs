@@ -5,20 +5,30 @@
 // row t that does not run the t rows before it, and DEPTH prices that
 // honesty in powers of two.
 //
-// THE CARRIED STATE IS A ROW OF BITS AND THE VOCABULARY HAS NO BITS.
-// The collatz idiom carries it: up to 512 cells ride as thirty-two
-// exact small floats of sixteen cells each, and the largest value the
-// step ever forms is 262,143, the eighteen-bit window one chunk reads.
-// Everything stays an exact integer under 2^24 on both evaluators, so
-// the arithmetic below IS the shader's uint arithmetic, wrap included.
+// THE CARRIED STATE IS A ROW OF BITS. The collatz idiom carries it:
+// up to 512 cells ride as thirty-two exact small floats of sixteen
+// cells each. Everything stays an exact integer under 2^24 on both
+// evaluators, so the arithmetic here IS the shader's uint arithmetic,
+// wrap included.
 //
-// The rule is stated as arithmetic rather than as bit operations. With
-// l, c and r the three neighbours as zero or one, c OR r is the
-// saturation min(c + 2r, 1) read straight off the sliding window, and
-// l XOR that is l + o - 2lo. Sixteen of those build the new chunk from
-// its top cell down, which is why the accumulation is an orbit and not
-// a sum: acc = 2 acc + bit needs no power of two per term, and pow
-// names no power exactly.
+// THIS HEADER USED TO SAY "AND THE VOCABULARY HAS NO BITS", and the
+// rule was written as arithmetic because of it: with l, c and r the
+// three neighbours as zero or one, c OR r was the saturation
+// min(c + 2r, 1) read off a sliding eighteen-bit window and l XOR that
+// was l + o - 2lo, sixteen of them building the new chunk one cell at
+// a time from its top down.
+//
+// The vocabulary has bits now (2026-08-24), and the rule is the rule:
+// `l ^ (c | r)` on a whole chunk, three shifts and three logical
+// operations for all sixteen cells at once. Integer operations carry
+// no ULP latitude, so nothing here needs a det_ form and it is exact
+// on every conforming implementation by definition.
+//
+// The two forms were proved the same function exhaustively - all
+// 65,536 chunks at each of the four (below, above) corners, 262,144
+// cases, zero disagreements - before the replacement was made, and
+// the census confirmed it after: not one hash moved anywhere, on any
+// card. 110.0s to 7.0s at the cpu rung.
 //
 // THE RING TURNS UNDER A FIXED HEAD. The shader wires each word's
 // neighbours statically and pays a runtime select only at the ring's
@@ -47,7 +57,7 @@
 // shader's integer arithmetic over all 30,096 lever settings the
 // selected row and cell ranges agree at every one. build/reports has
 // the numbers and the two places where a float is not an int.
-import { positive, lever, pal, stain, mul3, mod } from "../core/measure.mjs";
+import { positive, lever, pal, stain, mul3, mod, bits } from "../core/measure.mjs";
 
 export default positive("rule30_pos", {
   depth:   lever("DEPTH",   7,   17,  1,    8),
@@ -253,38 +263,39 @@ export default positive("rule30_pos", {
       prev: tail, first: v.c0, k: 0.0,
     }, (w, k) => {
       const rr = (k == last) ? w.first : w.c1;
-      // the eighteen-bit window: the cell below this chunk, the chunk,
-      // and the cell above it
-      const E = Math.floor(w.prev / 32768.0) + 2.0 * w.c0
-              + 131072.0 * mod(rr, 2.0);
-      // SIXTEEN CELLS, WRITTEN AS FOUR THOUSAND AND NINETY-SIX, for
-      // the reason universal.pos.mjs sets out at length: the bound a
-      // driver PRINTS is what its unroller reads, and at 16 inside a
-      // 32 inside a 131072 the copies multiply until NVIDIA's
-      // assembler answers `too many instructions`.
+      // THE WHOLE CHUNK AT ONCE. Sixteen cells were sixteen steps of
+      // an orbit because, as the header above says, the vocabulary had
+      // no bits: `l XOR (c OR r)` was spelled `l + o - 2lo` and walked
+      // one cell at a time down an eighteen-bit window.
       //
-      // This plate did not need it until 2026-08-24, when a power-of-
-      // two divisor stopped being routed through det_div. That made
-      // the body SMALLER, which is what tipped the unroller into
-      // taking it - a cheaper loop is an easier loop to unroll, and
-      // the saving arrived as a link failure. Loud, at bake time,
-      // before any picture existed, exactly as universal's comment
-      // said it would.
+      // It has bits now. Rule 30 on a whole word is three shifts and
+      // three logical operations, and it is the SAME FUNCTION - proved
+      // exhaustively over all 65,536 chunks at each of the four
+      // (below, above) corners, 262,144 cases, zero disagreements,
+      // before this replaced anything.
       //
-      // Sixteen iterations either way: `until` is checked before each
-      // step and i starts at zero. What changes is only what the
-      // unroller is told.
-      const B = s.orbit(4096, { e: E, acc: 0.0, i: 0.0 }, (b) => {
-        const g = Math.floor(b.e / 32768.0);       // l, then c, then r
-        const l = mod(g, 2.0);
-        const o = Math.min(Math.floor(g / 2.0), 1.0);
-        return {
-          e: 2.0 * mod(b.e, 131072.0),
-          acc: 2.0 * b.acc + (l + o - 2.0 * l * o),
-          i: b.i + 1.0,
-        };
-      }, { until: (b) => b.i >= 16.0 });
-      const nc = B.acc;
+      //   l = C[k-1]   (the chunk shifted up, the cell below at bit 0)
+      //   c = C[k]     (the chunk)
+      //   r = C[k+1]   (the chunk shifted down, the cell above at 15)
+      //
+      // Integer operations carry no ULP latitude, so nothing here
+      // needs a det_ form and the arithmetic is exact on every
+      // conforming implementation by definition - measured across four
+      // cards before the operators were added at all.
+      //
+      // AND THE ANTI-UNROLL WORRY GOES WITH THE LOOP. The `until` and
+      // the bound written as 4096 existed because sixteen copies
+      // inside a 32 inside a 131072 met NVIDIA's `too many
+      // instructions`. There is no inner loop left to unroll.
+      // named blw/wrd/abv and not P/W/N: P is the lever namespace and
+      // shadowing it emits as `P used bare`, which reads like a
+      // vocabulary gap rather than a name clash
+      const blw = bits(w.prev) >> 15;       // the cell below the chunk
+      const wrd = bits(w.c0);               // the chunk
+      const abv = bits(rr) & 1;             // the cell above it
+      const lw = ((wrd << 1) | blw) & 65535;
+      const rw = (wrd >> 1) | (abv << 15);
+      const nc = (lw ^ (wrd | rw)) & 65535;
       return {
         c0: (0.0 == last) ? nc : w.c1,  c1: (1.0 == last) ? nc : w.c2,
         c2: (2.0 == last) ? nc : w.c3,  c3: (3.0 == last) ? nc : w.c4,
