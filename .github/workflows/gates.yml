@@ -69,7 +69,14 @@ jobs:
       - name: orbit block bodies hold
         run: node tools/verify-orbit-block.mjs
 
-      # 5. WHAT THIS JOB DOES NOT COVER, printed rather than assumed.
+      # 5. The bit operators mean what JavaScript means by them. The
+      #    CPU evaluator runs the walk's actual JS, so a precedence
+      #    that disagrees with the language the walk is written in
+      #    would make the shader a quietly different program.
+      - name: bit operators match JavaScript
+        run: node tools/verify-bitwise.mjs
+
+      # 6. WHAT THIS JOB DOES NOT COVER, printed rather than assumed.
       #    A reader who sees a green tick should be able to find out
       #    what it is green ABOUT without reading this file.
       - name: what a green tick here does not mean

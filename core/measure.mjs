@@ -334,6 +334,14 @@ export function smoothstep(e0, e1, x) {
   return t * t * (3 - 2 * t);
 }
 export function mod(x, y) { return x - y * Math.floor(x / y); }
+// The float-to-int door, matching what the emitter writes for it.
+// `| 0` is ToInt32: truncate toward zero, then wrap to 32 bits. GLSL's
+// `int(x)` truncates toward zero and is undefined past the range, so
+// the two agree exactly while |x| < 2^31 - far outside the "exact
+// integer under 2^24" the plates wanting this already hold to.
+// Deliberately a function rather than a bare `| 0` at each site, so a
+// walk reads the same as the shader and the crossing is visible.
+export function bits(x) { return x | 0; }
 
 // complex arithmetic on Vec2 (z.x + i z.y), matching the shared
 // header's cmul/cdiv/cinv/csqrt exactly

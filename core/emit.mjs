@@ -15,10 +15,13 @@ import { fnv1a } from "./measure.mjs";
 import { glsl as oracleGlsl } from "./oracle.mjs";
 
 // ---------------------------------------------------------------- lex
-const PUNCT = ["=>", "<=", ">=", "==", "!=", "&&", "||",
+// Two-character punctuation first, so the longest match wins: `<<`
+// has to be offered before `<` or a shift lexes as two comparisons.
+const PUNCT = ["=>", "<=", ">=", "==", "!=", "&&", "||", "<<", ">>",
   "+=", "-=", "*=", "/=",
   "(", ")", "{", "}", "[", "]", ",", ";", ":", ".", "?",
-  "+", "-", "*", "/", "%", "<", ">", "=", "!"];
+  "+", "-", "*", "/", "%", "<", ">", "=", "!",
+  "&", "|", "^", "~"];
 
 function lex(src) {
   const toks = [];
@@ -152,12 +155,21 @@ function parse(src) {
     return c;
   }
   function orE() { let l = andE(); while (peek().t === "||") { next(); l = { t: "bin", op: "||", l, r: andE() }; } return l; }
-  function andE() { let l = cmpE(); while (peek().t === "&&") { next(); l = { t: "bin", op: "&&", l, r: cmpE() }; } return l; }
+  function andE() { let l = bOrE(); while (peek().t === "&&") { next(); l = { t: "bin", op: "&&", l, r: bOrE() }; } return l; }
+  // BITWISE, AT JAVASCRIPT'S PRECEDENCE and not at some tidier one.
+  // The CPU evaluator runs the walk's actual JS, so a walk that parses
+  // differently here than the language it is written in would agree
+  // with neither evaluator for the same reason. JS orders these
+  // | below ^ below & below the comparisons, and shifts above them.
+  function bOrE() { let l = bXorE(); while (peek().t === "|") { next(); l = { t: "bin", op: "|", l, r: bXorE() }; } return l; }
+  function bXorE() { let l = bAndE(); while (peek().t === "^") { next(); l = { t: "bin", op: "^", l, r: bAndE() }; } return l; }
+  function bAndE() { let l = cmpE(); while (peek().t === "&") { next(); l = { t: "bin", op: "&", l, r: cmpE() }; } return l; }
+  function shE() { let l = addE(); while (peek().t === "<<" || peek().t === ">>") { const op = next().t; l = { t: "bin", op, l, r: addE() }; } return l; }
   function cmpE() {
-    let l = addE();
+    let l = shE();
     while (["<", ">", "<=", ">=", "==", "!="].includes(peek().t)) {
       const op = next().t;
-      l = { t: "bin", op, l, r: addE() };
+      l = { t: "bin", op, l, r: shE() };
     }
     return l;
   }
@@ -166,6 +178,7 @@ function parse(src) {
   function unE() {
     if (peek().t === "-") { next(); return { t: "un", op: "-", e: unE() }; }
     if (peek().t === "!") { next(); return { t: "un", op: "!", e: unE() }; }
+    if (peek().t === "~") { next(); return { t: "un", op: "~", e: unE() }; }
     return postfix();
   }
   function postfix() {
@@ -625,6 +638,12 @@ export function emitWalk(pos, opts = {}) {
       case "un": {
         const v = emit(n.e);
         if (n.op === "-") return { type: v.type, code: `(-${v.code})` };
+        if (n.op === "~") {
+          if (v.type !== "int")
+            err("~ needs an integer; a float carries no bits to flip. "
+                + "Convert with bits(x) first", n.line);
+          return { type: "int", code: `(~${v.code})` };
+        }
         return { type: "bool", code: `(!${v.code})` };
       }
       case "cond": {
@@ -674,6 +693,44 @@ export function emitWalk(pos, opts = {}) {
           const lc = pin ? bindPrecise(asFloat(l)) : asFloat(l);
           const rc = pin ? bindPrecise(asFloat(r)) : asFloat(r);
           return { type: "bool", code: `(${lc} ${n.op} ${rc})` };
+        }
+        // BITWISE, INTEGER ONLY, AND NO det_ FORM BECAUSE NONE EXISTS
+        // TO NEED. `&`, `|`, `^` and `~` on a 32-bit integer are exact
+        // on every conforming implementation - there is no ULP
+        // latitude to pin, which is the whole reason the det_ library
+        // exists for floats. Measured before it was relied on: 4,096
+        // int pairs through all six operators, identical to an int32
+        // reference on RTX 5060 Ti, GTX 1080, radeonsi and iris
+        // (docs/bitwise-dsl-log.md, stage 0).
+        //
+        // Refused on floats rather than coerced. A silent float-to-int
+        // conversion is how a walk comes to mean something different
+        // from the JavaScript it is written in, and the CPU evaluator
+        // runs that JavaScript.
+        if (["&", "|", "^"].includes(n.op)) {
+          if (l.type !== "int" || r.type !== "int")
+            err(`${n.op} needs integers on both sides; a float carries `
+                + "no bits. Convert with bits(x) first", n.line);
+          return { type: "int", code: `(${l.code} ${n.op} ${r.code})` };
+        }
+        // SHIFTS TAKE A LITERAL COUNT, 0 TO 31, and the restriction is
+        // not fussiness. JS masks the count to five bits, so
+        // `x << 32 === x << 0`; GLSL calls a shift at or past the bit
+        // width UNDEFINED. The two agree only while the count is in
+        // range, and a literal is the only kind the emitter can check.
+        if (n.op === "<<" || n.op === ">>") {
+          if (l.type !== "int")
+            err(`${n.op} needs an integer on the left; convert with `
+                + "bits(x) first", n.line);
+          // the lexer keeps a literal as the SOURCE SLICE, a string -
+          // so this reads the number out rather than testing the token
+          const k = n.r.t === "num" ? Number(n.r.v) : NaN;
+          if (!Number.isInteger(k) || k < 0 || k > 31)
+            err(`${n.op} needs a literal count between 0 and 31 - JS `
+                + "masks the count to five bits and GLSL leaves it "
+                + "undefined past the width, so they agree only here",
+                n.line);
+          return { type: "int", code: `(${l.code} ${n.op} ${r.code})` };
         }
         // arithmetic
         if (n.op === "%") {
@@ -874,6 +931,31 @@ export function emitWalk(pos, opts = {}) {
       err("digitTriangle only lives inside s.descend(...)");
     if (c.t === "id" && c.n === "levels")
       err("levels must be bound directly: const g = levels(p, P.depth)");
+    // THE DOOR INTO THE INTEGER DOMAIN, and deliberately the only one.
+    //
+    // The walk vocabulary is floats, and bit operations are not. The
+    // conversion is explicit so that a walk says where it crosses -
+    // an implicit one is how a plate comes to mean something other
+    // than the JavaScript it is written in, and the CPU evaluator runs
+    // that JavaScript.
+    //
+    // GLSL `int(x)` truncates toward zero; JS `x | 0` is ToInt32,
+    // which truncates toward zero and then wraps. They agree exactly
+    // while |x| < 2^31, and the plates that want this state a much
+    // tighter invariant than that: rule30.pos.mjs carries every value
+    // as "an exact integer under 2^24 on both evaluators". Outside
+    // 2^31 GLSL leaves the conversion undefined and JS wraps, so they
+    // part - which is a range no walk here goes near, and is written
+    // down rather than assumed.
+    //
+    // Coming back the other way needs no door: asFloat already emits
+    // float(i) for an int, and on the JS side an int IS a number.
+    if (c.t === "id" && c.n === "bits") {
+      if (n.args.length !== 1) err("bits takes one argument", n.line);
+      const v = emit(n.args[0]);
+      if (v.type === "int") return v;
+      return { type: "int", code: `int(${asFloat(v)})` };
+    }
     // GLSL-parity scalar builtins
     if (c.t === "id" && ["fract", "mod", "mix", "clamp", "step", "smoothstep"].includes(c.n)) {
       const args = n.args.map(a => asFloat(emit(a)));
