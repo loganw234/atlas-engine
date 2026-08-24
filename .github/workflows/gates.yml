@@ -76,7 +76,15 @@ jobs:
       - name: bit operators match JavaScript
         run: node tools/verify-bitwise.mjs
 
-      # 6. WHAT THIS JOB DOES NOT COVER, printed rather than assumed.
+      # 6. Every name the emitted GLSL uses is in scope where it uses
+      #    it. Nothing else here compiles anything - compile-pinned
+      #    EMITS and never hands the result to a driver - so a scoping
+      #    error was invisible to this job by construction until a GPU
+      #    bake found it, hours later and on another machine.
+      - name: emitted GLSL is in scope
+        run: node tools/verify-scope.mjs
+
+      # 7. WHAT THIS JOB DOES NOT COVER, printed rather than assumed.
       #    A reader who sees a green tick should be able to find out
       #    what it is green ABOUT without reading this file.
       - name: what a green tick here does not mean

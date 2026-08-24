@@ -416,15 +416,49 @@ export function emitWalk(pos, opts = {}) {
    *  cached has since been reassigned. The runs of declarations that
    *  make up the hot loops are what this is for, and they are intact
    *  within one run. */
-  const cse = new Map();
-  const DECL_ONLY =
-    /^precise (?:float|vec2|vec3) [A-Za-z_][A-Za-z0-9_]*\s*=[^;]*;$/;
+  const cse = new Map();          // normalised text -> { name, depth }
+  let cseDepth = 0;
   const put = (s) => {
     lines.push(indent + s);
-    const m = /^(?:precise\s+)?(?:float|vec2|vec3|vec4)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/
-      .exec(s);
-    if (m) defAt.set(m[1], { at: lines.length - 1, ind: indent });
-    if (!DECL_ONLY.test(s)) cse.clear();
+    const decl =
+      /^(?:precise\s+)?(?:float|vec2|vec3|vec4)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/
+        .exec(s);
+    if (decl) defAt.set(decl[1], { at: lines.length - 1, ind: indent });
+
+    // INVALIDATE WHAT ACTUALLY CHANGED, and nothing else.
+    //
+    // This used to clear the whole map on any line that was not a
+    // plain declaration, which is safe and threw most of the value
+    // away. threebody's 2,560-step integrator recomputed
+    // `det_div(h_41, 6.0)` - a Newton reciprocal, on a value declared
+    // OUTSIDE the loop - twenty-four times per step, and the two
+    // stage-weight ternaries twelve times each, because they sat in
+    // different runs of declarations with assignments between them.
+    //
+    // So: an assignment drops only the entries whose text mentions the
+    // name assigned, and a closing brace drops only what was bound
+    // inside the scope that just ended. An opening brace drops
+    // nothing - an outer temporary is perfectly visible inside a
+    // nested block, and that is exactly the loop-invariant case.
+    for (const mm of s.matchAll(
+      /([A-Za-z_][A-Za-z0-9_]*)\s*(?:\+|-|\*|\/)?=(?!=)/g)) {
+      if (decl && mm[1] === decl[1]) continue;   // its own declarator
+      const re = new RegExp(`\\b${mm[1]}\\b`);
+      for (const k of [...cse.keys()]) if (re.test(k)) cse.delete(k);
+    }
+    // BRACES IN ORDER, never netted. `} else {` closes one scope and
+    // opens another at the SAME depth, so a net count sees no change
+    // and keeps everything the closing branch bound - which arnold
+    // then referenced from the else branch as an undefined variable.
+    // Fifteen plates failed to bake on that, and not one of the five
+    // gates caught it, because none of them runs a GLSL compiler.
+    for (const ch of s) {
+      if (ch === "{") cseDepth++;
+      else if (ch === "}") {
+        cseDepth--;
+        for (const [k, v] of [...cse]) if (v.depth > cseDepth) cse.delete(k);
+      }
+    }
   };
   const err = (m, line) => { throw new Error(`emit: ${m}${line ? ` (line ${line})` : ""}`); };
 
@@ -540,12 +574,13 @@ export function emitWalk(pos, opts = {}) {
     // key is normalised; what is emitted is untouched.
     const key = cseKey(code);
     const hit = cse.get(key);
-    if (hit) return hit;
+    if (hit) return hit.name;
     const t = `pb_${vn++}`;
     put(`precise float ${t} = ${code};`);
-    // AFTER the put, because put() clears the map on anything that is
-    // not a declaration and would otherwise drop what was just added
-    cse.set(key, t);
+    // AFTER the put, so the invalidation pass inside it cannot drop
+    // the entry it is about to gain; depth recorded so a closing brace
+    // knows whether this one went out of scope with it
+    cse.set(key, { name: t, depth: cseDepth });
     return t;
   }
   // GLSL reserves the gl_ prefix, so a walk variable named "gl" would
