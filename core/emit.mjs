@@ -331,6 +331,30 @@ function exactRecip(code) {
   return /[.e]/.test(s) ? s : `${s}.0`;
 }
 
+/** The same expression, spelled the same way, for CSE keying only.
+ *
+ *  Strips redundant outer parentheses - and only genuinely redundant
+ *  ones: `(a) * (b)` keeps its own, because the first bracket closes
+ *  before the end. Whitespace is collapsed for the same reason. The
+ *  emitted text is never rewritten from this; it decides equality and
+ *  nothing else. */
+function cseKey(code) {
+  let s = code.trim().replace(/\s+/g, " ");
+  for (;;) {
+    if (!(s.startsWith("(") && s.endsWith(")"))) return s;
+    let d = 0, whole = true;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === "(") d++;
+      else if (s[i] === ")") {
+        d--;
+        if (d === 0 && i < s.length - 1) { whole = false; break; }
+      }
+    }
+    if (!whole) return s;
+    s = s.slice(1, -1).trim();
+  }
+}
+
 const EXACT_BUILTINS = new Set(["abs", "min", "max", "floor", "sign"]);
 
 // Reachable from the subset today, with nothing deterministic behind
@@ -356,11 +380,38 @@ export function emitWalk(pos, opts = {}) {
   // WHERE EACH EMITTED TEMPORARY IS DEFINED, so a hoist can be placed
   // at its definition rather than at its first use. See sincosOf.
   const defAt = new Map();
+  /** COMPOUND EXPRESSIONS ALREADY BOUND IN THIS RUN OF DECLARATIONS.
+   *
+   *  The emitter writes the same subexpression more than once - 11% of
+   *  the atlas's precise declarations repeat an earlier right-hand
+   *  side within their own block, and threebody repeats 36% of them.
+   *  universal's fourteen-cell loop computes `2.0 * ob_215_v` twice
+   *  per iteration; rule30's computes `floor(g * 0.5)` twice.
+   *
+   *  Mesa removes these; NVIDIA does not, which is the same asymmetry
+   *  the det_sincos hoist was for (three identical calls cost radeonsi
+   *  1.10x and NVIDIA 2.19x). Sharing them here settles it for both.
+   *
+   *  Bit-exact: emitted temporaries are single-assignment, so the same
+   *  text over the same names is the same value by construction.
+   *
+   *  INVALIDATED AT ONE CHOKE POINT, and deliberately a blunt one.
+   *  Every emitted line passes through put(), so anything that is not
+   *  a plain declaration - a brace, an assignment to orbit state, a
+   *  break, a branch - clears the map. That gives up sharing across
+   *  statements for a rule that cannot be wrong about when a name it
+   *  cached has since been reassigned. The runs of declarations that
+   *  make up the hot loops are what this is for, and they are intact
+   *  within one run. */
+  const cse = new Map();
+  const DECL_ONLY =
+    /^precise (?:float|vec2|vec3) [A-Za-z_][A-Za-z0-9_]*\s*=[^;]*;$/;
   const put = (s) => {
     lines.push(indent + s);
     const m = /^(?:precise\s+)?(?:float|vec2|vec3|vec4)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/
       .exec(s);
     if (m) defAt.set(m[1], { at: lines.length - 1, ind: indent });
+    if (!DECL_ONLY.test(s)) cse.clear();
   };
   const err = (m, line) => { throw new Error(`emit: ${m}${line ? ` (line ${line})` : ""}`); };
 
@@ -469,8 +520,19 @@ export function emitWalk(pos, opts = {}) {
     if (/^[A-Za-z_][A-Za-z0-9_]*\.[xyzw]$/.test(code)) return code; // swizzle
     if (/^-?[0-9.]+(e-?[0-9]+)?$/.test(code)) return code;          // literal
     if (/^P\[[0-9]+\]$/.test(code)) return code;                    // lever
+    // KEYED ON THE NORMALISED TEXT. The emitter parenthesises
+    // inconsistently - universal's fourteen-cell loop binds
+    // `((2.0 * ob_v))` and then `(2.0 * ob_v)`, the same value twice,
+    // and a raw string key sees two different expressions. Only the
+    // key is normalised; what is emitted is untouched.
+    const key = cseKey(code);
+    const hit = cse.get(key);
+    if (hit) return hit;
     const t = `pb_${vn++}`;
     put(`precise float ${t} = ${code};`);
+    // AFTER the put, because put() clears the map on anything that is
+    // not a declaration and would otherwise drop what was just added
+    cse.set(key, t);
     return t;
   }
   // GLSL reserves the gl_ prefix, so a walk variable named "gl" would
@@ -851,10 +913,24 @@ export function emitWalk(pos, opts = {}) {
         const rec = exactRecip(args[1]);
         if (rec) {
           // bound, because x appears twice and a compound expression
-          // evaluated twice is the cost this is trying to remove
+          // evaluated twice is the cost this is trying to remove.
+          // The floor is bound too, and not for tidiness: a plate that
+          // asks for mod(g, 2.0) usually also asks for floor(g / 2.0)
+          // a line later - rule30's inner loop does exactly that - and
+          // an inlined subexpression is invisible to the CSE above
+          // unless it is given a name.
+          // BOUND IN THE SAME SHAPE THE PLATES USE: the product first,
+          // then the floor of it. A plate asking mod(g, 2.0) usually
+          // asks floor(g / 2.0) a line later - rule30's inner loop
+          // does exactly that - and its own path binds `(g * 0.5)` and
+          // then `floor(pb)`. Emitting `floor(g * 0.5)` as one
+          // expression is the same value spelled differently, which
+          // the CSE above cannot see through.
           const x = bindPrecise(args[0]);
+          const h = bindPrecise(`${x} * ${rec}`);
+          const f = bindPrecise(`floor(${h})`);
           return { type: "float",
-                   code: `fma(-${args[1]}, floor(${x} * ${rec}), ${x})` };
+                   code: `fma(-${args[1]}, ${f}, ${x})` };
         }
       }
       if (pin && c.n in PINNED_VOCAB)
