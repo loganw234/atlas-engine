@@ -92,14 +92,24 @@ jobs:
         run: |
           cat <<'EOF'
           Covered above: emission, the pinned set, the comparison gate,
-          smoke over every positive, orbit block bodies. All pure node.
+          smoke over every positive, orbit block bodies, bit-operator
+          semantics against JavaScript, and every emitted name being in
+          scope where it is used. All pure node.
 
           NOT covered here, and each needs something a hosted runner
           does not have:
 
-            tools/compile-pinned.py --run   a real GL context; the text
-                                            scans above cannot catch a
-                                            name that does not resolve
+            tools/compile-pinned.py --run   a real GL context. Since
+                                            2026-08-24 verify-scope
+                                            does catch an OUT-OF-SCOPE
+                                            name without one - it was
+                                            added after fifteen plates
+                                            failed to bake on exactly
+                                            that and all five gates
+                                            passed. It does not catch a
+                                            type error, a wrong arity,
+                                            or anything else a driver
+                                            refuses.
             tools/detbits.py                a GPU per column - it is the
                                             instrument that found det_fract
             tools/verify-critical.mjs       Chrome, via CDP

@@ -247,6 +247,43 @@ out 2.1% SMALLER despite gaining a whole vocabulary.
   inside known calls. It became a plain const, which is what it should
   have been.
 
+## Stage 8 — the gate that was missing, found the hard way
+
+Not planned, and the most useful thing in this log.
+
+Improving the CSE cache's invalidation (a separate optimisation, same
+day) reused a temporary across `} else {`: the net brace change on
+that line is zero, so entries bound in the branch that had just closed
+survived into the branch that opened. **Fifteen plates failed to
+bake**, and **all five gates passed**.
+
+They passed because none of them compiles anything. `compile-pinned`
+EMITS GLSL and never hands it to a driver, so a scoping error was
+invisible to CI by construction - it took a GPU bake, at the end of a
+chain, on another machine, hours later.
+
+`tools/verify-scope.mjs` closes it: a scope tracker over the narrow
+shape the emitter produces, over-permissive where unsure so it can
+miss a fault but never invent one. Verified against the real
+regression rather than asserted - reintroduce the net-brace counting
+and it flags exactly the fifteen plates that failed to bake, while
+`compile-pinned` still reports OK.
+
+**It ships with a self-test, which found two defects in the checker
+itself before it found anything else.** The file-scope pre-pass used
+`^\s*` and swept every indented temporary into file scope, so the gate
+reported 142 clean shaders while seeing nothing at all; and the
+declaration pattern anchored at `^` with no allowance for indentation,
+so it matched no emitted declaration. Each hid the other - remove
+either alone and it still looks correct. Without the self-test this
+would have been committed as a gate that passes because it checks
+nothing, which is worse than no gate, and believed.
+
+The general lesson, since it will recur: every optimisation in this
+sequence edits emitted GLSL STRUCTURE, and the only thing standing
+between a structural bug and a broken bundle was that somebody
+happened to bake on a machine with a card.
+
 ### Two plate headers are now wrong
 
 Both say the vocabulary has no bits. `rule30.pos.mjs`: *"THE CARRIED
@@ -257,3 +294,31 @@ cannot say: it has no bitwise operators, not even in its lexer."*
 
 They were true when written and are now the most misleading lines in
 either file. Rewriting them is part of this work, not a tidy-up.
+
+**Done, and two more besides.** `rule30` and `universal` say what they
+used to do, what they do now, and what was measured. `rulespace` and
+`collatz` carried the same claim and are NOT rewritten - each now says
+so and why: `rulespace` because it draws all 256 rules so the rule is
+a runtime value, making it eight masks plus a popcount for about 2x
+rather than three operations for 16x; `collatz` because it costs 0.3s
+at the cpu rung and the rewrite would spend a hash movement to buy
+nothing. `docs/CONVERSION.md` told every future author the subset "has
+no uint, no bitwise operators and no `hashu`" - one third of that is
+now false and it is the document authors are pointed at first.
+
+## Where it stands
+
+```
+  cpu census, RTX 5060 Ti      610.5s -> 76.6s     7.97x
+  tiny census, 4 columns       68/68 agreeing on all four
+  quick census, RTX 5060 Ti    89.8 min, complete=True, 0 skipped
+```
+
+That `quick` result is the first complete one this project has had:
+the previous run took 206.6 minutes with `universal` excluded, so it
+could not be `complete` by definition.
+
+Still open: `rulespace` (~2x, scoped above), `threebody`'s remaining
+7 `det_div` and 3 `det_sqrt` per step, and whether `1.0/Math.sqrt(x)`
+should map to `det_isqrt` - a peephole, not a keyword, and one that
+WOULD move hashes.

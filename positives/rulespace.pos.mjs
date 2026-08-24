@@ -9,16 +9,31 @@
 //
 // THE ROW IS BITS AND THE ORBIT IS FLOATS. The shader keeps the ring
 // in four uint words and steps all thirty-two cells of a word at once
-// with eight neighbourhood masks, which is the one thing the
+// with eight neighbourhood masks. Here the ring rides as eight
+// sixteen-bit words in exact small floats, the collatz idiom, and the
+// mask arithmetic becomes arithmetic on one cell at a time. Every
+// intermediate stays under 2^17 and so is exact on both backends: a
+// word is under 65536, the left neighbour word doubles it before the
+// modulus, and the running place value doubles up to 32768. The three
+// loops that used to be bit parallel are rows, then words, then bits,
+// which is why this plate needed the orbit step to accept a block
+// body.
+//
+// THIS HEADER USED TO SAY the mask arithmetic "is the one thing the
 // vocabulary cannot say: it has no bitwise operators at all, not even
-// in its lexer. So the ring rides as eight sixteen-bit words in exact
-// small floats, the collatz idiom, and the mask arithmetic becomes
-// arithmetic on one cell at a time. Every intermediate stays under
-// 2^17 and so is exact on both backends: a word is under 65536, the
-// left neighbour word doubles it before the modulus, and the running
-// place value doubles up to 32768. The three loops that used to be
-// bit parallel are now rows, then words, then bits, which is why this
-// plate needed the orbit step to accept a block body.
+// in its lexer". It can say it as of 2026-08-24, and LXV and LXVII -
+// which carried the same sentence - were rewritten word-parallel for
+// 16x and 51x with no hash moved.
+//
+// THIS PLATE IS NOT REWRITTEN YET, and the reason is that it is the
+// harder of the three rather than that it is finished. Rule 30 and
+// Rule 110 are fixed logic, three or four operations on a word. This
+// plate draws all 256 elementary rules, so the rule is a RUNTIME
+// value: word-parallel means eight neighbourhood masks selected by
+// rule bits, plus a population count for the activity measure that
+// `chg` carries. Both are expressible with the operators now present -
+// a SWAR popcount needs no new vocabulary - and the estimate is about
+// 2x, against 123.4s at the tiny rung. Worth doing, not yet done.
 //
 // The neighbourhood is the same one the masks encode. The shader ORs
 // in mask 4L+2C+R when bit 4L+2C+R of the rule is set, so the cell's

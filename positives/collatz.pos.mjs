@@ -2,9 +2,17 @@
 // spoken in halves. Each point owns one starting number and runs the
 // only rule there is: halve it if even, triple and add one if odd.
 // The shader records the last 32 parities in a uint bit window; the
-// vocabulary has no bits, so the window rides as two 16-bit halves
-// held in exact small floats, shifted left arithmetically on the way
-// down and shifted right again on the replay. The same halves carry
+// window rides here as two 16-bit halves held in exact small floats,
+// shifted left arithmetically on the way down and shifted right again
+// on the replay.
+//
+// That shape is here because the vocabulary HAD no bits when this was
+// written. It has them since 2026-08-24, and this plate has
+// deliberately not been rewritten: it costs 0.3s at the cpu rung
+// against universal's 416s, so the rewrite would buy nothing and
+// spend a hash movement to get it. The note is left because the next
+// reader should know the constraint is gone rather than infer it is
+// still binding - see docs/bitwise-dsl-log.md. The same halves carry
 // the Collatz value itself, whose flights pass f32's exact integer
 // range for these starts, so the walk reproduces the shader's uint
 // arithmetic exactly, wrap included: every intermediate is an exact

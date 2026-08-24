@@ -215,10 +215,25 @@ ARRANGEMENT.**
 
 A positive is a re-authoring, not a transliteration. Where the subset
 cannot say a thing the way the shader said it - and the recurring case
-is a hash: the subset has no uint, no bitwise operators and no `hashu`,
-so an addressed hash chain has to be re-keyed through `s.vnoise` - the
-positive restates the law and draws a different member of the same
-ensemble. That is acceptable.
+is a hash: the subset has no uint and no `hashu`, so an addressed hash
+chain has to be re-keyed through `s.vnoise` - the positive restates the
+law and draws a different member of the same ensemble. That is
+acceptable.
+
+**It DOES have bitwise operators, as of 2026-08-24.** `&`, `|`, `^`,
+`~` and shifts by a literal count 0-31 work on integers, and `bits(x)`
+is the one door in from float. That paragraph used to say the subset
+had no bitwise operators either, and three plates were written around
+the gap - LXV, LXVII and LXVIII each carried a header explaining that
+the rule had to become "arithmetic on one cell at a time". Rewriting
+two of them as word-parallel bit work was worth 16x and 51x with not
+one hash moved.
+
+So: reach for the bit operators when the shader's law IS bit work.
+Integer operations carry no ULP latitude, which makes that direction
+more determinable rather than less - there is no `det_` form to write
+because none is needed. What remains missing is the uint type and
+`hashu`, so the hash-chain re-keying above still stands.
 
 What that looks like in practice, from this sweep:
 
