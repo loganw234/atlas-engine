@@ -1046,8 +1046,23 @@ export function emitWalk(pos, opts = {}) {
           const x = bindPrecise(args[0]);
           const h = bindPrecise(`${x} * ${rec}`);
           const f = bindPrecise(`floor(${h})`);
+          // WRITTEN OUT, NOT FUSED. This was `fma(-y, f, x)`, which is
+          // one rounding rather than two and therefore the better
+          // arithmetic - on a stack that performs it. Measured across
+          // eleven stacks on 2026-08-24, five fold fma() into a
+          // multiply and an add whatever `precise` says: every zink
+          // route on every vendor, radeonsi on GFX10.1, and llvmpipe.
+          // A single fma anywhere in a plate is enough to split those
+          // stacks off from the rest, and this one site accounted for
+          // 165 of the atlas's 415 mod calls.
+          //
+          // Here the two forms are the SAME VALUE regardless: y is a
+          // power of two and f is a floor, so y*f is exact and there
+          // is no residual for the fusion to carry. The rewrite costs
+          // nothing at all on this path - it only stops asking five
+          // stacks for a guarantee they do not honour.
           return { type: "float",
-                   code: `fma(-${args[1]}, ${f}, ${x})` };
+                   code: `((-${args[1]}) * (${f}) + (${x}))` };
         }
       }
       if (pin && c.n in PINNED_VOCAB)
