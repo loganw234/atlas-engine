@@ -107,8 +107,14 @@ The record of how, including what it cost:
 What that number rests on, stated so it cannot be read as more than it
 is: the `cpu` rung, 1024 square; these four columns and not "any card";
 and llvmpipe excluded for a measured reason (it does not single-round
-`fma()` even under `precise`, which is a fault in its own lowering and
-puts no GPU at risk).
+`fma()` even under `precise` — measured and reproducible, though
+narrower than "fault": the collapse is an `llvm.fmuladd` lowering that
+one reading of the spec's own precision table permits, so it is filed
+as a request rather than a conformance bug, and it puts no GPU at
+risk). The spec readings the pinning discipline rests on are now
+quote-verified against GLSL 4.60.8 / ES 3.20.8 and the floating-point
+literature; the dossiers live in the darkroom repository under
+`docs/sources/`.
 
 ### Running the gates
 
