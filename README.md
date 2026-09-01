@@ -90,6 +90,20 @@ And the rest:
 - `docs/DETERMINISM.md`, `docs/CONSTANTS-FINDINGS.md` - the plan, and
   what the oracle found.
 
+![Twenty-four independent rendering stacks converging on a single
+column digest, with the one disagreeing driver drawn apart and
+named](docs/determinism.png)
+
+*The claim, measured. Sixty-eight of sixty-eight plates — every one
+emitted from a positive, no hand-written GLSL anywhere — produce the
+same hash on twenty-four independent complete columns: three GPU
+vendors, both of AMD's open shader compilers on the same driver,
+GL-on-Vulkan through four different Vulkan drivers, and two software
+rasterisers that share no silicon with anything. The GL and GLES rungs
+are built from **different** shader text and land on the same column
+digest, so this is not one stack agreeing with itself twice. The one
+disagreeing driver is drawn apart and named rather than absorbed.*
+
 ## Status
 
 **Sixty-eight of sixty-eight, on four columns.** Every plate in the

@@ -1,0 +1,96 @@
+{
+ "cleared_columns": 78,
+ "cleared_hosts": [
+  "DESKTOP-T33SK86",
+  "amd-arc-box",
+  "logan-SFF-M710s-1",
+  "nvidia-box"
+ ],
+ "cleared_rungs": [
+  "cpu",
+  "tiny"
+ ],
+ "cleared_stacks": [
+  "d3d12-gl",
+  "iris",
+  "llvmpipe",
+  "nouveau-gl",
+  "nvidia-gl",
+  "radeonsi-aco",
+  "radeonsi-llvm",
+  "zink-amdvlk",
+  "zink-amdvlk-2023",
+  "zink-anv",
+  "zink-lavapipe",
+  "zink-nvk",
+  "zink-radv-aco",
+  "zink-radv-llvm"
+ ],
+ "column_digest": "68117b51a8a5c5dce4f268d7afa54d672f6c478c06981b68f29de41425a3a6ab",
+ "disagreer": [
+  "zink-amdvlk",
+  "zink-amdvlk-2023"
+ ],
+ "disagreer_plates": [
+  "breakdown",
+  "drainage",
+  "elliptic",
+  "nested"
+ ],
+ "es_bundle_sha256": "31f838daa5da71ab952a4f500d445c1942c0d12fe5b8a9e2923c108d864b65a2",
+ "es_column_digest_matches": true,
+ "es_independent_complete_columns": 14,
+ "gl_bundle_sha256": "06fa0983d1a11a3a992929bc0a0672e3b0eae155acb7022821ab832eff5a03ab",
+ "independent_complete_columns": 24,
+ "plates": 68,
+ "source": {
+  "cleared": "docs\\determinism-data\\parity-cleared-plates-2026-08-26.json",
+  "disagreeing_stacks": "docs\\determinism-data\\disagreeing-stacks.json",
+  "reference_hashes": "docs\\determinism-data\\reference-hashes.json",
+  "reference_hashes_es": "docs\\determinism-data\\reference-hashes-cpu-es.json"
+ },
+ "stacks": {
+  "iris": [
+   "intel-arc-a750-graphics",
+   "intel-arc-b580-graphics"
+  ],
+  "llvmpipe": [
+   "llvmpipe"
+  ],
+  "radeonsi-aco": [
+   "radeon-pro-w5500",
+   "radeon-pro-wx-2100",
+   "radeon-r9-390-series",
+   "radeon-rx-7600"
+  ],
+  "radeonsi-llvm": [
+   "radeon-pro-w5500",
+   "radeon-pro-wx-2100",
+   "radeon-r9-390-series",
+   "radeon-rx-7600"
+  ],
+  "zink-anv": [
+   "intel-arc-a750-graphics",
+   "intel-arc-b580-graphics"
+  ],
+  "zink-lavapipe": [
+   "llvmpipe"
+  ],
+  "zink-nvk": [
+   "geforce-gtx-1060-3gb",
+   "geforce-gtx-1660-ti"
+  ],
+  "zink-radv-aco": [
+   "radeon-pro-w5500",
+   "radeon-pro-wx-2100",
+   "radeon-r9-390-series",
+   "radeon-rx-7600"
+  ],
+  "zink-radv-llvm": [
+   "radeon-pro-w5500",
+   "radeon-pro-wx-2100",
+   "radeon-r9-390-series",
+   "radeon-rx-7600"
+  ]
+ }
+}
