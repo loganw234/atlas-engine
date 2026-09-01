@@ -1,0 +1,54 @@
+{
+ "cancellation_operands": {
+  "a": 0.45714041590690613,
+  "b": 1.1985557079315186,
+  "c": 1.4029966592788696,
+  "d": 0.3905271291732788
+ },
+ "mirage_after": "a677765f6f90db05",
+ "mirage_before": {
+  "mesa": "6343e8ed66c6b4e2",
+  "nvidia": "a677765f6f90db05"
+ },
+ "one_rounding": {
+  "bits": "0x320e7e68",
+  "gt_zero": true,
+  "value": 8.294229303373868e-09
+ },
+ "probe_agree": [
+  "mad_free",
+  "fma_explicit",
+  "poly_precise"
+ ],
+ "probe_differ": [
+  "sin",
+  "cos",
+  "exp2",
+  "log2",
+  "atan",
+  "sqrt",
+  "div"
+ ],
+ "probe_operations": [
+  "sin",
+  "cos",
+  "exp2",
+  "log2",
+  "atan",
+  "sqrt",
+  "div",
+  "mad_free",
+  "fma_explicit",
+  "poly_precise"
+ ],
+ "probe_sources": {
+  "7600": "docs\\determinism-data\\probe-7600.json",
+  "b580": "docs\\determinism-data\\probe-b580.json",
+  "nv": "docs\\determinism-data\\probe-nv.json"
+ },
+ "two_roundings": {
+  "bits": "0x00000000",
+  "gt_zero": false,
+  "value": 0.0
+ }
+}

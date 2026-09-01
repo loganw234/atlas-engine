@@ -104,6 +104,26 @@ are built from **different** shader text and land on the same column
 digest, so this is not one stack agreeing with itself twice. The one
 disagreeing driver is drawn apart and named rather than absorbed.*
 
+### But why were they ever different?
+
+![Left, seven of ten library operations returning three different
+answers on three vendors. Right, the same expression evaluated with one
+rounding and with two, disagreeing on the sign](docs/why-they-differed.png)
+
+*Two causes, different in kind. **The library**: GLSL specifies an
+accuracy in ULP, not a bit, so every vendor may hit `sin` differently —
+and measured on the project's own probe, seven of ten operations return
+three different answers, with `sqrt` and division among them. The three
+that agree are the ones written out explicitly rather than asked of the
+library, which is why the engine ships its own kernels. **The
+contraction**: a compiler may fuse a multiply and an add into one
+fused multiply-add, rounding once where the unfused form rounds twice,
+and both are permitted. Usually that costs a last bit. In a
+near-cancellation it costs the sign — and if that value decides a
+branch, two conforming compilers render different pictures. The
+operands on the figure are real: `(a*b - c*d) > 0.0` is `FALSE` one way
+and `TRUE` the other.*
+
 ## Status
 
 **Sixty-eight of sixty-eight, on four columns.** Every plate in the
