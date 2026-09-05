@@ -1,10 +1,19 @@
 // The measure core: runtime primitives for positives.
 // A positive runs natively under node with these objects - that run
 // IS the CPU evaluator. The emitter (core/emit.mjs) reads the same
-// source and writes GLSL whose arithmetic matches this file exactly:
+// source and writes GLSL whose STRUCTURE matches this file exactly -
 // same hash, same u2f rounding (f32 emulated with fround), same
-// geometry. Change one side and you have changed both, or you have
-// made a liar of the conformance probe.
+// geometry. Its ARITHMETIC cannot match and is not meant to: this
+// file computes the walk in float64, emitted GLSL computes it in
+// float32, and no amount of care makes those two agree. So the f32
+// pinning here is at the boundaries where the two must agree
+// structurally, not through the arithmetic; the native run is the
+// ACCURACY reference, and bit-identity is a property of emitted GLSL
+// against emitted GLSL on two implementations, never of this file
+// against either. (An earlier header claimed the arithmetic matched
+// exactly; retracted - see docs/DETERMINISM.md, Phase 1.)
+// Change one side and you have changed both, or you have made a liar
+// of the conformance probe.
 
 const fr = Math.fround;
 export const TAU = 6.28318530718;

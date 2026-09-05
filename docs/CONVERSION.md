@@ -52,15 +52,48 @@ Not in the subset, by design: `while`/`for` (loops are vocabulary:
 
 **Draw discipline.** Every `s.` draw advances shared state. Draw order
 is source order. The emitter REFUSES a draw inside a ternary branch or
-on the short-circuit side of `&&`/`||` - that shape diverges between
-backends. Restructure into plain `if`/`else` statements, where both
-evaluators sequence identically. When you hit a refusal, restructure;
-never work around it.
+on the short-circuit side of `&&`/`||` - **draw order has to be
+structural, readable off the source rather than off a condition**, and
+a draw whose execution depends on how an expression evaluates is not.
+Restructure into plain `if`/`else` statements, where both evaluators
+sequence identically. When you hit a refusal, restructure; never work
+around it.
+
+The reason above is not a JS/GLSL semantics gap, and it used to be
+written as one. **GLSL short-circuits.** §5.9: "And (&&) will only
+evaluate the right hand operand if the left hand operand evaluated to
+true", the same for `||` on false, with `^^` named as the deliberate
+contrast; and of `?:`, "only one of the second and third expressions is
+evaluated". JS and GLSL agree on all three. What was actually observed
+- a side-effecting call inside a ternary evaluating differently on the
+D3D and GL backends - is a **translation artefact**, a translator
+flattening a conditional into unconditional evaluation of both sides,
+not a property of the shading language. The refusal stays anyway: it is
+free, and it keeps a plate's draw sequence a fact about its source
+instead of a fact about whichever translator is in the chain.
 
 Integer arithmetic: an int-typed expression divided with `/` refuses;
-use `Math.trunc(a / b)` for integer division. `%` between ints is int
-modulo; between floats it refuses - use `mod(x, y)` (GLSL semantics,
-always positive for positive y).
+use `Math.trunc(a / b)` for integer division. `%` between floats
+refuses, because GLSL has no float `%` at all - §5.9 makes it a type
+error, so such a shader does not compile rather than diverging.
+
+`mod(x, y)` is the usual substitute and **it is not a safe harbour**,
+which this file used to say it was. Its definition is exact - §8.3,
+"returns x - y · floor(x / y)" - but the note under that definition is
+not: implementations "may use a cheap approximation to the remainder",
+the error "can be large due to the discontinuity in floor", and the
+result "can also have a different sign than the infinitely precise
+result". So "always positive for positive y" is contradicted by the
+spec's own text, and `mod()` carries latitude of unbounded size. Where
+the modulus is by a power of two, write it out - `x - y * floor(x / y)`
+with `y = 2^k` - which is what the emitter itself does, and which is
+exact rather than merely usually right.
+
+`%` between ints is int modulo, and it is the one place the emitter
+still permits `%`. Watch the sign: GLSL leaves integer `%` **undefined
+if either operand is negative**, where JS is fully defined there
+(truncated, sign of the dividend). Keep both operands non-negative, or
+restructure.
 
 ## Vocabulary
 

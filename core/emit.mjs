@@ -683,7 +683,7 @@ export function emitWalk(pos, opts = {}) {
       }
       case "cond": {
         if (effectful(n.a) || effectful(n.b))
-          err("a stream draw inside a ternary branch would diverge across backends; hoist the draw", n.line);
+          err("a stream draw inside a ternary branch is conditional on the test; draw order must be structural, so hoist the draw", n.line);
         const c = emit(n.c), a = emit(n.a), b = emit(n.b);
         const ty = a.type === "int" && b.type === "int" ? "int" : "float";
         const ca = ty === "float" ? asFloat(a) : a.code;
@@ -692,7 +692,7 @@ export function emitWalk(pos, opts = {}) {
       }
       case "bin": {
         if ((n.op === "&&" || n.op === "||") && effectful(n.r))
-          err(`a stream draw on the right of ${n.op} is skipped by short-circuit in JS but not in GLSL; hoist the draw`, n.line);
+          err(`a stream draw on the right of ${n.op} is conditional on the left operand; draw order must be structural, so hoist the draw`, n.line);
         const l = emit(n.l);
         const r = emit(n.r);
         if (n.op === "&&" || n.op === "||")
@@ -1982,7 +1982,9 @@ export function emitWalk(pos, opts = {}) {
   // and vec3 locals; ints and uints carry exact arithmetic already and
   // GLSL does not admit the qualifier on them.
   //
-  // NOTE FOR PHASE 5: `precise` needs GLSL 4.20, and PrettyCloud is
+  // NOTE FOR PHASE 5: `precise` needs GLSL 4.00 (ARB_gpu_shader5
+  // back-ports it to 1.50 - measured wrong as 4.20 until the spec
+  // was actually opened, 2026-08-27), and PrettyCloud is
   // WebGL2 (GLSL ES 3.00), which has no such qualifier. The darkroom
   // already solves this by ADDING precise during the bake for exactly
   // this reason. So pinned-with-precise is the print path's text, not

@@ -186,11 +186,21 @@ plate's own GLSL.
 - **No `log2`.** Say `Math.log(x) / Math.log(2.0)`; the identity holds
   to 4e-15 and touches only palette arguments in the plates that want
   it.
-- **No `inversesqrt`.** Say `1.0 / Math.sqrt(s)`, inside the 2 ULP
-  GLSL ES allows anyway.
-- **No `radians()`.** Say `x * PI / 180.0`, which is the spec's own
-  definition. Worst measured cost 8.9e-12 absolute at the most extreme
-  lever setting.
+- **No `inversesqrt`.** Say `1.0 / Math.sqrt(s)`, inside the 2 ULP the
+  spec allows anyway — **§4.7.1** "Range and Precision", precision
+  table, row `inversesqrt()`. Not a GLSL ES concession: GLSL 4.60.8 and
+  ESSL 3.20.8 carry the identical row. The same table is worth reading
+  for what it does *not* promise: `sqrt()` is "inherited from
+  `1.0 / inversesqrt()`", so it is not required to be correctly rounded
+  either, which is why `det_sqrt` iterates.
+- **No `radians()`.** Say `x * PI / 180.0`, which is **equivalent to**
+  the spec's definition rather than identical to it: **§8.1** gives
+  `radians()` as "converts degrees to radians, i.e., (π / 180) ·
+  degrees" — the division first, then the multiply, where the
+  substitute associates as `(x * PI) / 180.0` and rounds twice in the
+  other order. Same quantity, other association. Worst measured cost
+  8.9e-12 absolute at the most extreme lever setting, which is the size
+  a reassociation of that shape produces.
 - **No `isnan`/`isinf`.** Ask for finiteness instead: `Math.abs(x) <
   1e30` excludes NaN and Inf in both JS and GLSL. In the two plates
   that gate on it the branch proved unreachable in lawful lever space

@@ -189,7 +189,7 @@ catch it.
 ## Gaps this opens for Phase 2
 
 `core/emit.mjs` maps `Math.*` to GLSL builtins at one line
-([emit.mjs:581](../core/emit.mjs)). Six reachable builtins have **no
+([emit.mjs:1184](../core/emit.mjs)). Six reachable builtins have **no
 deterministic form** in the det library:
 
 ```
@@ -217,3 +217,161 @@ Those are whole-function properties and they belong to Phase 2, when
 the det library moves into the engine and can be emulated end to end.
 Said here so the record cannot be read as claiming more than it
 measured.
+
+## 2026-08-27 — provenance closed from sources in hand
+
+Written by the citations program, round 2. The research is in
+`atlas-darkroom/docs/sources/dossiers/det-kernels-minimax.md`; this
+section says what moved in `core/constants.json` and — more usefully —
+what deliberately did not. **No bit pattern, decimal, coefficient,
+domain or bound was touched.** `verify-constants.py` prints byte-for-byte
+the report it printed before the edit.
+
+### What flipped
+
+Eighteen fitted coefficients stopped citing themselves and started
+citing a source somebody opened.
+
+| set | was | is |
+|---|---|---|
+| `SS1`–`SS3`, `CC1`–`CC3` | "cephes single-precision sin/cos kernel (Moshier) … cited from ubiquity, not from a copy of `sinf.c` in hand" | Moshier, *Cephes Mathematical Library*, `single/sinf.c`, Release 2.2 (June 1992), the `sincof[]`/`coscof[]` arrays |
+| `E2P0`–`E2P5` | the same admission, naming the same wrong file | Moshier, `single/exp2f.c`, Release 2.2, `static float P[]` |
+| `AT0`–`AT5` | "unattributed … no attribution I can stand behind, so none is asserted" | Hastings, *Approximations for Digital Computers*, RAND / Princeton, 1955, **Sheet 11, p. 135**, C1–C11 |
+
+Each of the eighteen gained a `copy_checked` field naming the copies
+actually read and when: two independent mirrors of the Cephes 2.2
+single-precision distribution for the twelve, page images of a scanned
+copy of Hastings for the six. All eighteen match **digit for digit and
+on the exact decimal expansion** — 12/12 and 6/6, on both fields.
+
+Three corroborations the record could not previously make are now in it.
+Cephes' evaluation *form* and *domain* match the op lists `sin_kernel`,
+`cos_kernel` and `exp2_kernel` already state. Hastings' `-1 ≤ X ≤ 1` is
+`atan_kernel`'s `[0, 1]` by oddness. And cephes `atanf.c` — the obvious
+guess for `AT0`–`AT5` — is **ruled out at the source rather than from
+memory**: four terms, a different interval, an implicit leading 1.
+
+`E2P5` gained a note of its own. It shares `LN2`'s bit pattern
+`0x3F317218` by **coincidence, not derivation** — cephes' fitted leading
+coefficient happens to round to the same float32 as ln 2, and the two
+stay separate entries because their provenance is separate.
+
+### What deliberately did not flip
+
+**1. `verified_against_source` is still `false` on all eighteen.** Not
+an oversight and not modesty. In this record that flag means *level 2
+re-derives the value on every run*, and level 1 enforces exactly that:
+
+```
+if c["kind"] == "fitted" and src.get("verified_against_source"):
+    "claims a verified source but is fitted - if that is true,
+     say which copy was checked"
+```
+
+Setting it would fail LEVEL 1 eighteen times. It would also void
+negative control 7, `lie_about_verification(E2P3)`, whose entire
+mutation is to set that flag: on a record where it is already set, the
+control mutates nothing and catches nothing. So the flag stays where the
+checker can still use it, the copy that *was* checked is named in
+`copy_checked` — which is what level 1's own message asks for — and the
+archival match is carried in prose. Moving the flag needs a change to
+`verify-constants.py` **and** a replacement for control 7. That is an
+operator's decision, not a citation pass's.
+
+**2. The `minimax` claims stand exactly where finding 4 left them.** The
+words `minimax`, `Remes` and `Remez` appear **nowhere** in `sinf.c` or
+`exp2f.c`. The source establishes the values, the form and the domain,
+and asserts a *measured* peak error — not an optimality proof. So the
+archival lookup upgrades transcription and leaves the characterisation
+on the equioscillation test, which still reports **INCONCLUSIVE** for
+sin, cos and exp2 and **SUPPORTED** only for atan. The record and the
+source now agree about what is *not* known, which is the stronger
+outcome.
+
+Hastings carries the same caveat from the other side: the preface frames
+the work as best approximation in the sense of Chebyshev *and* describes
+the investigation as numerical and empirical. A graphically tuned
+Chebyshev fit, not a Remez computation with a certificate.
+`atan_kernel`'s 29× clearance over the rounding floor remains the
+load-bearing evidence; the citation does not replace it.
+
+### The two drifts — recorded, not reconciled
+
+`UPSTREAM fitted vs darkroom` **FAILS with 19 problems**, and was
+failing before this pass. It is one gate over two independent drifts:
+
+| | this record (sealed) | darkroom `tools/determinism/gendetlib.py` |
+|---|---|---|
+| **atan**, refit 2026-08-25 | `AT0`–`AT5`, Hastings, an **absolute**-error fit | `ATQ0`–`ATQ7`, `atan(r) = r + r·z·q(z)`, refitted for **relative** error |
+| **reduction**, adopted 2026-08-24 | `PIO2_1..3`, three limbs, `SINCOS_LIM` = 6 588 397 (2²²·π/2) | `PIO2_1..4`, **four** limbs with the low 15 bits of the first three zeroed, `SINCOS_LIM` = 51 471.85 (2¹⁵·π/2) |
+
+19 = three limb mismatches + `SINCOS_LIM` + six `AT*` with no upstream
++ one `PIO2_4` and eight `ATQ*` that upstream has and the record does
+not.
+
+Two things worth saying plainly. The darkroom's `PIO2_1..4` *are* the
+four constants the dossier verified against Jason Davies, "Accurate
+sin/cos/tan on Tenstorrent" (2026-02-23) — `0x3FC90000`, `0x39FD8000`,
+`0x34A88000`, `0x2E85A309`, 4/4 — so **those four have no entry in this
+record at all**; they exist only upstream, and nothing here needed
+their provenance. And the record still calls the four-limb form a
+prototype while the deployed darkroom has adopted it.
+
+Reconciling either side moves bit patterns, breaks the seal and retires
+the census bundle. That is not a citation decision. It is recorded here
+and in the `note` fields of `PIO2_1`, `PIO2_2`, `PIO2_3`, `SINCOS_LIM`
+and `AT0`–`AT5`, so the next reader finds the reason rather than the
+absence.
+
+### The seal did not move — and the seeder now says it did
+
+`digest_of()` hashes `name:BITS` and nothing else, so prose is outside
+the seal by construction. Recomputed the checker's way after the edit:
+unchanged at `sha256:9c9d3f12…`, **SEAL PASS**. Nothing needed
+re-pinning and `seed-constants.py` was never run in a writing mode.
+
+**Do not run `seed-constants.py --force` to quiet it.** The seeder
+carries its own copy of the provenance strings and now reports 65
+differences — all 65 prose, none numeric — under the advice *"--force to
+accept this script's version"*. Taking that advice reverts every
+citation in this section. Re-syncing means editing `CEPHES_SIN`,
+`CEPHES_EXP2` and `ATAN_SRC` in `tools/seed-constants.py` to match the
+record, which was out of scope for this pass and is the one remaining
+piece of work it leaves behind.
+
+### Checker results
+
+| check | before the edit | after |
+|---|---|---|
+| LEVEL 1 provenance | PASS | PASS |
+| LEVEL 2 transcription | PASS | PASS |
+| SEAL bit patterns | PASS | PASS, same digest |
+| UPSTREAM fitted vs darkroom | **FAIL (19)** | **FAIL (19)**, identical list |
+| JS side `oracle.mjs` | PASS | PASS |
+| derived properties | 3 of 3 ok | 3 of 3 ok |
+| LEVEL 3 bounds | every kernel inside its promise | unchanged |
+
+`verify-negative-controls.py` **cannot run at all**, and could not
+before this pass either. Its first gate requires an untouched copy of
+the record to make the checker exit 0; the upstream drift makes it exit
+1, so the script prints `[BROKEN] untouched copy still passes (rc=1)`
+and returns 2 **without running a single control**. All nine have been
+dark for as long as the upstream gate has been failing — the drift's
+real cost, and it is larger than the mismatch list suggests. The two
+controls that touch LEVEL 1, the only level a provenance edit could
+weaken, were re-run in isolation against the edited record and both are
+still caught: `SS1: missing ['source']` and `E2P3: claims a verified
+source but is fitted`.
+
+### Stale lines noticed in passing
+
+- `emit.mjs:581` for the `Math.*` map is **corrected to `emit.mjs:1184`**
+  above, line number verified in the current file.
+- That same paragraph still lists **six** builtins with no deterministic
+  form. `oracle.mjs`'s `UNCOVERED` is down to `round` and `sign`;
+  `asin`, `sinh`, `cosh` and `tanh` left it on 2026-08-22. Left as
+  written — correcting a claim is not a pointer fix.
+- *"All 36 bit patterns match the darkroom's deployed `gendetlib.py`"*
+  near the top of this document is **no longer true**, and the count is
+  37 (36 with upstream counterparts; `LN2` is engine-only). See the
+  drift table. Left as written, for the same reason.

@@ -48,7 +48,7 @@ const LOOSE = [
 // the check: it is where a future reader learns what "pinned" does not
 // yet cover.
 const ADMITTED = {
-  floor: "exact on every conforming implementation",
+  floor: "exact by arithmetic, not by spec grant (4.7.1 gives builtins no precision)",
   abs: "sign-bit clear, exact",
   min: "exact selection",
   max: "exact selection",

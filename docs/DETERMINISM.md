@@ -283,8 +283,10 @@ Three things the work turned up:
 
 **`Math.round` was already wrong, before any determinism question.**
 JS rounds a half toward +∞; GLSL says a 0.5 fraction "will round in a
-direction chosen by the implementation". It is both a JS/GLSL mismatch
-and a parity hazard, and it now emits `floor(x + 0.5)` — exactly what
+direction chosen by the implementation" (§8.3, `round()`; the sentence
+continues that an implementation may return `roundEven(x)` for every
+`x`, which is the sharpest form of the hazard). It is both a JS/GLSL
+mismatch and a parity hazard, and it now emits `floor(x + 0.5)` — exactly what
 JS does — unconditionally, because a correctness fix does not wait for
 a flag.
 
@@ -348,7 +350,9 @@ It took five things, and each was found rather than designed:
 1. **`precise` on every declared local** — 12/50 → 46/50.
 2. **Operand hoisting**, because `precise` on the destination does not
    stop radeonsi cancelling `(A - level) - (B - level)` into `A - B`.
-   That closed `tpms`.
+   That closed `tpms`. (The *reason* stated there was corrected
+   2026-08-27 — see the note under `tpms` below. The cancellation is
+   non-conformant, and the hoisting is stronger for it, not weaker.)
 3. **Pinned twins for the registry's shared header** — `det_pal`,
    `det_cmul`, `det_cdiv`, `det_cinv`, `det_csqrt` — so an emitted
    plate no longer reaches an unpinned `cos()` at one remove. 38 of 54
@@ -377,6 +381,17 @@ It took five things, and each was found rather than designed:
    `precise` as reaching through the comparison and Mesa did not; the
    binding removes the need for either reading.
 
+   **Note, 2026-08-27.** This one was reached by inference — a bool
+   cannot be `precise` — and the spec states it outright, so the
+   footing is firmer than it was written: §4.9's "Unaffected expressions
+   also include the controlling expressions in selection and iteration
+   statements and the condition in ternary operators (?:)", repeated in
+   the 4.60 changelog. Note the exclusion is **wider than what was
+   closed here**: `if`/`while`/`for` controlling expressions and `?:`
+   conditions are unprotected on exactly the same footing as
+   comparisons. `verify-pinned` covers the comparison shape; whether it
+   covers those two is unchecked, and it should be.
+
 And then the last plate found a defect in the det library itself. See
 below.
 
@@ -390,6 +405,21 @@ backend is correct, and llvmpipe fails identically on Mesa 24.0.5/LLVM
 17 and 26.1.7/LLVM 20. It is llvmpipe's own lowering, so no GPU is at
 risk. Bug report drafted in the darkroom at
 `docs/bug-reports/mesa-llvmpipe-fma-not-single-rounded.md`.
+
+**The clause, quote-verified 2026-08-26.** The guarantee is **GLSL
+4.60.8 §8.3 "Common Functions"**, the `fma()` entry — "in uses where
+the return value is eventually consumed by a variable declared as
+precise: fma() is considered a single operation" — word-identical at
+**ESSL 3.20.8 §8.3**. The locator is §8.3, *not* the §8.2 the drafted
+reports carry: §8.2 is "Exponential Functions" and contains no `fma`,
+so a maintainer who opens it finds nothing. And the reading has a
+counterweight in the same document: §4.7.1's precision table gives
+`a * b + c` the row "correctly rounded single operation **or sequence
+of two correctly rounded operations**", and gives `fma()` the row
+"inherited from `a * b + c`" — read alone, that licenses exactly the
+collapse measured here. Which is why the exclusion above is a
+measurement about llvmpipe and the filing is a request, not a
+conformance claim.
 
 **What is still not met.** This is the shape function over 65,536
 samples, not integer deposit counts over a full supertile — stronger
@@ -424,6 +454,28 @@ from the other end — `shader.py` says *"never hand a compound
 expression to a function the bake will rename. Bind it to a local
 first."*
 
+**Note, 2026-08-27 — the spec reading above is backwards, and the
+practice is stronger for it.** GLSL 4.60.8 §4.9 "The Precise Qualifier"
+says the qualifier "ensures that operations contributing to a
+variable's value are done in their stated order and with operator
+consistency", and scopes that to the whole contributing chain inside
+the function: it affects an r-value "if and only if the result is
+eventually consumed in the same function by an l-value qualified as
+`precise`". An inline `(A - level) - (B - level)` assigned to a
+`precise` local meets that condition exactly, so both subtractions must
+stand. **radeonsi's cancellation is therefore non-conformant, not a
+freedom the spec grants** — the opposite of what this section assumed.
+
+Nothing measured here changes; only the reason does, and it changes in
+the direction that makes the discipline load-bearing rather than
+belt-and-braces. Operand hoisting is not a workaround for a licence the
+spec hands drivers, it is a defence against a driver bug nobody has
+filed. Filing it against Mesa is a darkroom task, and it is the sixth
+report — one that has been sitting inside a claim this project had
+shelved under "things the spec allows". Quote-verified against GLSL
+4.60.8 §4.9, word-identical at ESSL 3.20.8 §4.9;
+`atlas-darkroom/docs/sources/dossiers/det-glsl-precise-fma.md`, DET-A2.
+
 **`hyper` — the det library was missing `precise` on its own `fma`.**
 `tools/firstdiff.py` instruments every `precise float` declaration in
 an emitted plate to write itself to an output slot, runs it on two
@@ -434,7 +486,13 @@ its input agreed.
 `det_acos` and `det_mod` were written as one-liners whose `fma` result
 carried **no qualifier** — and an unqualified `fma` is single-rounded
 on NVIDIA and iris and is not on radeonsi. The guarantee the whole
-library rests on, left off two of the library's own functions.
+library rests on, left off two of the library's own functions. And it
+is a *conditional* guarantee, which is why leaving it off forfeits it
+entirely: GLSL 4.60.8 §8.3 grants single rounding only under precise
+consumption and says that otherwise "there are no special constraints
+on the number of operations or difference in precision between fma()
+and the expression a*b + c". radeonsi was conforming at these two
+sites; NVIDIA and iris were being generous.
 Measured: `det_mod` on radeonsi differed from the qualified form on
 27,871 of 65,536 inputs.
 
@@ -501,6 +559,17 @@ region is put back verbatim. The camera around it still converts. Two
 variants are needed: `vs`/`fs` are `#version 330`, where `precise` is a
 syntax error, so the unpinned emitted GLSL goes to the preview path and
 the pinned one to compute.
+
+**Note, 2026-08-27 — true of a *bare* `#version 330`, and only that.**
+GLSL 3.30 contains the word `precise` zero times, so the split above is
+right as built. But the version bar this project has recorded elsewhere
+is two releases too high: the qualifier arrives in **GLSL 4.00 §4.7
+"The Precise Qualifier"** — not 4.20, which merely renumbered it to
+§4.9 — and **`ARB_gpu_shader5` back-ports it to GLSL 1.50**. So one
+`#extension GL_ARB_gpu_shader5 : require` line, or moving to
+`#version 400`, reaches `precise` on the raster path today. That path's
+arithmetic is an unmeasured determinism surface, not a closed door, and
+any statement that it "cannot be pinned at all" should be retired.
 
 Three plates chosen *because they already diverge*, at the `cpu` rung,
 against a control of the same three from the registry baked the same
@@ -616,9 +685,13 @@ out, not to confirm.
 
 **Bit-identity across drivers may not be reachable for every
 operation.** Some GLSL builtins have spec-permitted ULP latitude that
-no amount of pinning removes short of reimplementing them — which is
-what `det_*` does, at a cost in speed. If a construct cannot be pinned,
-the honest outcome is refusal, and the language gets smaller.
+no amount of pinning removes short of reimplementing them — §4.7.1
+"Range and Precision", both the table (`inversesqrt` 2 ULP, `/` 2.5
+ULP) and the paragraph after it, which gives every builtin *not* in the
+table "undefined precision" and names the trigonometric functions as
+its example. Reimplementing is what `det_*` does, at a cost in speed.
+If a construct cannot be pinned, the honest outcome is refusal, and the
+language gets smaller.
 
 **Coverage is not there.** 54 of 68 plates convert. Four are blocked on
 two genuinely missing language features. A full deterministic corpus
@@ -644,6 +717,69 @@ anyway — see the note under Phase 1. The answer: no float32 stack is
 meaningfully the accurate one, llvmpipe is not the CPU reference the
 question assumed, and `det_*` rather than a chosen column is the way
 out.
+
+## Sources
+
+Every clause this document leans on, quote-verified 2026-08-26 against
+the retrieved text rather than from memory. Section numbers are as
+printed in the revision named.
+
+**GLSL 4.60.8** (The OpenGL® Shading Language, 14 Aug 2023, Khronos
+registry mirror):
+
+- **§4.9 "The Precise Qualifier"** — what `precise` guarantees, and how
+  far it reaches. Order and operator consistency over the whole
+  contributing chain in the function, "if and only if the result is
+  eventually consumed in the same function by an l-value qualified as
+  `precise`"; the named prohibition on `a * b + c` becoming `fma(a, b,
+  c)`; and the explicit exclusion of control-flow conditions and `?:`
+  conditions. §12.2.7 gives the lowering the rest of the stack depends
+  on: `precise -> NoContraction`.
+- **§8.3 "Common Functions"** — the `fma()` note, single-rounding only
+  under precise consumption and "no special constraints" without it.
+  **Not §8.2**, which is "Exponential Functions" and has no `fma`; the
+  drafted bug reports carry the wrong locator and want correcting
+  before filing. §8.3 also holds `round()`'s implementation-chosen half,
+  `fract` as `x - floor(x)`, `mix` as `x·(1−a) + y·a`, and the `mod()`
+  warning quoted in `CONVERSION.md`.
+- **§4.7.1 "Range and Precision"** — the latitude table (`+ − ×`
+  correctly rounded; `/` 2.5 ULP, but only for `|b|` inside
+  [2⁻¹²⁶, 2¹²⁶]; `inversesqrt` 2 ULP; `sqrt` inherited from it), the
+  paragraph giving every unlisted builtin undefined precision, the
+  denormal-flush permission, and the `a * b + c` row that cuts against
+  the §8.3 fma reading.
+
+**ESSL 3.20.8** (The OpenGL ES® Shading Language, same date) — checked
+clause by clause and **word-identical** for every one used above:
+§4.7.1, §4.9, §5.4.1, §5.9, §6.1, §8.3 including both the `fma()` note
+and the `mod()` warning. Where this project cites one spec it may cite
+both. Below 3.20 the qualifier is absent: ESSL 3.00 (WebGL2) has no
+`precise` at all, and 3.10 reserves it pending `EXT_gpu_shader5`.
+
+**SPIR-V / Vulkan.** SPIR-V's `NoContraction` decoration is what
+`precise` becomes, and it is narrower than the GLSL qualifier: it says
+"apply only to an arithmetic instruction", and `OpExtInst` — which is
+how `GLSL.std.450 Fma` is issued — is not one. glslang never decorates
+the fma extended instruction at all.
+
+**Name the inheritance finding, because whole columns of the stack
+table sit under it:** in the Vulkan environment for SPIR-V, the
+precision table defines `fma()` as **"inherited from OpFMul followed by
+OpFAdd"**, and GLSL.std.450 defines `Fma` as the bare sentence
+"computes a * b + c". **At the Vulkan layer there is no single-rounding
+requirement on `fma()` whatever** — a stack that computes it as a
+multiply then an add is conforming. Every **zink** row (GL-on-Vulkan)
+and every **ANGLE**-on-Vulkan row is judged by that rulebook and not by
+GLSL 4.60 §8.3, so a divergence there is not evidence of the same fault
+the desktop-GL columns show. `OpFmaKHR`, under `VK_KHR_shader_fma`, is
+the one correctly-rounded fma the Vulkan layer offers, and is worth a
+capability probe across the matrix.
+
+**The dossiers.** Full entries, verbatim quotes with locators and
+stances, in the darkroom at **`docs/sources/dossiers/`** — principally
+`det-glsl-precise-fma.md` (the spec verdicts) and `det-spirv-vulkan.md`
+(the Vulkan layer), with `docs/sources/PLAN.md` carrying the findings
+queue and `docs/sources/registry.md` the claim ledger.
 
 Next is **Phase 2**: route `emit.mjs` through the pinned set. Phase 0
 left it a concrete starting list — six builtins the emitter can reach

@@ -197,7 +197,7 @@
         "verified_against_source": true
       },
       "expr": "f32(f64(pi/2))",
-      "note": "limb 1 of 3 of pi/2"
+      "note": "limb 1 of 3 of pi/2. UPSTREAM DRIFT, recorded and not reconciled: since 2026-08-24 atlas-darkroom gendetlib.py emits a FOUR-limb Cody-Waite split (PIO2_1..PIO2_4) with the low 15 bits of the first three zeroed, after Jason Davies, 'Accurate sin/cos/tan on Tenstorrent', 2026-02-23. Its first limb is 0x3FC90000, so cross_check_upstream reports a mismatch against this one. This record keeps the three-limb split it sealed and calls the four-limb form a prototype; adopting it moves bit patterns, which is an operator's decision. See docs/CONSTANTS-FINDINGS.md."
     },
     "PIO2_2": {
       "bits": "0xB33BBD2E",
@@ -209,7 +209,7 @@
         "verified_against_source": true
       },
       "expr": "f32(f64(pi/2) - f64(PIO2_1))",
-      "note": "limb 2 of 3"
+      "note": "limb 2 of 3. Same upstream drift as PIO2_1: the darkroom's second limb is the truncated 0x39FD8000."
     },
     "PIO2_3": {
       "bits": "0xA7000000",
@@ -221,7 +221,7 @@
         "verified_against_source": true
       },
       "expr": "f32(f64(pi/2) - f64(PIO2_1) - f64(PIO2_2))",
-      "note": "limb 3 of 3. The chain starts at the float64 pi/2, which is what caps the split's accuracy - measured, not assumed, in verify-constants.py"
+      "note": "limb 3 of 3. The chain starts at the float64 pi/2, which is what caps the split's accuracy - measured, not assumed, in verify-constants.py. Same upstream drift as PIO2_1: the darkroom's third limb is the truncated 0x34A88000, and it carries a fourth, PIO2_4 = 0x2E85A309, for which this record has no entry at all."
     },
     "SINCOS_LIM": {
       "bits": "0x4AC90FDA",
@@ -234,7 +234,7 @@
       },
       "expr": "nextafter(f32(2**22 * f64(pi/2)), 0)",
       "domain_role": "upper bound on |x| for det_sincos",
-      "note": "rounded toward zero so the admitted set is a subset of the exactly-reducible one, not one ulp past it"
+      "note": "rounded toward zero so the admitted set is a subset of the exactly-reducible one, not one ulp past it. UPSTREAM DRIFT, recorded and not reconciled: the darkroom now pins this at nextafter(f32(2**15 * pi/2), 0) = 51471.85 (0x47490FDA), because the four-limb split's products stay exactly representable only while |k| < 2**15 - a 128x smaller domain, bought to make the reduction fma-free. This record keeps 2**22 * pi/2 = 6588397, and the two are not reconciled here. See docs/CONSTANTS-FINDINGS.md."
     },
     "SS1": {
       "bits": "0xBE2AAAA3",
@@ -242,10 +242,11 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "cephes single-precision sin/cos kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "text": "Stephen L. Moshier, Cephes Mathematical Library, single/sinf.c, Release 2.2 (June 1992) - the sincof[] and coscof[] float arrays; carried into this record through atlas-darkroom tools/determinism/gendetlib.py",
         "claimed": "minimax on the reduced interval |r| <= pi/4",
+        "copy_checked": "sinf.c read 2026-08-26 from two independent mirrors of the Cephes 2.2 single-precision distribution (netlib.org/cephes, single.tgz): raw.githubusercontent.com/jeremybarnes/cephes/master/single/sinf.c and docs.rs/crate/special-fun/latest/source/cephes-single/sinf.c",
         "verified_against_source": false,
-        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+        "note": "A copy of sinf.c IS in hand now, so the old 'cited from ubiquity' admission is retired: all six published decimals were read on 2026-08-26 and each rounds to the bit pattern above AND to its exact decimal - 6/6 on both fields. Domain and evaluation form match too: the header gives sine as x + x**3 P(x**2) and cosine as 1 - x**2 Q(x**2) between 0 and pi/4, which is the op list sin_kernel and cos_kernel run. What the source does NOT say is minimax - the words minimax, Remes and Remez appear nowhere in sinf.c, and cephes states a measured peak error rather than an optimality proof - so `claimed` above still rests on the equioscillation test in verify-constants.py, which reports INCONCLUSIVE for this kernel. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
       }
     },
     "SS2": {
@@ -254,10 +255,11 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "cephes single-precision sin/cos kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "text": "Stephen L. Moshier, Cephes Mathematical Library, single/sinf.c, Release 2.2 (June 1992) - the sincof[] and coscof[] float arrays; carried into this record through atlas-darkroom tools/determinism/gendetlib.py",
         "claimed": "minimax on the reduced interval |r| <= pi/4",
+        "copy_checked": "sinf.c read 2026-08-26 from two independent mirrors of the Cephes 2.2 single-precision distribution (netlib.org/cephes, single.tgz): raw.githubusercontent.com/jeremybarnes/cephes/master/single/sinf.c and docs.rs/crate/special-fun/latest/source/cephes-single/sinf.c",
         "verified_against_source": false,
-        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+        "note": "A copy of sinf.c IS in hand now, so the old 'cited from ubiquity' admission is retired: all six published decimals were read on 2026-08-26 and each rounds to the bit pattern above AND to its exact decimal - 6/6 on both fields. Domain and evaluation form match too: the header gives sine as x + x**3 P(x**2) and cosine as 1 - x**2 Q(x**2) between 0 and pi/4, which is the op list sin_kernel and cos_kernel run. What the source does NOT say is minimax - the words minimax, Remes and Remez appear nowhere in sinf.c, and cephes states a measured peak error rather than an optimality proof - so `claimed` above still rests on the equioscillation test in verify-constants.py, which reports INCONCLUSIVE for this kernel. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
       }
     },
     "SS3": {
@@ -266,10 +268,11 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "cephes single-precision sin/cos kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "text": "Stephen L. Moshier, Cephes Mathematical Library, single/sinf.c, Release 2.2 (June 1992) - the sincof[] and coscof[] float arrays; carried into this record through atlas-darkroom tools/determinism/gendetlib.py",
         "claimed": "minimax on the reduced interval |r| <= pi/4",
+        "copy_checked": "sinf.c read 2026-08-26 from two independent mirrors of the Cephes 2.2 single-precision distribution (netlib.org/cephes, single.tgz): raw.githubusercontent.com/jeremybarnes/cephes/master/single/sinf.c and docs.rs/crate/special-fun/latest/source/cephes-single/sinf.c",
         "verified_against_source": false,
-        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+        "note": "A copy of sinf.c IS in hand now, so the old 'cited from ubiquity' admission is retired: all six published decimals were read on 2026-08-26 and each rounds to the bit pattern above AND to its exact decimal - 6/6 on both fields. Domain and evaluation form match too: the header gives sine as x + x**3 P(x**2) and cosine as 1 - x**2 Q(x**2) between 0 and pi/4, which is the op list sin_kernel and cos_kernel run. What the source does NOT say is minimax - the words minimax, Remes and Remez appear nowhere in sinf.c, and cephes states a measured peak error rather than an optimality proof - so `claimed` above still rests on the equioscillation test in verify-constants.py, which reports INCONCLUSIVE for this kernel. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
       }
     },
     "CC1": {
@@ -278,10 +281,11 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "cephes single-precision sin/cos kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "text": "Stephen L. Moshier, Cephes Mathematical Library, single/sinf.c, Release 2.2 (June 1992) - the sincof[] and coscof[] float arrays; carried into this record through atlas-darkroom tools/determinism/gendetlib.py",
         "claimed": "minimax on the reduced interval |r| <= pi/4",
+        "copy_checked": "sinf.c read 2026-08-26 from two independent mirrors of the Cephes 2.2 single-precision distribution (netlib.org/cephes, single.tgz): raw.githubusercontent.com/jeremybarnes/cephes/master/single/sinf.c and docs.rs/crate/special-fun/latest/source/cephes-single/sinf.c",
         "verified_against_source": false,
-        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+        "note": "A copy of sinf.c IS in hand now, so the old 'cited from ubiquity' admission is retired: all six published decimals were read on 2026-08-26 and each rounds to the bit pattern above AND to its exact decimal - 6/6 on both fields. Domain and evaluation form match too: the header gives sine as x + x**3 P(x**2) and cosine as 1 - x**2 Q(x**2) between 0 and pi/4, which is the op list sin_kernel and cos_kernel run. What the source does NOT say is minimax - the words minimax, Remes and Remez appear nowhere in sinf.c, and cephes states a measured peak error rather than an optimality proof - so `claimed` above still rests on the equioscillation test in verify-constants.py, which reports INCONCLUSIVE for this kernel. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
       }
     },
     "CC2": {
@@ -290,10 +294,11 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "cephes single-precision sin/cos kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "text": "Stephen L. Moshier, Cephes Mathematical Library, single/sinf.c, Release 2.2 (June 1992) - the sincof[] and coscof[] float arrays; carried into this record through atlas-darkroom tools/determinism/gendetlib.py",
         "claimed": "minimax on the reduced interval |r| <= pi/4",
+        "copy_checked": "sinf.c read 2026-08-26 from two independent mirrors of the Cephes 2.2 single-precision distribution (netlib.org/cephes, single.tgz): raw.githubusercontent.com/jeremybarnes/cephes/master/single/sinf.c and docs.rs/crate/special-fun/latest/source/cephes-single/sinf.c",
         "verified_against_source": false,
-        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+        "note": "A copy of sinf.c IS in hand now, so the old 'cited from ubiquity' admission is retired: all six published decimals were read on 2026-08-26 and each rounds to the bit pattern above AND to its exact decimal - 6/6 on both fields. Domain and evaluation form match too: the header gives sine as x + x**3 P(x**2) and cosine as 1 - x**2 Q(x**2) between 0 and pi/4, which is the op list sin_kernel and cos_kernel run. What the source does NOT say is minimax - the words minimax, Remes and Remez appear nowhere in sinf.c, and cephes states a measured peak error rather than an optimality proof - so `claimed` above still rests on the equioscillation test in verify-constants.py, which reports INCONCLUSIVE for this kernel. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
       }
     },
     "CC3": {
@@ -302,10 +307,11 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "cephes single-precision sin/cos kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "text": "Stephen L. Moshier, Cephes Mathematical Library, single/sinf.c, Release 2.2 (June 1992) - the sincof[] and coscof[] float arrays; carried into this record through atlas-darkroom tools/determinism/gendetlib.py",
         "claimed": "minimax on the reduced interval |r| <= pi/4",
+        "copy_checked": "sinf.c read 2026-08-26 from two independent mirrors of the Cephes 2.2 single-precision distribution (netlib.org/cephes, single.tgz): raw.githubusercontent.com/jeremybarnes/cephes/master/single/sinf.c and docs.rs/crate/special-fun/latest/source/cephes-single/sinf.c",
         "verified_against_source": false,
-        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+        "note": "A copy of sinf.c IS in hand now, so the old 'cited from ubiquity' admission is retired: all six published decimals were read on 2026-08-26 and each rounds to the bit pattern above AND to its exact decimal - 6/6 on both fields. Domain and evaluation form match too: the header gives sine as x + x**3 P(x**2) and cosine as 1 - x**2 Q(x**2) between 0 and pi/4, which is the op list sin_kernel and cos_kernel run. What the source does NOT say is minimax - the words minimax, Remes and Remez appear nowhere in sinf.c, and cephes states a measured peak error rather than an optimality proof - so `claimed` above still rests on the equioscillation test in verify-constants.py, which reports INCONCLUSIVE for this kernel. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
       }
     },
     "E2P0": {
@@ -314,10 +320,11 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "cephes single-precision exp2 kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "text": "Stephen L. Moshier, Cephes Mathematical Library, single/exp2f.c, Release 2.2 (June 1992) - the static float P[] array; carried into this record through atlas-darkroom tools/determinism/gendetlib.py",
         "claimed": "minimax on [-0.5, 0.5]",
+        "copy_checked": "exp2f.c read 2026-08-26 from two independent mirrors of the Cephes 2.2 single-precision distribution (netlib.org/cephes, single.tgz): raw.githubusercontent.com/jeremybarnes/cephes/master/single/exp2f.c and docs.rs/crate/special-fun/latest/source/cephes-single/exp2f.c",
         "verified_against_source": false,
-        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+        "note": "A copy of exp2f.c IS in hand now, so the old 'cited from ubiquity' admission is retired: all six published decimals of P[] were read on 2026-08-26 and each rounds to the bit pattern above AND to its exact decimal - 6/6 on both fields. The domain is confirmed at the source - the header puts the polynomial for 2**x in the basic range [-0.5, 0.5] - and so is the form, 2**x = 1 + x P(x) by Horner, which is exp2_kernel's op list. What the source does NOT say is minimax - the words minimax, Remes and Remez appear nowhere in exp2f.c; its ACCURACY table gives a measured RELATIVE peak of 1.7e-7 over the whole reconstructed range, which is a different quantity from the fit_abs_max recorded here and does not contradict it - so `claimed` above still rests on the equioscillation test in verify-constants.py, which reports INCONCLUSIVE for this kernel. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
       }
     },
     "E2P1": {
@@ -326,10 +333,11 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "cephes single-precision exp2 kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "text": "Stephen L. Moshier, Cephes Mathematical Library, single/exp2f.c, Release 2.2 (June 1992) - the static float P[] array; carried into this record through atlas-darkroom tools/determinism/gendetlib.py",
         "claimed": "minimax on [-0.5, 0.5]",
+        "copy_checked": "exp2f.c read 2026-08-26 from two independent mirrors of the Cephes 2.2 single-precision distribution (netlib.org/cephes, single.tgz): raw.githubusercontent.com/jeremybarnes/cephes/master/single/exp2f.c and docs.rs/crate/special-fun/latest/source/cephes-single/exp2f.c",
         "verified_against_source": false,
-        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+        "note": "A copy of exp2f.c IS in hand now, so the old 'cited from ubiquity' admission is retired: all six published decimals of P[] were read on 2026-08-26 and each rounds to the bit pattern above AND to its exact decimal - 6/6 on both fields. The domain is confirmed at the source - the header puts the polynomial for 2**x in the basic range [-0.5, 0.5] - and so is the form, 2**x = 1 + x P(x) by Horner, which is exp2_kernel's op list. What the source does NOT say is minimax - the words minimax, Remes and Remez appear nowhere in exp2f.c; its ACCURACY table gives a measured RELATIVE peak of 1.7e-7 over the whole reconstructed range, which is a different quantity from the fit_abs_max recorded here and does not contradict it - so `claimed` above still rests on the equioscillation test in verify-constants.py, which reports INCONCLUSIVE for this kernel. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
       }
     },
     "E2P2": {
@@ -338,10 +346,11 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "cephes single-precision exp2 kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "text": "Stephen L. Moshier, Cephes Mathematical Library, single/exp2f.c, Release 2.2 (June 1992) - the static float P[] array; carried into this record through atlas-darkroom tools/determinism/gendetlib.py",
         "claimed": "minimax on [-0.5, 0.5]",
+        "copy_checked": "exp2f.c read 2026-08-26 from two independent mirrors of the Cephes 2.2 single-precision distribution (netlib.org/cephes, single.tgz): raw.githubusercontent.com/jeremybarnes/cephes/master/single/exp2f.c and docs.rs/crate/special-fun/latest/source/cephes-single/exp2f.c",
         "verified_against_source": false,
-        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+        "note": "A copy of exp2f.c IS in hand now, so the old 'cited from ubiquity' admission is retired: all six published decimals of P[] were read on 2026-08-26 and each rounds to the bit pattern above AND to its exact decimal - 6/6 on both fields. The domain is confirmed at the source - the header puts the polynomial for 2**x in the basic range [-0.5, 0.5] - and so is the form, 2**x = 1 + x P(x) by Horner, which is exp2_kernel's op list. What the source does NOT say is minimax - the words minimax, Remes and Remez appear nowhere in exp2f.c; its ACCURACY table gives a measured RELATIVE peak of 1.7e-7 over the whole reconstructed range, which is a different quantity from the fit_abs_max recorded here and does not contradict it - so `claimed` above still rests on the equioscillation test in verify-constants.py, which reports INCONCLUSIVE for this kernel. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
       }
     },
     "E2P3": {
@@ -350,10 +359,11 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "cephes single-precision exp2 kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "text": "Stephen L. Moshier, Cephes Mathematical Library, single/exp2f.c, Release 2.2 (June 1992) - the static float P[] array; carried into this record through atlas-darkroom tools/determinism/gendetlib.py",
         "claimed": "minimax on [-0.5, 0.5]",
+        "copy_checked": "exp2f.c read 2026-08-26 from two independent mirrors of the Cephes 2.2 single-precision distribution (netlib.org/cephes, single.tgz): raw.githubusercontent.com/jeremybarnes/cephes/master/single/exp2f.c and docs.rs/crate/special-fun/latest/source/cephes-single/exp2f.c",
         "verified_against_source": false,
-        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+        "note": "A copy of exp2f.c IS in hand now, so the old 'cited from ubiquity' admission is retired: all six published decimals of P[] were read on 2026-08-26 and each rounds to the bit pattern above AND to its exact decimal - 6/6 on both fields. The domain is confirmed at the source - the header puts the polynomial for 2**x in the basic range [-0.5, 0.5] - and so is the form, 2**x = 1 + x P(x) by Horner, which is exp2_kernel's op list. What the source does NOT say is minimax - the words minimax, Remes and Remez appear nowhere in exp2f.c; its ACCURACY table gives a measured RELATIVE peak of 1.7e-7 over the whole reconstructed range, which is a different quantity from the fit_abs_max recorded here and does not contradict it - so `claimed` above still rests on the equioscillation test in verify-constants.py, which reports INCONCLUSIVE for this kernel. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
       }
     },
     "E2P4": {
@@ -362,10 +372,11 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "cephes single-precision exp2 kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "text": "Stephen L. Moshier, Cephes Mathematical Library, single/exp2f.c, Release 2.2 (June 1992) - the static float P[] array; carried into this record through atlas-darkroom tools/determinism/gendetlib.py",
         "claimed": "minimax on [-0.5, 0.5]",
+        "copy_checked": "exp2f.c read 2026-08-26 from two independent mirrors of the Cephes 2.2 single-precision distribution (netlib.org/cephes, single.tgz): raw.githubusercontent.com/jeremybarnes/cephes/master/single/exp2f.c and docs.rs/crate/special-fun/latest/source/cephes-single/exp2f.c",
         "verified_against_source": false,
-        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
+        "note": "A copy of exp2f.c IS in hand now, so the old 'cited from ubiquity' admission is retired: all six published decimals of P[] were read on 2026-08-26 and each rounds to the bit pattern above AND to its exact decimal - 6/6 on both fields. The domain is confirmed at the source - the header puts the polynomial for 2**x in the basic range [-0.5, 0.5] - and so is the form, 2**x = 1 + x P(x) by Horner, which is exp2_kernel's op list. What the source does NOT say is minimax - the words minimax, Remes and Remez appear nowhere in exp2f.c; its ACCURACY table gives a measured RELATIVE peak of 1.7e-7 over the whole reconstructed range, which is a different quantity from the fit_abs_max recorded here and does not contradict it - so `claimed` above still rests on the equioscillation test in verify-constants.py, which reports INCONCLUSIVE for this kernel. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
       }
     },
     "E2P5": {
@@ -374,11 +385,13 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "cephes single-precision exp2 kernel (Moshier), as carried in atlas-darkroom tools/determinism/gendetlib.py",
+        "text": "Stephen L. Moshier, Cephes Mathematical Library, single/exp2f.c, Release 2.2 (June 1992) - the static float P[] array; carried into this record through atlas-darkroom tools/determinism/gendetlib.py",
         "claimed": "minimax on [-0.5, 0.5]",
+        "copy_checked": "exp2f.c read 2026-08-26 from two independent mirrors of the Cephes 2.2 single-precision distribution (netlib.org/cephes, single.tgz): raw.githubusercontent.com/jeremybarnes/cephes/master/single/exp2f.c and docs.rs/crate/special-fun/latest/source/cephes-single/exp2f.c",
         "verified_against_source": false,
-        "note": "cited from ubiquity, not from a copy of sinf.c in hand. The measured bound and the equioscillation test in verify-constants.py are what this actually rests on."
-      }
+        "note": "A copy of exp2f.c IS in hand now, so the old 'cited from ubiquity' admission is retired: all six published decimals of P[] were read on 2026-08-26 and each rounds to the bit pattern above AND to its exact decimal - 6/6 on both fields. The domain is confirmed at the source - the header puts the polynomial for 2**x in the basic range [-0.5, 0.5] - and so is the form, 2**x = 1 + x P(x) by Horner, which is exp2_kernel's op list. What the source does NOT say is minimax - the words minimax, Remes and Remez appear nowhere in exp2f.c; its ACCURACY table gives a measured RELATIVE peak of 1.7e-7 over the whole reconstructed range, which is a different quantity from the fit_abs_max recorded here and does not contradict it - so `claimed` above still rests on the equioscillation test in verify-constants.py, which reports INCONCLUSIVE for this kernel. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
+      },
+      "note": "shares LN2's bit pattern by coincidence, not by derivation: cephes' fitted leading coefficient 6.931472028550421E-001 happens to round to the same float32 as log(2). The two stay separate entries because their provenance is separate - LN2 is re-derived from the mathematics at level 2 and this one cannot be."
     },
     "AT0": {
       "bits": "0x3F7FFE82",
@@ -386,11 +399,13 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "unattributed in atlas-darkroom tools/determinism/gendetlib.py; the generator's comment reads 'atan - odd minimax on [0, 1]'",
+        "text": "Cecil Hastings, Jr., assisted by Jeanne T. Hayward and James P. Wong, Jr., Approximations for Digital Computers, The RAND Corporation / Princeton University Press, 1955 - Part II, Sheet 11, page 135: coefficients C1 through C11 of the six-term odd arctan approximation on -1 <= X <= 1. It reached this record unattributed, through atlas-darkroom tools/determinism/gendetlib.py, whose comment reads 'atan - odd minimax on [0, 1]'",
         "claimed": "odd minimax on [0, 1]",
+        "copy_checked": "Sheet 11 read 2026-08-26 as page images from a scanned copy of the book (blasingame.engr.tamu.edu, P620 reference archive, PDF_Txt_Hst_Apr_Cmp_(1955).pdf); the scan has no text layer, so the coefficient block was transcribed off the page. Princeton Legacy Library reprint ISBN 978-0-691-65310-5",
         "verified_against_source": false,
-        "note": "no attribution I can stand behind, so none is asserted. Whether it is in fact a minimax fit is decided by the equioscillation test, not by the comment."
-      }
+        "note": "The attribution gap is closed: this set is Hastings 1955, Sheet 11, p. 135 - a 71-year-old RAND table, not a modern fit - and all six of its published eight-digit decimals round to the bit pattern above AND to its exact decimal, 6/6 on both fields. Hastings' range is -1 <= X <= 1, which for an odd polynomial is the [0, 1] atan_kernel sweeps. The obvious guess was ruled out at the source rather than from memory: cephes atanf.c is a four-term fit on [-tan(pi/8), tan(pi/8)] with an implicit leading 1, so it is not this set. 'minimax' is defensible but loose - the preface frames the work as best approximation in the sense of Chebyshev while also describing the investigation as numerical and empirical, so this is a graphically tuned Chebyshev fit and not a Remez computation carrying an optimality certificate - which is why the equioscillation test in verify-constants.py remains the load-bearing evidence, and this is the one kernel of the four that clears the float32 rounding floor (29x) and gets a verdict. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
+      },
+      "note": "UPSTREAM DRIFT, recorded and not reconciled: atlas-darkroom refitted atan for relative error on 2026-08-25, so gendetlib.py no longer carries AT0-AT5 at all - it emits ATQ0-ATQ7 for atan(r) = r + r*z*q(z), whose leading term is exactly r. cross_check_upstream therefore reports these six as fitted-with-no-upstream and the eight ATQ* as upstream-only. This record keeps the sealed set and does not adopt the refit: reconciling them moves bit patterns, which is an operator's decision, not a checker's. See docs/CONSTANTS-FINDINGS.md."
     },
     "AT1": {
       "bits": "0xBEAA4DA0",
@@ -398,11 +413,13 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "unattributed in atlas-darkroom tools/determinism/gendetlib.py; the generator's comment reads 'atan - odd minimax on [0, 1]'",
+        "text": "Cecil Hastings, Jr., assisted by Jeanne T. Hayward and James P. Wong, Jr., Approximations for Digital Computers, The RAND Corporation / Princeton University Press, 1955 - Part II, Sheet 11, page 135: coefficients C1 through C11 of the six-term odd arctan approximation on -1 <= X <= 1. It reached this record unattributed, through atlas-darkroom tools/determinism/gendetlib.py, whose comment reads 'atan - odd minimax on [0, 1]'",
         "claimed": "odd minimax on [0, 1]",
+        "copy_checked": "Sheet 11 read 2026-08-26 as page images from a scanned copy of the book (blasingame.engr.tamu.edu, P620 reference archive, PDF_Txt_Hst_Apr_Cmp_(1955).pdf); the scan has no text layer, so the coefficient block was transcribed off the page. Princeton Legacy Library reprint ISBN 978-0-691-65310-5",
         "verified_against_source": false,
-        "note": "no attribution I can stand behind, so none is asserted. Whether it is in fact a minimax fit is decided by the equioscillation test, not by the comment."
-      }
+        "note": "The attribution gap is closed: this set is Hastings 1955, Sheet 11, p. 135 - a 71-year-old RAND table, not a modern fit - and all six of its published eight-digit decimals round to the bit pattern above AND to its exact decimal, 6/6 on both fields. Hastings' range is -1 <= X <= 1, which for an odd polynomial is the [0, 1] atan_kernel sweeps. The obvious guess was ruled out at the source rather than from memory: cephes atanf.c is a four-term fit on [-tan(pi/8), tan(pi/8)] with an implicit leading 1, so it is not this set. 'minimax' is defensible but loose - the preface frames the work as best approximation in the sense of Chebyshev while also describing the investigation as numerical and empirical, so this is a graphically tuned Chebyshev fit and not a Remez computation carrying an optimality certificate - which is why the equioscillation test in verify-constants.py remains the load-bearing evidence, and this is the one kernel of the four that clears the float32 rounding floor (29x) and gets a verdict. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
+      },
+      "note": "UPSTREAM DRIFT, recorded and not reconciled: atlas-darkroom refitted atan for relative error on 2026-08-25, so gendetlib.py no longer carries AT0-AT5 at all - it emits ATQ0-ATQ7 for atan(r) = r + r*z*q(z), whose leading term is exactly r. cross_check_upstream therefore reports these six as fitted-with-no-upstream and the eight ATQ* as upstream-only. This record keeps the sealed set and does not adopt the refit: reconciling them moves bit patterns, which is an operator's decision, not a checker's. See docs/CONSTANTS-FINDINGS.md."
     },
     "AT2": {
       "bits": "0x3E463042",
@@ -410,11 +427,13 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "unattributed in atlas-darkroom tools/determinism/gendetlib.py; the generator's comment reads 'atan - odd minimax on [0, 1]'",
+        "text": "Cecil Hastings, Jr., assisted by Jeanne T. Hayward and James P. Wong, Jr., Approximations for Digital Computers, The RAND Corporation / Princeton University Press, 1955 - Part II, Sheet 11, page 135: coefficients C1 through C11 of the six-term odd arctan approximation on -1 <= X <= 1. It reached this record unattributed, through atlas-darkroom tools/determinism/gendetlib.py, whose comment reads 'atan - odd minimax on [0, 1]'",
         "claimed": "odd minimax on [0, 1]",
+        "copy_checked": "Sheet 11 read 2026-08-26 as page images from a scanned copy of the book (blasingame.engr.tamu.edu, P620 reference archive, PDF_Txt_Hst_Apr_Cmp_(1955).pdf); the scan has no text layer, so the coefficient block was transcribed off the page. Princeton Legacy Library reprint ISBN 978-0-691-65310-5",
         "verified_against_source": false,
-        "note": "no attribution I can stand behind, so none is asserted. Whether it is in fact a minimax fit is decided by the equioscillation test, not by the comment."
-      }
+        "note": "The attribution gap is closed: this set is Hastings 1955, Sheet 11, p. 135 - a 71-year-old RAND table, not a modern fit - and all six of its published eight-digit decimals round to the bit pattern above AND to its exact decimal, 6/6 on both fields. Hastings' range is -1 <= X <= 1, which for an odd polynomial is the [0, 1] atan_kernel sweeps. The obvious guess was ruled out at the source rather than from memory: cephes atanf.c is a four-term fit on [-tan(pi/8), tan(pi/8)] with an implicit leading 1, so it is not this set. 'minimax' is defensible but loose - the preface frames the work as best approximation in the sense of Chebyshev while also describing the investigation as numerical and empirical, so this is a graphically tuned Chebyshev fit and not a Remez computation carrying an optimality certificate - which is why the equioscillation test in verify-constants.py remains the load-bearing evidence, and this is the one kernel of the four that clears the float32 rounding floor (29x) and gets a verdict. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
+      },
+      "note": "UPSTREAM DRIFT, recorded and not reconciled: atlas-darkroom refitted atan for relative error on 2026-08-25, so gendetlib.py no longer carries AT0-AT5 at all - it emits ATQ0-ATQ7 for atan(r) = r + r*z*q(z), whose leading term is exactly r. cross_check_upstream therefore reports these six as fitted-with-no-upstream and the eight ATQ* as upstream-only. This record keeps the sealed set and does not adopt the refit: reconciling them moves bit patterns, which is an operator's decision, not a checker's. See docs/CONSTANTS-FINDINGS.md."
     },
     "AT3": {
       "bits": "0xBDEE745B",
@@ -422,11 +441,13 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "unattributed in atlas-darkroom tools/determinism/gendetlib.py; the generator's comment reads 'atan - odd minimax on [0, 1]'",
+        "text": "Cecil Hastings, Jr., assisted by Jeanne T. Hayward and James P. Wong, Jr., Approximations for Digital Computers, The RAND Corporation / Princeton University Press, 1955 - Part II, Sheet 11, page 135: coefficients C1 through C11 of the six-term odd arctan approximation on -1 <= X <= 1. It reached this record unattributed, through atlas-darkroom tools/determinism/gendetlib.py, whose comment reads 'atan - odd minimax on [0, 1]'",
         "claimed": "odd minimax on [0, 1]",
+        "copy_checked": "Sheet 11 read 2026-08-26 as page images from a scanned copy of the book (blasingame.engr.tamu.edu, P620 reference archive, PDF_Txt_Hst_Apr_Cmp_(1955).pdf); the scan has no text layer, so the coefficient block was transcribed off the page. Princeton Legacy Library reprint ISBN 978-0-691-65310-5",
         "verified_against_source": false,
-        "note": "no attribution I can stand behind, so none is asserted. Whether it is in fact a minimax fit is decided by the equioscillation test, not by the comment."
-      }
+        "note": "The attribution gap is closed: this set is Hastings 1955, Sheet 11, p. 135 - a 71-year-old RAND table, not a modern fit - and all six of its published eight-digit decimals round to the bit pattern above AND to its exact decimal, 6/6 on both fields. Hastings' range is -1 <= X <= 1, which for an odd polynomial is the [0, 1] atan_kernel sweeps. The obvious guess was ruled out at the source rather than from memory: cephes atanf.c is a four-term fit on [-tan(pi/8), tan(pi/8)] with an implicit leading 1, so it is not this set. 'minimax' is defensible but loose - the preface frames the work as best approximation in the sense of Chebyshev while also describing the investigation as numerical and empirical, so this is a graphically tuned Chebyshev fit and not a Remez computation carrying an optimality certificate - which is why the equioscillation test in verify-constants.py remains the load-bearing evidence, and this is the one kernel of the four that clears the float32 rounding floor (29x) and gets a verdict. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
+      },
+      "note": "UPSTREAM DRIFT, recorded and not reconciled: atlas-darkroom refitted atan for relative error on 2026-08-25, so gendetlib.py no longer carries AT0-AT5 at all - it emits ATQ0-ATQ7 for atan(r) = r + r*z*q(z), whose leading term is exactly r. cross_check_upstream therefore reports these six as fitted-with-no-upstream and the eight ATQ* as upstream-only. This record keeps the sealed set and does not adopt the refit: reconciling them moves bit patterns, which is an operator's decision, not a checker's. See docs/CONSTANTS-FINDINGS.md."
     },
     "AT4": {
       "bits": "0x3D57AB02",
@@ -434,11 +455,13 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "unattributed in atlas-darkroom tools/determinism/gendetlib.py; the generator's comment reads 'atan - odd minimax on [0, 1]'",
+        "text": "Cecil Hastings, Jr., assisted by Jeanne T. Hayward and James P. Wong, Jr., Approximations for Digital Computers, The RAND Corporation / Princeton University Press, 1955 - Part II, Sheet 11, page 135: coefficients C1 through C11 of the six-term odd arctan approximation on -1 <= X <= 1. It reached this record unattributed, through atlas-darkroom tools/determinism/gendetlib.py, whose comment reads 'atan - odd minimax on [0, 1]'",
         "claimed": "odd minimax on [0, 1]",
+        "copy_checked": "Sheet 11 read 2026-08-26 as page images from a scanned copy of the book (blasingame.engr.tamu.edu, P620 reference archive, PDF_Txt_Hst_Apr_Cmp_(1955).pdf); the scan has no text layer, so the coefficient block was transcribed off the page. Princeton Legacy Library reprint ISBN 978-0-691-65310-5",
         "verified_against_source": false,
-        "note": "no attribution I can stand behind, so none is asserted. Whether it is in fact a minimax fit is decided by the equioscillation test, not by the comment."
-      }
+        "note": "The attribution gap is closed: this set is Hastings 1955, Sheet 11, p. 135 - a 71-year-old RAND table, not a modern fit - and all six of its published eight-digit decimals round to the bit pattern above AND to its exact decimal, 6/6 on both fields. Hastings' range is -1 <= X <= 1, which for an odd polynomial is the [0, 1] atan_kernel sweeps. The obvious guess was ruled out at the source rather than from memory: cephes atanf.c is a four-term fit on [-tan(pi/8), tan(pi/8)] with an implicit leading 1, so it is not this set. 'minimax' is defensible but loose - the preface frames the work as best approximation in the sense of Chebyshev while also describing the investigation as numerical and empirical, so this is a graphically tuned Chebyshev fit and not a Remez computation carrying an optimality certificate - which is why the equioscillation test in verify-constants.py remains the load-bearing evidence, and this is the one kernel of the four that clears the float32 rounding floor (29x) and gets a verdict. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
+      },
+      "note": "UPSTREAM DRIFT, recorded and not reconciled: atlas-darkroom refitted atan for relative error on 2026-08-25, so gendetlib.py no longer carries AT0-AT5 at all - it emits ATQ0-ATQ7 for atan(r) = r + r*z*q(z), whose leading term is exactly r. cross_check_upstream therefore reports these six as fitted-with-no-upstream and the eight ATQ* as upstream-only. This record keeps the sealed set and does not adopt the refit: reconciling them moves bit patterns, which is an operator's decision, not a checker's. See docs/CONSTANTS-FINDINGS.md."
     },
     "AT5": {
       "bits": "0xBC400A47",
@@ -446,11 +469,13 @@
       "kind": "fitted",
       "source": {
         "kind": "fitted",
-        "text": "unattributed in atlas-darkroom tools/determinism/gendetlib.py; the generator's comment reads 'atan - odd minimax on [0, 1]'",
+        "text": "Cecil Hastings, Jr., assisted by Jeanne T. Hayward and James P. Wong, Jr., Approximations for Digital Computers, The RAND Corporation / Princeton University Press, 1955 - Part II, Sheet 11, page 135: coefficients C1 through C11 of the six-term odd arctan approximation on -1 <= X <= 1. It reached this record unattributed, through atlas-darkroom tools/determinism/gendetlib.py, whose comment reads 'atan - odd minimax on [0, 1]'",
         "claimed": "odd minimax on [0, 1]",
+        "copy_checked": "Sheet 11 read 2026-08-26 as page images from a scanned copy of the book (blasingame.engr.tamu.edu, P620 reference archive, PDF_Txt_Hst_Apr_Cmp_(1955).pdf); the scan has no text layer, so the coefficient block was transcribed off the page. Princeton Legacy Library reprint ISBN 978-0-691-65310-5",
         "verified_against_source": false,
-        "note": "no attribution I can stand behind, so none is asserted. Whether it is in fact a minimax fit is decided by the equioscillation test, not by the comment."
-      }
+        "note": "The attribution gap is closed: this set is Hastings 1955, Sheet 11, p. 135 - a 71-year-old RAND table, not a modern fit - and all six of its published eight-digit decimals round to the bit pattern above AND to its exact decimal, 6/6 on both fields. Hastings' range is -1 <= X <= 1, which for an odd polynomial is the [0, 1] atan_kernel sweeps. The obvious guess was ruled out at the source rather than from memory: cephes atanf.c is a four-term fit on [-tan(pi/8), tan(pi/8)] with an implicit leading 1, so it is not this set. 'minimax' is defensible but loose - the preface frames the work as best approximation in the sense of Chebyshev while also describing the investigation as numerical and empirical, so this is a graphically tuned Chebyshev fit and not a Remez computation carrying an optimality certificate - which is why the equioscillation test in verify-constants.py remains the load-bearing evidence, and this is the one kernel of the four that clears the float32 rounding floor (29x) and gets a verdict. `verified_against_source` stays false on purpose: level 1 reserves that flag for values level 2 re-derives on every run, which a fitted coefficient by definition is not, so the archival match is carried by this note and by docs/CONSTANTS-FINDINGS.md rather than by the flag."
+      },
+      "note": "UPSTREAM DRIFT, recorded and not reconciled: atlas-darkroom refitted atan for relative error on 2026-08-25, so gendetlib.py no longer carries AT0-AT5 at all - it emits ATQ0-ATQ7 for atan(r) = r + r*z*q(z), whose leading term is exactly r. cross_check_upstream therefore reports these six as fitted-with-no-upstream and the eight ATQ* as upstream-only. This record keeps the sealed set and does not adopt the refit: reconciling them moves bit patterns, which is an operator's decision, not a checker's. See docs/CONSTANTS-FINDINGS.md."
     }
   },
   "approximations": {
