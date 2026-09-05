@@ -1524,7 +1524,8 @@ function emitDepth(ctx, n) {
 }
 
 // ---- descend as a statement-level special form ----
-function emitDescend(ctx, name, call) {
+// what the walk asked of s.descend(grid2(b), levels, {tries, child, keep})
+function readDescend(ctx, call) {
   const [domA, levA, cfgA] = call.args;
   const dom = emitCall(ctx, domA.t === "call" ? domA : err("descend wants grid2(...) first"));
   if (dom.kind !== "grid2") err("descend wants a grid2 domain");
@@ -1547,7 +1548,11 @@ function emitDescend(ctx, name, call) {
   const okShape = cb.t === "call" && cb.callee.t === "member" && cb.callee.name === "child"
     && cb.callee.o.t === "id" && cb.callee.o.n === childArrow.params[0];
   if (!okShape) err("the child arrow must be (a) => a.child(ex, ey) in this version");
+  return { dom, lev, staticMax, tries, cb, keepArrow };
+}
 
+function emitDescend(ctx, name, call) {
+  const { dom, lev, staticMax, tries, cb, keepArrow } = readDescend(ctx, call);
   const xy = fresh(ctx, "dc_xy"), sc = fresh(ctx, "dc_sc"), adr = fresh(ctx, "dc_adr"), rc = fresh(ctx, "dc_n");
   const bI = dom.b;
   const wantTrail = ctx.pos.walk.toString().includes(".trail");
