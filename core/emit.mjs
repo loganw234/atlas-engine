@@ -953,365 +953,410 @@ function emitTarget(ctx, n) {
   return v;
 }
 
+// ---- calls: the vocabulary by name, then methods on a target ----
+// A call to a bare name is one of the vocabulary's constructs, and
+// each has its own handler below, keyed here. Two names are refused
+// outright because they are only valid inside another form. A call
+// on a member is dispatched on what the member resolves to.
+const NAMED_CALLS = new Map([
+  ["pal", emitPal],
+  ["len2", emitLen], ["len3", emitLen],
+  ["grid2", emitGrid2],
+  ["prime", emitPrime],
+  ["stain", emitStain],
+  ["digitTriangle", () => err("digitTriangle only lives inside s.descend(...)")],
+  ["levels", () => err("levels must be bound directly: const g = levels(p, P.depth)")],
+  ["bits", emitBits],
+  ["fract", emitScalarBuiltin], ["mod", emitScalarBuiltin], ["mix", emitScalarBuiltin],
+  ["clamp", emitScalarBuiltin], ["step", emitScalarBuiltin], ["smoothstep", emitScalarBuiltin],
+  ["cmul", emitComplex], ["cdiv", emitComplex], ["cinv", emitComplex], ["csqrt", emitComplex],
+  ["v2", emitV2], ["v3", emitV3],
+  ["add3", emitVec3Helper], ["mul3", emitVec3Helper], ["mix3", emitVec3Helper],
+  ["dot3", emitVec3Helper], ["cross3", emitVec3Helper], ["normalize3", emitVec3Helper],
+  ["length3", emitVec3Helper],
+  ["sum", emitSum],
+]);
+
 function emitCall(ctx, n) {
   const c = n.callee;
-  // pal(t, [..]x4)
-  if (c.t === "id" && c.n === "pal") {
-    const t = emit(ctx, n.args[0]);
-    const vecs = n.args.slice(1).map(a => {
-      if (a.t !== "array" || a.items.length !== 3) err("pal wants four [r,g,b] arrays");
-      const xs = a.items.map(e => { const v = emit(ctx, e); return num(v.code, "float"); });
-      return `vec3(${xs.join(", ")})`;
-    });
-    if (vecs.length !== 4) err("pal wants t plus four arrays");
-    return { type: "vec3", code: `${ctx.pin ? "det_pal" : "pal"}(${asFloat(t)}, ${vecs.join(", ")})` };
-  }
-  // len2/len3: GLSL length(), which is what these spell on the CPU
-  if (c.t === "id" && (c.n === "len2" || c.n === "len3")) {
-    const want = c.n === "len2" ? 2 : 3;
-    if (n.args.length !== want) err(`${c.n} wants ${want} arguments`);
-    const xs = n.args.map(a => asFloat(emit(ctx, a)));
-    // length() is sqrt(dot(v,v)), and dot chooses its own order
-    // and contraction. det_len2/3 name every square and the sum.
-    if (ctx.pin)
-      return { type: "float",
-               code: `det_len${want}(${xs.join(", ")})` };
-    return { type: "float", code: `length(vec${want}(${xs.join(", ")}))` };
-  }
-  // grid2(b)
-  if (c.t === "id" && c.n === "grid2") {
-    const a = n.args[0];
-    if (a.t === "member" && a.o.t === "id" && a.o.n === ctx.P) return { kind: "grid2", b: intLeverVar(ctx, a.name) };
-    if (a.t === "num") return { kind: "grid2", b: a.v };
-    err("grid2 wants a lever or an integer literal");
-  }
-  // prime(P.nth): the nth prime, 2 3 5 7
-  if (c.t === "id" && c.n === "prime") {
-    const a = n.args[0];
-    if (!(a.t === "member" && a.o.t === "id" && a.o.n === ctx.P)) err("prime wants a lever");
-    const iv = intLeverVar(ctx, a.name);
-    const v = fresh(ctx, "prm");
-    put(ctx, `int ${v} = (${iv} <= 1) ? 2 : (${iv} == 2) ? 3 : (${iv} == 3) ? 5 : 7;`);
-    return { type: "int", code: v };
-  }
-  // stain(col, amount): rotation about grey, emitted as a helper
-  if (c.t === "id" && c.n === "stain") {
-    const colV = emit(ctx, n.args[0]);
-    const amt = asFloat(emit(ctx, n.args[1]));
-    if (colV.type !== "vec3") err("stain wants a vec3 first");
-    ctx.helpers.add("stain");
-    return { type: "vec3", code: `stain_${ctx.pos.id}(${colV.code}, ${amt})` };
-  }
-  if (c.t === "id" && c.n === "digitTriangle")
-    err("digitTriangle only lives inside s.descend(...)");
-  if (c.t === "id" && c.n === "levels")
-    err("levels must be bound directly: const g = levels(p, P.depth)");
-  // THE DOOR INTO THE INTEGER DOMAIN, and deliberately the only one.
-  //
-  // The walk vocabulary is floats, and bit operations are not. The
-  // conversion is explicit so that a walk says where it crosses -
-  // an implicit one is how a plate comes to mean something other
-  // than the JavaScript it is written in, and the CPU evaluator runs
-  // that JavaScript.
-  //
-  // GLSL `int(x)` truncates toward zero; JS `x | 0` is ToInt32,
-  // which truncates toward zero and then wraps. They agree exactly
-  // while |x| < 2^31, and the plates that want this state a much
-  // tighter invariant than that: rule30.pos.mjs carries every value
-  // as "an exact integer under 2^24 on both evaluators". Outside
-  // 2^31 GLSL leaves the conversion undefined and JS wraps, so they
-  // part - which is a range no walk here goes near, and is written
-  // down rather than assumed.
-  //
-  // Coming back the other way needs no door: asFloat already emits
-  // float(i) for an int, and on the JS side an int IS a number.
-  if (c.t === "id" && c.n === "bits") {
-    if (n.args.length !== 1) err("bits takes one argument", n.line);
-    const v = emit(ctx, n.args[0]);
-    if (v.type === "int") return v;
-    return { type: "int", code: `int(${asFloat(v)})` };
-  }
-  // GLSL-parity scalar builtins
-  if (c.t === "id" && ["fract", "mod", "mix", "clamp", "step", "smoothstep"].includes(c.n)) {
-    const args = n.args.map(a => asFloat(emit(ctx, a)));
-    // fract, clamp and step are exact - a subtraction against an
-    // exact floor, and two selections - so they are emitted as they
-    // stand under pinning too. mod, mix and smoothstep are not, and
-    // each has a pinned form.
-    // `fract` LOOKED EXACT AND IS NOT. It was admitted on the
-    // reasoning that it is x - floor(x) and floor is exact.
-    // Measured 2026-08-22 over 262,144 inputs: iris returns a
-    // different hash for fract than NVIDIA, radeonsi and llvmpipe,
-    // while floor is identical on all four - so iris does not
-    // compute it that way. It was the last thing keeping emitted
-    // colour from agreeing after position had gone bit-identical.
-    const PINNED_VOCAB = { mod: "det_mod", mix: "det_mix",
-                           smoothstep: "det_smoothstep",
-                           fract: "det_fract" };
-    // mod BY A POWER OF TWO carries a det_div that cannot pay.
-    //
-    //   float det_mod(float x, float y){
-    //     precise float q = floor(det_div(x, y));
-    //     precise float r = fma(-y, q, x);
-    //     return r; }
-    //
-    // det_div(x, 2^k) is exactly x * 2^-k (see exactRecip), so this
-    // is the same two operations with the reciprocal folded in -
-    // floor of an exact product, then the same fma. Identical
-    // arithmetic, one Newton reciprocal and four refinement rounds
-    // lighter.
-    //
-    // 165 of the atlas's 415 det_mod calls take a power-of-two
-    // modulus and rule30 alone has 36 of 39, which is why rule30 saw
-    // nothing from the divisor fix: its hot loop asks for
-    // mod(g, 2.0) and mod(e, 131072.0), and both were still routed
-    // through det_div inside det_mod.
-    if (ctx.pin && c.n === "mod" && args.length === 2) {
-      const rec = exactRecip(args[1]);
-      if (rec) {
-        // bound, because x appears twice and a compound expression
-        // evaluated twice is the cost this is trying to remove.
-        // The floor is bound too, and not for tidiness: a plate that
-        // asks for mod(g, 2.0) usually also asks for floor(g / 2.0)
-        // a line later - rule30's inner loop does exactly that - and
-        // an inlined subexpression is invisible to the CSE above
-        // unless it is given a name.
-        // BOUND IN THE SAME SHAPE THE PLATES USE: the product first,
-        // then the floor of it. A plate asking mod(g, 2.0) usually
-        // asks floor(g / 2.0) a line later - rule30's inner loop
-        // does exactly that - and its own path binds `(g * 0.5)` and
-        // then `floor(pb)`. Emitting `floor(g * 0.5)` as one
-        // expression is the same value spelled differently, which
-        // the CSE above cannot see through.
-        const x = bindPrecise(ctx, args[0]);
-        const h = bindPrecise(ctx, `${x} * ${rec}`);
-        const f = bindPrecise(ctx, `floor(${h})`);
-        // WRITTEN OUT, NOT FUSED. This was `fma(-y, f, x)`, which is
-        // one rounding rather than two and therefore the better
-        // arithmetic - on a stack that performs it. Measured across
-        // eleven stacks on 2026-08-24, five fold fma() into a
-        // multiply and an add whatever `precise` says: every zink
-        // route on every vendor, radeonsi on GFX10.1, and llvmpipe.
-        // A single fma anywhere in a plate is enough to split those
-        // stacks off from the rest, and this one site accounted for
-        // 165 of the atlas's 415 mod calls.
-        //
-        // Here the two forms are the SAME VALUE regardless: y is a
-        // power of two and f is a floor, so y*f is exact and there
-        // is no residual for the fusion to carry. The rewrite costs
-        // nothing at all on this path - it only stops asking five
-        // stacks for a guarantee they do not honour.
-        return { type: "float",
-                 code: `((-${args[1]}) * (${f}) + (${x}))` };
-      }
-    }
-    if (ctx.pin && c.n in PINNED_VOCAB)
-      return { type: "float",
-               code: `${PINNED_VOCAB[c.n]}(${args.join(", ")})` };
-    return { type: "float", code: `${c.n}(${args.join(", ")})` };
-  }
-  // complex arithmetic rides the shared header's own functions
-  // pinned twins live in detpre; the registry header keeps its own
-  if (c.t === "id" && ["cmul", "cdiv", "cinv", "csqrt"].includes(c.n)) {
-    const args = n.args.map(a => {
-      const v = emit(ctx, a);
-      if (v.type !== "vec2") err(`${c.n} wants vec2 arguments`);
-      return v.code;
-    });
-    return { type: "vec2",
-             code: `${ctx.pin ? "det_" : ""}${c.n}(${args.join(", ")})` };
-  }
-  if (c.t === "id" && c.n === "v2") {
-    const args = n.args.map(a => asFloat(emit(ctx, a)));
-    return { type: "vec2", code: `vec2(${args.join(", ")})` };
-  }
-  if (c.t === "id" && c.n === "v3") {
-    const args = n.args.map(a => asFloat(emit(ctx, a)));
-    return { type: "vec3", code: `vec3(${args.join(", ")})` };
-  }
-  if (c.t === "id" && ["add3", "mul3", "mix3", "dot3", "cross3", "normalize3", "length3"].includes(c.n)) {
-    // an [r, g, b] literal is a vec3 wherever a vec3 helper wants one
-    const vs = n.args.map(a => {
-      if (a.t === "array" && a.items.length === 3) {
-        const xs = a.items.map(e2 => asFloat(emit(ctx, e2)));
-        return { type: "vec3", code: `vec3(${xs.join(", ")})` };
-      }
-      return emit(ctx, a);
-    });
-    const v3s = vs.filter(v => v.type === "vec3").map(v => v.code);
-    // add3 and mul3 emit inline, which is how a compound vec3
-    // expression reached a `precise` local unbound - the tpms shape
-    // again, and the reason colour kept diverging after position had
-    // gone bit-identical. Measured on logz: every deposit landed in
-    // the SAME pixel while 427 of 8,977 carried a different colour.
-    if (c.n === "add3") {
-      const a3 = ctx.pin ? bindPreciseV(ctx, v3s[0], "vec3") : v3s[0];
-      const b3 = ctx.pin ? bindPreciseV(ctx, v3s[1], "vec3") : v3s[1];
-      return { type: "vec3", code: `(${a3} + ${b3})` };
-    }
-    if (c.n === "mul3") {
-      const a3 = ctx.pin ? bindPreciseV(ctx, v3s[0], "vec3") : v3s[0];
-      const k3 = ctx.pin ? bindPrecise(ctx, asFloat(vs[1])) : asFloat(vs[1]);
-      return { type: "vec3", code: `(${a3} * ${k3})` };
-    }
-    if (c.n === "mix3")
-      return { type: "vec3", code: ctx.pin
-        ? `det_mix3(${v3s[0]}, ${v3s[1]}, ${asFloat(vs[2])})`
-        : `mix(${v3s[0]}, ${v3s[1]}, ${asFloat(vs[2])})` };
-    if (c.n === "dot3")
-      return { type: "float", code: ctx.pin
-        ? `det_dot3(${v3s[0]}, ${v3s[1]})`
-        : `dot(${v3s[0]}, ${v3s[1]})` };
-    // These two emitted RAW under pin while dot3 and length3 beside
-    // them did not, which made cross3 a silent hole - `cross` is not
-    // on verify-pinned's LOOSE list, so nothing caught it - and made
-    // normalize3 a word that could not be used at all, since
-    // `normalize` IS on that list and any positive reaching for it
-    // failed the gate. Found by an agent converting starfield, which
-    // wrote its cross products componentwise to get around it.
-    if (c.n === "cross3")
-      return { type: "vec3", code: ctx.pin
-        ? `det_cross(${v3s[0]}, ${v3s[1]})`
-        : `cross(${v3s[0]}, ${v3s[1]})` };
-    if (c.n === "normalize3")
-      return { type: "vec3", code: ctx.pin
-        ? `det_normalize3(${v3s[0]})`
-        : `normalize(${v3s[0]})` };
-    if (c.n === "length3")
-      return { type: "float",
-               code: ctx.pin ? `det_len3v(${v3s[0]})` : `length(${v3s[0]})` };
-  }
-  // sum(n, k => term): the reduction loop, usable inside expressions
-  if (c.t === "id" && c.n === "sum") {
-    const bound = staticBoundOf(ctx, n.args[0]);
-    const arrow = n.args[1];
-    if (!arrow || arrow.t !== "arrow") err("sum wants (k) => term");
-    const acc = fresh(ctx, "acc"), kv = fresh(ctx, "sk");
-    put(ctx, `float ${acc} = 0.0;`);
-    put(ctx, `for (int ${kv} = 0; ${kv} < ${bound.staticN}; ${kv}++) {`);
-    ctx.indent += "  ";
-    if (bound.runtime) put(ctx, `if (${kv} >= ${bound.runtime}) break;`);
-    ctx.syms.set(arrow.params[0], { kind: "scalar", type: "int", v: kv });
-    const term = emit(ctx, arrow.body);
-    ctx.syms.delete(arrow.params[0]);
-    put(ctx, `${acc} += ${asFloat(term)};`);
-    ctx.indent = ctx.indent.slice(2);
-    put(ctx, `}`);
-    return { type: "float", code: acc };
-  }
+  if (c.t === "id" && NAMED_CALLS.has(c.n)) return NAMED_CALLS.get(c.n)(ctx, n);
   const target = c.t === "member" ? emitMember(ctx, c) : null;
   if (!target) err("unsupported call");
 
-  if (target.kind === "mathfn") {
-    // Math.trunc of an int/int quotient is GLSL integer division
-    if (target.name === "trunc") {
-      const a = n.args[0];
-      if (a && a.t === "bin" && a.op === "/") {
-        const l = emit(ctx, a.l), r = emit(ctx, a.r);
-        if (l.type === "int" && r.type === "int")
-          return { type: "int", code: `((${l.code}) / (${r.code}))` };
-      }
-      err("Math.trunc is only in the subset as trunc(int / int)");
-    }
-    if (target.name === "hypot") {
-      // Math.hypot scales its arguments to avoid overflow and is
-      // therefore MORE accurate than GLSL length(), which is the
-      // naive sqrt of a dot product. More accurate is wrong here:
-      // the CPU evaluator exists to say what the GPU says. Measured
-      // disagreement was 38% of argument pairs, worst 4.4e-16.
-      err("Math.hypot has no GLSL twin: say len2(x, y) or len3(x, y, z)");
-    }
-    const MAP = { max: "max", min: "min", abs: "abs", pow: "pow", sqrt: "sqrt",
-                  floor: "floor", sin: "sin", cos: "cos", tan: "tan",
-                  asin: "asin", acos: "acos", atan2: "atan",
-                  sinh: "sinh", cosh: "cosh", tanh: "tanh",
-                  exp: "exp", log: "log", sign: "sign", round: "round" };
-    if (!(target.name in MAP)) err(`Math.${target.name} is not in the subset`);
-    // AND THE ARGUMENTS ARE BOUND, for the same reason the operands
-    // of a division are. `det_sqrt((pb_115 - pb_116))` puts a
-    // cancelling subtraction inside a call argument, where the only
-    // precise destination is the call's RESULT - and tpms measured
-    // on radeonsi that a precise destination does not protect a
-    // compound expression handed to it inline. Same sites in mirage,
-    // same fix, one line: never hand a compound expression onward.
-    const args = n.args.map(a => {
-      const c = asFloat(emit(ctx, a));
-      return ctx.pin ? bindPrecise(ctx, c) : c;
-    });
-
-    // Math.round IS NOT GLSL round(), and this was wrong before any
-    // determinism question arose. JS rounds a half toward +Infinity;
-    // GLSL says a fraction of 0.5 "will round in a direction chosen
-    // by the implementation", so `round` is both a JS/GLSL mismatch
-    // and a parity hazard. floor(x + 0.5) is exactly what JS does -
-    // including Math.round(-1.5) === -1 - and floor is exact
-    // everywhere. Emitted unconditionally: a correctness fix does not
-    // wait for a flag.
-    if (target.name === "round")
-      return { type: "float", code: `floor((${args[0]}) + 0.5)` };
-
-    if (ctx.pin) {
-      if (target.name in NO_DET_FORM)
-        err(`Math.${target.name} has no deterministic form: ` +
-            `${NO_DET_FORM[target.name]}. Emitting it would put an ` +
-            `operation with spec-permitted ULP latitude in a plate ` +
-            `that claims bit-identity`, n.line);
-      // sin and cos route through one det_sincos per distinct
-      // argument; everything else is emitted as written
-      if (target.name === "sin" || target.name === "cos")
-        return { type: "float",
-          code: sincosOf(ctx, args[0], target.name === "sin" ? "s" : "c") };
-      if (target.name in DET)
-        return { type: "float", code: DET[target.name](args) };
-      if (!EXACT_BUILTINS.has(target.name))
-        err(`Math.${target.name} is neither pinned nor known-exact; ` +
-            `the pinned set has to state which it is`, n.line);
-    }
-    return { type: "float", code: `${MAP[target.name]}(${args.join(", ")})` };
-  }
-
-  if (target.kind === "windowmethod") {
-    if (target.name === "seat") {
-      const [ax, ay, jx, jy] = n.args.map(a => emit(ctx, a));
-      return { type: "vec2",
-        code: `((vec2(ivec2(${asInt(ax)}, ${asInt(ay)}) - ${target.base.wc}) + vec2(${asFloat(jx)}, ${asFloat(jy)})) * ${target.base.km})` };
-    }
-    err(`window has no ${target.name} in the subset`);
-  }
-
+  if (target.kind === "mathfn") return emitMathCall(ctx, target, n);
+  if (target.kind === "windowmethod") return emitWindowMethod(ctx, target, n);
   if (target.kind === "streamfn") return emitStreamCall(ctx, target.name, n);
-
-  if (target.kind === "vec2method" || (target.type === "vec2" && false)) {
-    const base = target.base.code;
-    if (target.name === "scale") {
-      const k = asFloat(emit(ctx, n.args[0]));
-      return { type: "vec2", code: `(${base} * ${k})` };
-    }
-    if (target.name === "chebyshev")
-      return { type: "float", code: `max(abs(${base}.x), abs(${base}.y))` };
-    if (target.name === "flipY")
-      return { type: "vec2", code: `(${base} * vec2(1.0, -1.0))` };
-    err(`vec2 has no ${target.name} in the subset`);
-  }
-
-  if (target.kind === "cellmethod") {
-    if (target.name === "at") {
-      const j = emit(ctx, n.args[0]);
-      if (j.type !== "vec2") err("cell.at wants a vec2");
-      return { type: "vec2", code: `(${target.base.xy} + ${j.code} * ${target.base.sc})` };
-    }
-    err(`cell has no ${target.name} in the subset`);
-  }
-
-  if (target.kind === "addrmethod") {
-    if (target.name === "u") {
-      const salt = n.args.length ? emit(ctx, n.args[0]) : { type: "int", code: "0", lit: true };
-      return { type: "float", code: `u2f(hashu(${target.base.h} ^ uint(${salt.code})))` };
-    }
-    if (target.name === "coin") err("addr.coin outside a descend keep is not in the subset yet");
-    err(`addr has no ${target.name} in the subset`);
-  }
+  if (target.kind === "vec2method" || (target.type === "vec2" && false))
+    return emitVec2Method(ctx, target, n);
+  if (target.kind === "cellmethod") return emitCellMethod(ctx, target, n);
+  if (target.kind === "addrmethod") return emitAddrMethod(ctx, target, n);
   err("unsupported call target");
+}
+
+// pal(t, [..]x4)
+function emitPal(ctx, n) {
+  const t = emit(ctx, n.args[0]);
+  const vecs = n.args.slice(1).map(a => {
+    if (a.t !== "array" || a.items.length !== 3) err("pal wants four [r,g,b] arrays");
+    const xs = a.items.map(e => { const v = emit(ctx, e); return num(v.code, "float"); });
+    return `vec3(${xs.join(", ")})`;
+  });
+  if (vecs.length !== 4) err("pal wants t plus four arrays");
+  return { type: "vec3", code: `${ctx.pin ? "det_pal" : "pal"}(${asFloat(t)}, ${vecs.join(", ")})` };
+}
+
+// len2/len3: GLSL length(), which is what these spell on the CPU
+function emitLen(ctx, n) {
+  const c = n.callee;
+  const want = c.n === "len2" ? 2 : 3;
+  if (n.args.length !== want) err(`${c.n} wants ${want} arguments`);
+  const xs = n.args.map(a => asFloat(emit(ctx, a)));
+  // length() is sqrt(dot(v,v)), and dot chooses its own order
+  // and contraction. det_len2/3 name every square and the sum.
+  if (ctx.pin)
+    return { type: "float",
+             code: `det_len${want}(${xs.join(", ")})` };
+  return { type: "float", code: `length(vec${want}(${xs.join(", ")}))` };
+}
+
+// grid2(b)
+function emitGrid2(ctx, n) {
+  const a = n.args[0];
+  if (a.t === "member" && a.o.t === "id" && a.o.n === ctx.P) return { kind: "grid2", b: intLeverVar(ctx, a.name) };
+  if (a.t === "num") return { kind: "grid2", b: a.v };
+  err("grid2 wants a lever or an integer literal");
+}
+
+// prime(P.nth): the nth prime, 2 3 5 7
+function emitPrime(ctx, n) {
+  const a = n.args[0];
+  if (!(a.t === "member" && a.o.t === "id" && a.o.n === ctx.P)) err("prime wants a lever");
+  const iv = intLeverVar(ctx, a.name);
+  const v = fresh(ctx, "prm");
+  put(ctx, `int ${v} = (${iv} <= 1) ? 2 : (${iv} == 2) ? 3 : (${iv} == 3) ? 5 : 7;`);
+  return { type: "int", code: v };
+}
+
+// stain(col, amount): rotation about grey, emitted as a helper
+function emitStain(ctx, n) {
+  const colV = emit(ctx, n.args[0]);
+  const amt = asFloat(emit(ctx, n.args[1]));
+  if (colV.type !== "vec3") err("stain wants a vec3 first");
+  ctx.helpers.add("stain");
+  return { type: "vec3", code: `stain_${ctx.pos.id}(${colV.code}, ${amt})` };
+}
+
+// THE DOOR INTO THE INTEGER DOMAIN, and deliberately the only one.
+//
+// The walk vocabulary is floats, and bit operations are not. The
+// conversion is explicit so that a walk says where it crosses -
+// an implicit one is how a plate comes to mean something other
+// than the JavaScript it is written in, and the CPU evaluator runs
+// that JavaScript.
+//
+// GLSL `int(x)` truncates toward zero; JS `x | 0` is ToInt32,
+// which truncates toward zero and then wraps. They agree exactly
+// while |x| < 2^31, and the plates that want this state a much
+// tighter invariant than that: rule30.pos.mjs carries every value
+// as "an exact integer under 2^24 on both evaluators". Outside
+// 2^31 GLSL leaves the conversion undefined and JS wraps, so they
+// part - which is a range no walk here goes near, and is written
+// down rather than assumed.
+//
+// Coming back the other way needs no door: asFloat already emits
+// float(i) for an int, and on the JS side an int IS a number.
+function emitBits(ctx, n) {
+  if (n.args.length !== 1) err("bits takes one argument", n.line);
+  const v = emit(ctx, n.args[0]);
+  if (v.type === "int") return v;
+  return { type: "int", code: `int(${asFloat(v)})` };
+}
+
+// GLSL-parity scalar builtins
+function emitScalarBuiltin(ctx, n) {
+  const c = n.callee;
+  const args = n.args.map(a => asFloat(emit(ctx, a)));
+  // fract, clamp and step are exact - a subtraction against an
+  // exact floor, and two selections - so they are emitted as they
+  // stand under pinning too. mod, mix and smoothstep are not, and
+  // each has a pinned form.
+  // `fract` LOOKED EXACT AND IS NOT. It was admitted on the
+  // reasoning that it is x - floor(x) and floor is exact.
+  // Measured 2026-08-22 over 262,144 inputs: iris returns a
+  // different hash for fract than NVIDIA, radeonsi and llvmpipe,
+  // while floor is identical on all four - so iris does not
+  // compute it that way. It was the last thing keeping emitted
+  // colour from agreeing after position had gone bit-identical.
+  const PINNED_VOCAB = { mod: "det_mod", mix: "det_mix",
+                         smoothstep: "det_smoothstep",
+                         fract: "det_fract" };
+  // mod BY A POWER OF TWO carries a det_div that cannot pay.
+  //
+  //   float det_mod(float x, float y){
+  //     precise float q = floor(det_div(x, y));
+  //     precise float r = fma(-y, q, x);
+  //     return r; }
+  //
+  // det_div(x, 2^k) is exactly x * 2^-k (see exactRecip), so this
+  // is the same two operations with the reciprocal folded in -
+  // floor of an exact product, then the same fma. Identical
+  // arithmetic, one Newton reciprocal and four refinement rounds
+  // lighter.
+  //
+  // 165 of the atlas's 415 det_mod calls take a power-of-two
+  // modulus and rule30 alone has 36 of 39, which is why rule30 saw
+  // nothing from the divisor fix: its hot loop asks for
+  // mod(g, 2.0) and mod(e, 131072.0), and both were still routed
+  // through det_div inside det_mod.
+  if (ctx.pin && c.n === "mod" && args.length === 2) {
+    const rec = exactRecip(args[1]);
+    if (rec) {
+      // bound, because x appears twice and a compound expression
+      // evaluated twice is the cost this is trying to remove.
+      // The floor is bound too, and not for tidiness: a plate that
+      // asks for mod(g, 2.0) usually also asks for floor(g / 2.0)
+      // a line later - rule30's inner loop does exactly that - and
+      // an inlined subexpression is invisible to the CSE above
+      // unless it is given a name.
+      // BOUND IN THE SAME SHAPE THE PLATES USE: the product first,
+      // then the floor of it. A plate asking mod(g, 2.0) usually
+      // asks floor(g / 2.0) a line later - rule30's inner loop
+      // does exactly that - and its own path binds `(g * 0.5)` and
+      // then `floor(pb)`. Emitting `floor(g * 0.5)` as one
+      // expression is the same value spelled differently, which
+      // the CSE above cannot see through.
+      const x = bindPrecise(ctx, args[0]);
+      const h = bindPrecise(ctx, `${x} * ${rec}`);
+      const f = bindPrecise(ctx, `floor(${h})`);
+      // WRITTEN OUT, NOT FUSED. This was `fma(-y, f, x)`, which is
+      // one rounding rather than two and therefore the better
+      // arithmetic - on a stack that performs it. Measured across
+      // eleven stacks on 2026-08-24, five fold fma() into a
+      // multiply and an add whatever `precise` says: every zink
+      // route on every vendor, radeonsi on GFX10.1, and llvmpipe.
+      // A single fma anywhere in a plate is enough to split those
+      // stacks off from the rest, and this one site accounted for
+      // 165 of the atlas's 415 mod calls.
+      //
+      // Here the two forms are the SAME VALUE regardless: y is a
+      // power of two and f is a floor, so y*f is exact and there
+      // is no residual for the fusion to carry. The rewrite costs
+      // nothing at all on this path - it only stops asking five
+      // stacks for a guarantee they do not honour.
+      return { type: "float",
+               code: `((-${args[1]}) * (${f}) + (${x}))` };
+    }
+  }
+  if (ctx.pin && c.n in PINNED_VOCAB)
+    return { type: "float",
+             code: `${PINNED_VOCAB[c.n]}(${args.join(", ")})` };
+  return { type: "float", code: `${c.n}(${args.join(", ")})` };
+}
+
+// complex arithmetic rides the shared header's own functions
+// pinned twins live in detpre; the registry header keeps its own
+function emitComplex(ctx, n) {
+  const c = n.callee;
+  const args = n.args.map(a => {
+    const v = emit(ctx, a);
+    if (v.type !== "vec2") err(`${c.n} wants vec2 arguments`);
+    return v.code;
+  });
+  return { type: "vec2",
+           code: `${ctx.pin ? "det_" : ""}${c.n}(${args.join(", ")})` };
+}
+
+function emitV2(ctx, n) {
+  const args = n.args.map(a => asFloat(emit(ctx, a)));
+  return { type: "vec2", code: `vec2(${args.join(", ")})` };
+}
+
+function emitV3(ctx, n) {
+  const args = n.args.map(a => asFloat(emit(ctx, a)));
+  return { type: "vec3", code: `vec3(${args.join(", ")})` };
+}
+
+// add3, mul3, mix3, dot3, cross3, normalize3, length3
+function emitVec3Helper(ctx, n) {
+  const c = n.callee;
+  // an [r, g, b] literal is a vec3 wherever a vec3 helper wants one
+  const vs = n.args.map(a => {
+    if (a.t === "array" && a.items.length === 3) {
+      const xs = a.items.map(e2 => asFloat(emit(ctx, e2)));
+      return { type: "vec3", code: `vec3(${xs.join(", ")})` };
+    }
+    return emit(ctx, a);
+  });
+  const v3s = vs.filter(v => v.type === "vec3").map(v => v.code);
+  // add3 and mul3 emit inline, which is how a compound vec3
+  // expression reached a `precise` local unbound - the tpms shape
+  // again, and the reason colour kept diverging after position had
+  // gone bit-identical. Measured on logz: every deposit landed in
+  // the SAME pixel while 427 of 8,977 carried a different colour.
+  if (c.n === "add3") {
+    const a3 = ctx.pin ? bindPreciseV(ctx, v3s[0], "vec3") : v3s[0];
+    const b3 = ctx.pin ? bindPreciseV(ctx, v3s[1], "vec3") : v3s[1];
+    return { type: "vec3", code: `(${a3} + ${b3})` };
+  }
+  if (c.n === "mul3") {
+    const a3 = ctx.pin ? bindPreciseV(ctx, v3s[0], "vec3") : v3s[0];
+    const k3 = ctx.pin ? bindPrecise(ctx, asFloat(vs[1])) : asFloat(vs[1]);
+    return { type: "vec3", code: `(${a3} * ${k3})` };
+  }
+  if (c.n === "mix3")
+    return { type: "vec3", code: ctx.pin
+      ? `det_mix3(${v3s[0]}, ${v3s[1]}, ${asFloat(vs[2])})`
+      : `mix(${v3s[0]}, ${v3s[1]}, ${asFloat(vs[2])})` };
+  if (c.n === "dot3")
+    return { type: "float", code: ctx.pin
+      ? `det_dot3(${v3s[0]}, ${v3s[1]})`
+      : `dot(${v3s[0]}, ${v3s[1]})` };
+  // These two emitted RAW under pin while dot3 and length3 beside
+  // them did not, which made cross3 a silent hole - `cross` is not
+  // on verify-pinned's LOOSE list, so nothing caught it - and made
+  // normalize3 a word that could not be used at all, since
+  // `normalize` IS on that list and any positive reaching for it
+  // failed the gate. Found by an agent converting starfield, which
+  // wrote its cross products componentwise to get around it.
+  if (c.n === "cross3")
+    return { type: "vec3", code: ctx.pin
+      ? `det_cross(${v3s[0]}, ${v3s[1]})`
+      : `cross(${v3s[0]}, ${v3s[1]})` };
+  if (c.n === "normalize3")
+    return { type: "vec3", code: ctx.pin
+      ? `det_normalize3(${v3s[0]})`
+      : `normalize(${v3s[0]})` };
+  if (c.n === "length3")
+    return { type: "float",
+             code: ctx.pin ? `det_len3v(${v3s[0]})` : `length(${v3s[0]})` };
+}
+
+// sum(n, k => term): the reduction loop, usable inside expressions
+function emitSum(ctx, n) {
+  const bound = staticBoundOf(ctx, n.args[0]);
+  const arrow = n.args[1];
+  if (!arrow || arrow.t !== "arrow") err("sum wants (k) => term");
+  const acc = fresh(ctx, "acc"), kv = fresh(ctx, "sk");
+  put(ctx, `float ${acc} = 0.0;`);
+  put(ctx, `for (int ${kv} = 0; ${kv} < ${bound.staticN}; ${kv}++) {`);
+  ctx.indent += "  ";
+  if (bound.runtime) put(ctx, `if (${kv} >= ${bound.runtime}) break;`);
+  ctx.syms.set(arrow.params[0], { kind: "scalar", type: "int", v: kv });
+  const term = emit(ctx, arrow.body);
+  ctx.syms.delete(arrow.params[0]);
+  put(ctx, `${acc} += ${asFloat(term)};`);
+  ctx.indent = ctx.indent.slice(2);
+  put(ctx, `}`);
+  return { type: "float", code: acc };
+}
+
+// Math.<name>(...)
+function emitMathCall(ctx, target, n) {
+  // Math.trunc of an int/int quotient is GLSL integer division
+  if (target.name === "trunc") {
+    const a = n.args[0];
+    if (a && a.t === "bin" && a.op === "/") {
+      const l = emit(ctx, a.l), r = emit(ctx, a.r);
+      if (l.type === "int" && r.type === "int")
+        return { type: "int", code: `((${l.code}) / (${r.code}))` };
+    }
+    err("Math.trunc is only in the subset as trunc(int / int)");
+  }
+  if (target.name === "hypot") {
+    // Math.hypot scales its arguments to avoid overflow and is
+    // therefore MORE accurate than GLSL length(), which is the
+    // naive sqrt of a dot product. More accurate is wrong here:
+    // the CPU evaluator exists to say what the GPU says. Measured
+    // disagreement was 38% of argument pairs, worst 4.4e-16.
+    err("Math.hypot has no GLSL twin: say len2(x, y) or len3(x, y, z)");
+  }
+  const MAP = { max: "max", min: "min", abs: "abs", pow: "pow", sqrt: "sqrt",
+                floor: "floor", sin: "sin", cos: "cos", tan: "tan",
+                asin: "asin", acos: "acos", atan2: "atan",
+                sinh: "sinh", cosh: "cosh", tanh: "tanh",
+                exp: "exp", log: "log", sign: "sign", round: "round" };
+  if (!(target.name in MAP)) err(`Math.${target.name} is not in the subset`);
+  // AND THE ARGUMENTS ARE BOUND, for the same reason the operands
+  // of a division are. `det_sqrt((pb_115 - pb_116))` puts a
+  // cancelling subtraction inside a call argument, where the only
+  // precise destination is the call's RESULT - and tpms measured
+  // on radeonsi that a precise destination does not protect a
+  // compound expression handed to it inline. Same sites in mirage,
+  // same fix, one line: never hand a compound expression onward.
+  const args = n.args.map(a => {
+    const c = asFloat(emit(ctx, a));
+    return ctx.pin ? bindPrecise(ctx, c) : c;
+  });
+
+  // Math.round IS NOT GLSL round(), and this was wrong before any
+  // determinism question arose. JS rounds a half toward +Infinity;
+  // GLSL says a fraction of 0.5 "will round in a direction chosen
+  // by the implementation", so `round` is both a JS/GLSL mismatch
+  // and a parity hazard. floor(x + 0.5) is exactly what JS does -
+  // including Math.round(-1.5) === -1 - and floor is exact
+  // everywhere. Emitted unconditionally: a correctness fix does not
+  // wait for a flag.
+  if (target.name === "round")
+    return { type: "float", code: `floor((${args[0]}) + 0.5)` };
+
+  if (ctx.pin) {
+    if (target.name in NO_DET_FORM)
+      err(`Math.${target.name} has no deterministic form: ` +
+          `${NO_DET_FORM[target.name]}. Emitting it would put an ` +
+          `operation with spec-permitted ULP latitude in a plate ` +
+          `that claims bit-identity`, n.line);
+    // sin and cos route through one det_sincos per distinct
+    // argument; everything else is emitted as written
+    if (target.name === "sin" || target.name === "cos")
+      return { type: "float",
+        code: sincosOf(ctx, args[0], target.name === "sin" ? "s" : "c") };
+    if (target.name in DET)
+      return { type: "float", code: DET[target.name](args) };
+    if (!EXACT_BUILTINS.has(target.name))
+      err(`Math.${target.name} is neither pinned nor known-exact; ` +
+          `the pinned set has to state which it is`, n.line);
+  }
+  return { type: "float", code: `${MAP[target.name]}(${args.join(", ")})` };
+}
+
+function emitWindowMethod(ctx, target, n) {
+  if (target.name === "seat") {
+    const [ax, ay, jx, jy] = n.args.map(a => emit(ctx, a));
+    return { type: "vec2",
+      code: `((vec2(ivec2(${asInt(ax)}, ${asInt(ay)}) - ${target.base.wc}) + vec2(${asFloat(jx)}, ${asFloat(jy)})) * ${target.base.km})` };
+  }
+  err(`window has no ${target.name} in the subset`);
+}
+
+function emitVec2Method(ctx, target, n) {
+  const base = target.base.code;
+  if (target.name === "scale") {
+    const k = asFloat(emit(ctx, n.args[0]));
+    return { type: "vec2", code: `(${base} * ${k})` };
+  }
+  if (target.name === "chebyshev")
+    return { type: "float", code: `max(abs(${base}.x), abs(${base}.y))` };
+  if (target.name === "flipY")
+    return { type: "vec2", code: `(${base} * vec2(1.0, -1.0))` };
+  err(`vec2 has no ${target.name} in the subset`);
+}
+
+function emitCellMethod(ctx, target, n) {
+  if (target.name === "at") {
+    const j = emit(ctx, n.args[0]);
+    if (j.type !== "vec2") err("cell.at wants a vec2");
+    return { type: "vec2", code: `(${target.base.xy} + ${j.code} * ${target.base.sc})` };
+  }
+  err(`cell has no ${target.name} in the subset`);
+}
+
+function emitAddrMethod(ctx, target, n) {
+  if (target.name === "u") {
+    const salt = n.args.length ? emit(ctx, n.args[0]) : { type: "int", code: "0", lit: true };
+    return { type: "float", code: `u2f(hashu(${target.base.h} ^ uint(${salt.code})))` };
+  }
+  if (target.name === "coin") err("addr.coin outside a descend keep is not in the subset yet");
+  err(`addr has no ${target.name} in the subset`);
 }
 
 // Every draw binds its value at the draw site. Returning the live
