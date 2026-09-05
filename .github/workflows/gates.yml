@@ -84,6 +84,11 @@ jobs:
       - name: emitted GLSL is in scope
         run: node tools/verify-scope.mjs
 
+      # 6b. WHAT A WALK MAY NOT CALL is refused by name rather than let
+      #    through Object.prototype: Math.constructor is not mathematics.
+      - name: the walk's refusals hold
+        run: node tools/verify-refusals.mjs
+
       # 7. WHAT THIS JOB DOES NOT COVER, printed rather than assumed.
       #    A reader who sees a green tick should be able to find out
       #    what it is green ABOUT without reading this file.

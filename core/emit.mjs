@@ -1094,7 +1094,7 @@ function emitScalarBuiltin(ctx, n) {
     const rec = exactRecip(args[1]);
     if (rec) return emitModByPowerOfTwo(ctx, args, rec);
   }
-  if (ctx.pin && c.n in PINNED_VOCAB)
+  if (ctx.pin && Object.hasOwn(PINNED_VOCAB, c.n))
     return { type: "float",
              code: `${PINNED_VOCAB[c.n]}(${args.join(", ")})` };
   return { type: "float", code: `${c.n}(${args.join(", ")})` };
@@ -1277,7 +1277,12 @@ function emitMathCall(ctx, target, n) {
                 asin: "asin", acos: "acos", atan2: "atan",
                 sinh: "sinh", cosh: "cosh", tanh: "tanh",
                 exp: "exp", log: "log", sign: "sign", round: "round" };
-  if (!(target.name in MAP)) err(`Math.${target.name} is not in the subset`);
+  // EXACT MEMBERSHIP. `in` reaches Object.prototype, so a walk that
+  // called Math.constructor or Math.toString passed this check and had
+  // the function's own source text emitted into its GLSL. NAMED_CALLS
+  // is a Map for the same reason; the literal tables are asked with
+  // hasOwn instead, here and at the three tables below and above.
+  if (!Object.hasOwn(MAP, target.name)) err(`Math.${target.name} is not in the subset`);
   // AND THE ARGUMENTS ARE BOUND, for the same reason the operands
   // of a division are. `det_sqrt((pb_115 - pb_116))` puts a
   // cancelling subtraction inside a call argument, where the only
@@ -1302,7 +1307,7 @@ function emitMathCall(ctx, target, n) {
     return { type: "float", code: `floor((${args[0]}) + 0.5)` };
 
   if (ctx.pin) {
-    if (target.name in NO_DET_FORM)
+    if (Object.hasOwn(NO_DET_FORM, target.name))
       err(`Math.${target.name} has no deterministic form: ` +
           `${NO_DET_FORM[target.name]}. Emitting it would put an ` +
           `operation with spec-permitted ULP latitude in a plate ` +
@@ -1312,7 +1317,7 @@ function emitMathCall(ctx, target, n) {
     if (target.name === "sin" || target.name === "cos")
       return { type: "float",
         code: sincosOf(ctx, args[0], target.name === "sin" ? "s" : "c") };
-    if (target.name in DET)
+    if (Object.hasOwn(DET, target.name))
       return { type: "float", code: DET[target.name](args) };
     if (!EXACT_BUILTINS.has(target.name))
       err(`Math.${target.name} is neither pinned nor known-exact; ` +
