@@ -1943,83 +1943,93 @@ function stmt(ctx, st) {
   err("unhandled statement");
 }
 
-export function emitWalk(pos, opts = {}) {
-  const ctx = newEmission(pos, opts);
-
-  ctx.ast.body.forEach(s => stmt(ctx, s));
-
-  // Splice the hoisted sincos in at each argument's definition.
-  // Descending, so an earlier index is still an earlier index after a
-  // later one has grown the array.
+// Splice the hoisted sincos in at each argument's definition.
+// Descending, so an earlier index is still an earlier index after a
+// later one has grown the array.
+function spliceHoists(ctx) {
   ctx.hoists.sort((a, b) => b.at - a.at);
   for (const h of ctx.hoists)
     ctx.lines.splice(h.at + 1, 0, ...h.text.map(l => h.ind + l));
+}
 
-  // ---- assemble the shape function ----
+// the stain helper, above the shape function, when the walk asked for it
+function stainHelperLines(ctx) {
+  const head = [];
+  head.push(`vec3 stain_${ctx.pos.id}(vec3 c, float a){`);
+  // one det_sincos, not one each: det_cos(a) and det_sin(a) both
+  // compute the pair and discard half, and this asks for both.
+  // Qualified here rather than left to the post-pass, which skips a
+  // comma list - and unqualified is the thing verify-orbit-block
+  // exists to refuse.
+  if (ctx.pin) {
+    head.push(`  precise float sn, cs;`);
+    head.push(`  det_sincos(a, sn, cs);`);
+  } else {
+    head.push(`  float cs = cos(a), sn = sin(a);`);
+  }
+  head.push(`  vec3 k = vec3(0.57735027);`);
+  head.push(ctx.pin
+    ? `  return det_rodrigues(c, k, cs, sn);`
+    : `  return c * cs + cross(k, c) * sn + k * dot(k, c) * (1.0 - cs);`);
+  head.push(`}`);
+  return head;
+}
+
+// ---- assemble the shape function ----
+function assembleShape(ctx) {
   const salt = ((fnv1a(ctx.pos.id) | 1) >>> 0);
   const head = [];
-  if (ctx.helpers.has("stain")) {
-    head.push(`vec3 stain_${ctx.pos.id}(vec3 c, float a){`);
-    // one det_sincos, not one each: det_cos(a) and det_sin(a) both
-    // compute the pair and discard half, and this asks for both.
-    // Qualified here rather than left to the post-pass, which skips a
-    // comma list - and unqualified is the thing verify-orbit-block
-    // exists to refuse.
-    if (ctx.pin) {
-      head.push(`  precise float sn, cs;`);
-      head.push(`  det_sincos(a, sn, cs);`);
-    } else {
-      head.push(`  float cs = cos(a), sn = sin(a);`);
-    }
-    head.push(`  vec3 k = vec3(0.57735027);`);
-    head.push(ctx.pin
-      ? `  return det_rodrigues(c, k, cs, sn);`
-      : `  return c * cs + cross(k, c) * sn + k * dot(k, c) * (1.0 - cs);`);
-    head.push(`}`);
-  }
+  if (ctx.helpers.has("stain")) head.push(...stainHelperLines(ctx));
   head.push(`vec3 shape_${ctx.pos.id}(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){`);
   head.push(`  uint pt = hashu(seed ^ hashu(floatBitsToUint(q.x))`);
   head.push(`                       ^ hashu(floatBitsToUint(q.y) * ${salt}u));`);
   head.push(`  pt = hashu(pt ^ floatBitsToUint(rnd.x));`);
   for (const nm of ctx.usedIntLevers)
     head.push(`  int li_${nm} = int(P[${ctx.leverIx[nm]}] + 0.5);`);
-  let glsl = head.join("\n") + "\n" + ctx.lines.join("\n") + "\n}";
+  return head.join("\n") + "\n" + ctx.lines.join("\n") + "\n}";
+}
 
-  // `precise` ON THE WHOLE CHAIN, which the pinned set is worth
-  // nothing without.
-  //
-  // Phase 2 shipped three of its four items and this was the missing
-  // one, which Phase 3 then measured: pinning every builtin moved the
-  // worst cross-vendor pair from 8 of 50 bit-identical to 10 of 50.
-  // Nowhere near the bar, and for a reason that has nothing to do with
-  // builtins. An unqualified `a * b + c` in the walk is free to become
-  // an fma, and whether it does was measured on 2026-08-22 to depend
-  // on whether `a * b` is wanted ELSEWHERE in the same shader -
-  // NVIDIA always fuses, llvmpipe never does, radeonsi and iris fuse
-  // until common subexpression elimination gives the product a second
-  // consumer. No amount of det_ functions fixes that; only the
-  // qualifier does.
-  //
-  // Applied to the assembled text rather than at fourteen separate
-  // declaration sites, because one transform with one rule is easier
-  // to check than fourteen that must agree. It qualifies float, vec2
-  // and vec3 locals; ints and uints carry exact arithmetic already and
-  // GLSL does not admit the qualifier on them.
-  //
-  // NOTE FOR PHASE 5: `precise` needs GLSL 4.00 (ARB_gpu_shader5
-  // back-ports it to 1.50 - measured wrong as 4.20 until the spec
-  // was actually opened, 2026-08-27), and PrettyCloud is
-  // WebGL2 (GLSL ES 3.00), which has no such qualifier. The darkroom
-  // already solves this by ADDING precise during the bake for exactly
-  // this reason. So pinned-with-precise is the print path's text, not
-  // the browser's, and which one an emitted plate ships as is a
-  // deployment question rather than a numerical one.
-  if (ctx.pin) {
-    glsl = glsl.replace(
-      /^(\s+)(float|vec2|vec3)(\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:\[[0-9]+\])?\s*(?:=|;))/gm,
-      (m, indent, ty, rest) => `${indent}precise ${ty}${rest}`);
-  }
-  return glsl;
+// `precise` ON THE WHOLE CHAIN, which the pinned set is worth
+// nothing without.
+//
+// Phase 2 shipped three of its four items and this was the missing
+// one, which Phase 3 then measured: pinning every builtin moved the
+// worst cross-vendor pair from 8 of 50 bit-identical to 10 of 50.
+// Nowhere near the bar, and for a reason that has nothing to do with
+// builtins. An unqualified `a * b + c` in the walk is free to become
+// an fma, and whether it does was measured on 2026-08-22 to depend
+// on whether `a * b` is wanted ELSEWHERE in the same shader -
+// NVIDIA always fuses, llvmpipe never does, radeonsi and iris fuse
+// until common subexpression elimination gives the product a second
+// consumer. No amount of det_ functions fixes that; only the
+// qualifier does.
+//
+// Applied to the assembled text rather than at fourteen separate
+// declaration sites, because one transform with one rule is easier
+// to check than fourteen that must agree. It qualifies float, vec2
+// and vec3 locals; ints and uints carry exact arithmetic already and
+// GLSL does not admit the qualifier on them.
+//
+// NOTE FOR PHASE 5: `precise` needs GLSL 4.00 (ARB_gpu_shader5
+// back-ports it to 1.50 - measured wrong as 4.20 until the spec
+// was actually opened, 2026-08-27), and PrettyCloud is
+// WebGL2 (GLSL ES 3.00), which has no such qualifier. The darkroom
+// already solves this by ADDING precise during the bake for exactly
+// this reason. So pinned-with-precise is the print path's text, not
+// the browser's, and which one an emitted plate ships as is a
+// deployment question rather than a numerical one.
+function qualifyPrecise(glsl) {
+  return glsl.replace(
+    /^(\s+)(float|vec2|vec3)(\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:\[[0-9]+\])?\s*(?:=|;))/gm,
+    (m, indent, ty, rest) => `${indent}precise ${ty}${rest}`);
+}
+
+export function emitWalk(pos, opts = {}) {
+  const ctx = newEmission(pos, opts);
+  ctx.ast.body.forEach(s => stmt(ctx, s));
+  spliceHoists(ctx);
+  const glsl = assembleShape(ctx);
+  return ctx.pin ? qualifyPrecise(glsl) : glsl;
 }
 
 // a registry-contract plate file wrapping the emitted GLSL
