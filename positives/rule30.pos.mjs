@@ -55,7 +55,7 @@
 // lever only where the step is 1. So the lattice is written out here
 // in floats, verbatim from the shader, and measured against the
 // shader's integer arithmetic over all 30,096 lever settings the
-// selected row and cell ranges agree at every one. build/reports has
+// selected row and cell ranges agree at every one. docs/reports has
 // the numbers and the two places where a float is not an int.
 import { positive, lever, pal, stain, mul3, mod, bits } from "../core/measure.mjs";
 

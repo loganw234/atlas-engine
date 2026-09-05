@@ -295,7 +295,7 @@ not apologise for the picture moving.
 
 ## The report
 
-For each assigned plate append to `build/reports/<id>.md`:
+For each assigned plate append to `docs/reports/<id>.md`:
 
 ```
 # <id>: converted | blocked

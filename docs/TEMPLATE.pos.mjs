@@ -155,5 +155,5 @@ export default positive("template", {
 // gate could ever have seen: one corrupted cell in five hundred and
 // twelve.
 //
-// Finally write build/reports/<id>.md per docs/CONVERSION.md.
+// Finally write docs/reports/<id>.md per docs/CONVERSION.md.
 // ---------------------------------------------------------------

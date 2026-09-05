@@ -8,7 +8,7 @@
 // hold sand along, in three dimensions and without the plate.
 //
 // THE ENSEMBLE IS THE SUBJECT, and it is why this plate sat in
-// build/reports/nodal.md as "blocked" - a point-independent hash
+// docs/reports/nodal.md as "blocked" - a point-independent hash
 // keyed by a lever and a loop index. The directions and phases must
 // be the SAME for every point and the same at all five evaluations
 // per point, or each probe descends onto its own field and the cloud

@@ -159,6 +159,14 @@ node tools/ci-smoke.mjs           all 69 walks, against a named record
 node tools/verify-orbit-block.mjs orbit block bodies
 ```
 
+`build/` is a product and is not tracked. `compile-pinned.mjs` fills
+`build/pinned/` and `build/unpinned/` for the darkroom's bake;
+`node tools/emit.mjs --all` followed by `node tools/gen-bench.mjs`
+writes the plate registrations the harness pages under `harness/`
+load. What a run proved lives under `docs/records/`, dated; the
+per-plate conversion reports `docs/CONVERSION.md` asks for live in
+`docs/reports/`.
+
 Those four are pure node and run in CI (`.github/workflows/gates.yml`),
 whose last step prints what a green tick does NOT cover. The rest -
 `tools/compile-pinned.py --run`, `tools/detbits.py`, the four CDP

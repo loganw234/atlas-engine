@@ -1,5 +1,7 @@
 node_modules/
 __pycache__/
-build/pinned/
-build/unpinned/
-build/detbits/
+# everything under build/ is a product of tools/ - compile-pinned, emit
+# --all, gen-bench, gen-detlib --write, verify-pair, firstdiff - and is
+# regenerated, never committed. What a run PROVED goes to docs/records/,
+# dated; what a conversion RECORDED goes to docs/reports/.
+build/

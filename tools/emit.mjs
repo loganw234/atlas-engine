@@ -1,11 +1,23 @@
 // Emit a positive: node tools/emit.mjs positives/critical.pos.mjs
+// Emit every positive:  node tools/emit.mjs --all
+//
+// Writes build/<id>.glsl and build/<id>.plate.js, which the harness
+// pages load. build/ is a product and is not tracked (2026-09-04): a
+// fresh checkout runs --all, then tools/gen-bench.mjs, before opening
+// harness/bench.html or bench-all.html.
 import { emitPlate } from "../core/emit.mjs";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const target = process.argv[2] || join(here, "..", "positives", "critical.pos.mjs");
+import { readdirSync } from "node:fs";
+const arg = process.argv[2];
+const targets = arg === "--all"
+  ? readdirSync(join(here, "..", "positives")).filter(f => f.endsWith(".pos.mjs")).sort()
+      .map(f => join(here, "..", "positives", f))
+  : [arg || join(here, "..", "positives", "critical.pos.mjs")];
+for (const target of targets) {
 const mod = await import(pathToFileURL(resolve(target)).href);
 const pos = mod.default;
 if (!pos || pos.kind !== "positive") {
@@ -38,3 +50,4 @@ writeFileSync(join(outDir, pos.id + ".plate.js"), plate);
 console.log(`emitted shape_${pos.id}: ${glsl.split("\n").length} GLSL lines`);
 console.log(`  build/${pos.id}.glsl`);
 console.log(`  build/${pos.id}.plate.js`);
+}
