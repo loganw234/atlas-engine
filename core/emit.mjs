@@ -1799,6 +1799,49 @@ function emitWDescend(ctx, name, call) {
   ctx.syms.set(name, { kind: "wdescend", n: nV, k: kV, v: vV, lin: linV, dead: deadV });
 }
 
+// A BLOCK BODY, so the step can declare an intermediate.
+//
+// The step used to have to BE an object literal, and that single
+// restriction is what made four plates unauthorable: cascade,
+// rule30, rulespace and universal nest loops two and three deep,
+// and a nested sum() or orbit has to be DECLARED before its result
+// can appear in a field. Everything needed to allow it was already
+// here - statements emit into the enclosing indent, and the
+// writeback below already sequences correctly - so this is a body
+// shape being accepted, not a new loop being built.
+//
+// Names declared in the block are scoped to it. They are emitted
+// inside the for, so a name surviving into the enclosing scope
+// would refer to a GLSL local that is out of scope there - a
+// compile error at best, and at worst a collision with a later
+// fresh() name.
+function orbitStepObject(ctx, stepArrow) {
+  const declared = [];
+  if (stepArrow.block) {
+    const before = new Set(ctx.syms.keys());
+    const last = stepArrow.block[stepArrow.block.length - 1];
+    if (!last || last.t !== "return")
+      err("an orbit step with a block body must end in `return { ... };`");
+    for (const st of stepArrow.block) {
+      if (st === last) break;
+      if (st.t === "return")
+        err("an orbit step may return only once, and only at the end");
+      stmt(ctx, st);
+    }
+    const re = last.e;
+    const stepObj = re.t === "object" ? re
+            : (re.t === "paren" && re.e.t === "object") ? re.e
+            : err("an orbit step must return an object literal");
+    for (const k of ctx.syms.keys()) if (!before.has(k)) declared.push(k);
+    return { stepObj, declared };
+  }
+  const body = stepArrow.body;
+  const stepObj = body.t === "object" ? body
+          : (body.t === "paren" && body.e.t === "object") ? body.e
+          : err("orbit step must return an object literal: (st, k) => ({ ... })");
+  return { stepObj, declared };
+}
+
 // s.orbit(n, {a: init...}, (st, k) => ({a: next...}), {until})
 // iterate a named-record state; simultaneous update via temps
 function emitOrbit(ctx, name, call) {
@@ -1840,46 +1883,7 @@ function emitOrbit(ctx, name, call) {
   }
   ctx.syms.set(stepArrow.params[0], { kind: "orbitstate", fields });
   if (stepArrow.params[1]) ctx.syms.set(stepArrow.params[1], { kind: "scalar", type: "int", v: kv });
-  // A BLOCK BODY, so the step can declare an intermediate.
-  //
-  // The step used to have to BE an object literal, and that single
-  // restriction is what made four plates unauthorable: cascade,
-  // rule30, rulespace and universal nest loops two and three deep,
-  // and a nested sum() or orbit has to be DECLARED before its result
-  // can appear in a field. Everything needed to allow it was already
-  // here - statements emit into the enclosing indent, and the
-  // writeback below already sequences correctly - so this is a body
-  // shape being accepted, not a new loop being built.
-  //
-  // Names declared in the block are scoped to it. They are emitted
-  // inside the for, so a name surviving into the enclosing scope
-  // would refer to a GLSL local that is out of scope there - a
-  // compile error at best, and at worst a collision with a later
-  // fresh() name.
-  let stepObj;
-  const declared = [];
-  if (stepArrow.block) {
-    const before = new Set(ctx.syms.keys());
-    const last = stepArrow.block[stepArrow.block.length - 1];
-    if (!last || last.t !== "return")
-      err("an orbit step with a block body must end in `return { ... };`");
-    for (const st of stepArrow.block) {
-      if (st === last) break;
-      if (st.t === "return")
-        err("an orbit step may return only once, and only at the end");
-      stmt(ctx, st);
-    }
-    const re = last.e;
-    stepObj = re.t === "object" ? re
-            : (re.t === "paren" && re.e.t === "object") ? re.e
-            : err("an orbit step must return an object literal");
-    for (const k of ctx.syms.keys()) if (!before.has(k)) declared.push(k);
-  } else {
-    const body = stepArrow.body;
-    stepObj = body.t === "object" ? body
-            : (body.t === "paren" && body.e.t === "object") ? body.e
-            : err("orbit step must return an object literal: (st, k) => ({ ... })");
-  }
+  const { stepObj, declared } = orbitStepObject(ctx, stepArrow);
   const temps = [];
   for (const pr of stepObj.props) {
     if (!(pr.key in fields)) err(`orbit step writes unknown field ${pr.key}`);
