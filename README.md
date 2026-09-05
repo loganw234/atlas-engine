@@ -126,26 +126,72 @@ and `TRUE` the other.*
 
 ## Status
 
-**Sixty-eight of sixty-eight, on four columns.** Every plate in the
-atlas has a positive; the engine emits all of them pinned; and the
-bundle those emit into produces ONE HASH on an RTX 5060 Ti, a GTX 1080,
-an RX 7600 and an Arc B580 - three vendors, four architectures, two
-NVIDIA generations seven years apart and two independent Mesa drivers,
-with no plate erroring on any column. Since 2026-08-23 that bundle is
-what the darkroom renders photographs from, in place of the
+**Sixty-eight of sixty-eight, one hash.** Every plate in the atlas has
+a positive; the engine emits all of them pinned; and the bundle those
+emit into produces ONE HASH on every complete column of the census.
+The founding result, 2026-08-23, was four columns - an RTX 5060 Ti, a
+GTX 1080, an RX 7600 and an Arc B580, three vendors and two Mesa
+drivers - and the record of how, including what it cost, is
+`atlas-darkroom/docs/test-records/2026-08-23b-…`. Since that day the
+bundle is what the darkroom renders photographs from, in place of the
 hand-written GLSL it corrected afterwards for a year.
 
-The record of how, including what it cost:
-`atlas-darkroom/docs/test-records/2026-08-23b-…`.
+The census was then taken out across every card that could be put in a
+slot. The clearance record of 2026-08-26
+(`atlas-darkroom/docs/determinism-data/parity-cleared-plates-2026-08-26.json`)
+certifies all 68 plates on **78 columns over 14 stacks**, four machines
+and two rungs, with the disagreers set aside by name rather than
+absorbed; the GLES twin of the bundle (`2026-08-25f-the-es-dialect-twin`)
+was censused across the same machines and lands on the same column
+digest from different shader text. The silicon, and the routes each
+was reached through - every column 68 of 68 unless it says otherwise:
 
-What that number rests on, stated so it cannot be read as more than it
-is: the `cpu` rung, 1024 square; these four columns and not "any card";
-and llvmpipe excluded for a measured reason (it does not single-round
-`fma()` even under `precise` — measured and reproducible, though
-narrower than "fault": the collapse is an `llvm.fmuladd` lowering that
-one reading of the spec's own precision table permits, so it is filed
-as a request rather than a conformance bug, and it puts no GPU at
-risk). The spec readings the pinning discipline rests on are now
+| vendor | silicon | generation | routes |
+|---|---|---|---|
+| NVIDIA | GeForce RTX 5060 Ti | Blackwell | NVIDIA's own GL, on Windows; the GLES twin |
+| NVIDIA | GeForce RTX 4070 | Ada | ANGLE over Direct3D 12; ANGLE over Vulkan on the GLES twin, set aside as a disagreer |
+| NVIDIA | GeForce GTX 1080 | Pascal | NVIDIA's own GL, on its own box; the GLES twin |
+| NVIDIA | GeForce GTX 1660 Ti | Turing | Mesa's NVK under zink; nouveau's own GL reaches 12 of 68 and dies |
+| NVIDIA | GeForce GTX 1060 3 GB | Pascal | Mesa's NVK under zink; nouveau, 12 of 68 |
+| AMD | Radeon RX 7600 | RDNA 3 | radeonsi with ACO and with LLVM, zink over RADV with ACO and with LLVM; AMDVLK under zink in its 2025 and 2023 releases, the one disagreer |
+| AMD | Radeon RX Vega | GCN 5 | the same four Mesa routes; AMDVLK 2023 |
+| AMD | Radeon Pro W5500 | RDNA 1 | the four Mesa routes; AMDVLK, both releases |
+| AMD | Radeon Pro WX 2100 | Polaris | the four Mesa routes, on two machines; AMDVLK 2023 |
+| AMD | Radeon R9 390 | Hawaii, GCN 2 | the four Mesa routes |
+| AMD | Radeon R9 200 / HD 7900 series | Tahiti, GCN 1 | the four Mesa routes |
+| Intel | Arc B580 | Battlemage | iris; zink over ANV |
+| Intel | Arc A750 | Alchemist | iris; zink over ANV; ANGLE over Vulkan on the GLES twin |
+| Intel | HD Graphics 630 | Kaby Lake, integrated | iris; zink over ANV |
+| software | llvmpipe, lavapipe | no silicon at all | llvmpipe's GL on four machines, Windows included; zink over lavapipe on three |
+
+Fourteen GPUs across three vendors and thirteen years of silicon,
+Tahiti to Blackwell, through fourteen stacks: NVIDIA's driver, both of
+AMD's Mesa compilers and AMD's own AMDVLK, Intel's iris, Mesa's NVK,
+nouveau, ANGLE over Direct3D 12, zink over five Vulkan drivers, and two
+software rasterisers that share no silicon with anything. What
+disagrees is named: AMDVLK's LLPC, on four plates (`breakdown`,
+`drainage`, `elliptic`, `nested`); ANGLE's Vulkan route on the GLES
+twin, which draws a second self-consistent answer; and nouveau, which
+does not finish. Every row above is one census file in the darkroom.
+
+The det library those plates call was censused wider still before
+this engine existed: thirteen cards on 2026-08-19, against the
+hand-written archive bundle - eleven NVIDIA across Pascal, Ampere,
+Ada, Hopper and Blackwell (GTX 1080, RTX A6000, A40, RTX 4070, RTX
+4090, RTX 2000 Ada, H100 SXM, RTX 5060 Ti, RTX 5090, RTX PRO 4500,
+RTX PRO 4000), an RX 7600 and an Arc B580 - and the eleven NVIDIA
+columns never split from each other. Record:
+`atlas-darkroom/docs/test-records/2026-08-19b-thirteen-cards.md`.
+
+What all of it rests on, stated so it cannot be read as more than it
+is: the `cpu` rung, 1024 square, and `tiny` where a row says so; these
+columns and not "any card"; and a library that has been fma-free since
+2026-08-24, which is what brought llvmpipe into the fold - it does not
+single-round `fma()` even under `precise`, measured and reproducible,
+though narrower than "fault": the collapse is an `llvm.fmuladd`
+lowering that one reading of the spec's own precision table permits,
+so it is filed as a request rather than a conformance bug, and it puts
+no GPU at risk. The spec readings the pinning discipline rests on are
 quote-verified against GLSL 4.60.8 / ES 3.20.8 and the floating-point
 literature; the dossiers live in the darkroom repository under
 `docs/sources/`.
