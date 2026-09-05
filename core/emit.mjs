@@ -382,6 +382,27 @@ const EXACT_BUILTINS = new Set(["abs", "min", "max", "floor", "sign"]);
 // when the forms the darkroom had been using were routed in.
 const NO_DET_FORM = {};
 
+// ------------------------------------------------- refusals and types
+// Every refusal the emitter makes is thrown from err, with the walk
+// line when the caller knows it. num spells a literal for its GLSL
+// type; asFloat and asInt are the only coercions the subset has, and
+// asInt coerces nothing: an int is required there or it refuses.
+function err(m, line) { throw new Error(`emit: ${m}${line ? ` (line ${line})` : ""}`); }
+
+function num(nv, type) {
+  if (type === "float" && !/[.eE]/.test(nv) && !/^0x/i.test(nv)) return nv + ".0";
+  return nv;
+}
+function asFloat(v) {
+  if (v.type === "float") return v.code;
+  if (v.type === "int") return `float(${v.code})`;
+  err(`cannot use ${v.type} as float`);
+}
+function asInt(v, line) {
+  if (v.type === "int") return v.code;
+  err(`an integer is required here`, line);
+}
+
 export function emitWalk(pos, opts = {}) {
   const pin = !!opts.pin;
   const src = pos.walk.toString();
@@ -460,7 +481,6 @@ export function emitWalk(pos, opts = {}) {
       }
     }
   };
-  const err = (m, line) => { throw new Error(`emit: ${m}${line ? ` (line ${line})` : ""}`); };
 
   let vn = 0;
 
@@ -635,20 +655,6 @@ export function emitWalk(pos, opts = {}) {
     if (n.t === "arrow") return false;             // bodies checked at their call sites
     return Object.values(n).some(v =>
       Array.isArray(v) ? v.some(effectful) : effectful(v));
-  }
-
-  function num(nv, type) {
-    if (type === "float" && !/[.eE]/.test(nv) && !/^0x/i.test(nv)) return nv + ".0";
-    return nv;
-  }
-  function asFloat(v) {
-    if (v.type === "float") return v.code;
-    if (v.type === "int") return `float(${v.code})`;
-    err(`cannot use ${v.type} as float`);
-  }
-  function asInt(v, line) {
-    if (v.type === "int") return v.code;
-    err(`an integer is required here`, line);
   }
 
   // ---- expression emission (draws hoisted in evaluation order) ----
