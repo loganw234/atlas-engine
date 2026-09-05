@@ -1379,140 +1379,148 @@ function emitStreamCall(ctx, name, n) {
       put(ctx, `float ${v} = u2f(pt) - 0.5;`);
       return { type: "float", code: v };
     }
-    case "pick": {
-      const a = n.args[0];
-      let bi;
-      if (a.t === "member" && a.o.t === "id" && a.o.n === ctx.P) bi = intLeverVar(ctx, a.name);
-      else if (a.t === "num") bi = a.v;
-      else err("pick wants a lever or an integer literal");
-      draw(ctx);
-      const pv = fresh(ctx, "pick");
-      put(ctx, `int ${pv} = min(int(u2f(pt) * float(${bi})), ${bi} - 1);`);
-      return { type: "int", code: pv };
-    }
+    case "pick": return emitPick(ctx, n);
     case "jitter2": {
       const vx = fresh(ctx, "jx"), v = fresh(ctx, "jit");
       draw(ctx); put(ctx, `float ${vx} = u2f(pt) - 0.5;`);
       draw(ctx); put(ctx, `vec2 ${v} = vec2(${vx}, u2f(pt) - 0.5);`);
       return { type: "vec2", code: v };
     }
-    // s.vnoise(x, y, oc): value noise on a hashed lattice.
-    //
-    // A FIELD, NOT A SEQUENCE, and that is the whole reason it is a
-    // primitive. It draws nothing from the stream: the value is a
-    // function of the lattice cell and the octave alone, so two
-    // points landing in the same cell see the same value however
-    // many draws came before them. A plate cannot get that from
-    // s.u() no matter how it is arranged.
-    //
-    // It is here rather than in a plate because a hand-rolled
-    // lattice hash is unpinned arithmetic in a plate body, which is
-    // where every cross-vendor residue in this project has lived.
-    // The integer half is exact by construction - hashu and the
-    // multiplies are uint, which wrap identically everywhere - and
-    // the float half is written through named `precise` locals so
-    // no interpolation step is a contraction candidate.
-    //
-    // floor is exact on every conforming stack, so the cell offset
-    // x - floor(x) is written out here rather than through fract(),
-    // which iris rounds toward zero. Same reason det_fract exists.
-    // The locals are declared plain. `precise` is added by the
-    // post-process under `pin`, which is how every other
-    // primitive here does it - emitting it directly put
-    // `precise` into the UNPINNED variant too, and that variant
-    // feeds a #version 330 vertex shader where `precise` is a
-    // syntax error. The plate compiled as compute and failed as
-    // a preview, which is the one path a census never exercises.
-    case "vnoise": {
-      if (n.args.length !== 3) err("s.vnoise wants (x, y, octave)");
-      const X = asFloat(emit(ctx, n.args[0]));
-      const Y = asFloat(emit(ctx, n.args[1]));
-      const OC = asInt(emit(ctx, n.args[2]));
-      const g = fresh(ctx, "vn");
-      // BIND THE ARGUMENTS ONCE. Each is used twice below - floor,
-      // then the subtraction - and emitting the expression twice
-      // would evaluate it twice. For a pure expression that is only
-      // wasteful; for `s.vnoise(s.u(), ...)` it would advance the
-      // stream twice and silently change the picture.
-      put(ctx, `float ${g}_x = ${X};`);
-      put(ctx, `float ${g}_y = ${Y};`);
-      put(ctx, `float ${g}_ix = floor(${g}_x);`);
-      put(ctx, `float ${g}_iy = floor(${g}_y);`);
-      put(ctx, `float ${g}_fx = ${g}_x - ${g}_ix;`);
-      put(ctx, `float ${g}_fy = ${g}_y - ${g}_iy;`);
-      put(ctx, `float ${g}_wx = (${g}_fx * ${g}_fx) * ` +
-          `(3.0 - (2.0 * ${g}_fx));`);
-      put(ctx, `float ${g}_wy = (${g}_fy * ${g}_fy) * ` +
-          `(3.0 - (2.0 * ${g}_fy));`);
-      put(ctx, `uint ${g}_bx = uint(int(${g}_ix) & 1023);`);
-      put(ctx, `uint ${g}_by = uint(int(${g}_iy) & 1023);`);
-      put(ctx, `uint ${g}_oc = uint(${OC});`);
-      const corner = (dx, dy) =>
-        `u2f(hashu(${g}_oc ^ hashu((${g}_bx + ${dx}u) * 374761393u + ` +
-        `(${g}_by + ${dy}u) * 668265263u)))`;
-      put(ctx, `float ${g}_00 = ${corner(0, 0)};`);
-      put(ctx, `float ${g}_10 = ${corner(1, 0)};`);
-      put(ctx, `float ${g}_01 = ${corner(0, 1)};`);
-      put(ctx, `float ${g}_11 = ${corner(1, 1)};`);
-      // the lerps as a + (b - a) * w, matching the evaluator term
-      // for term. mix() is not used: its association is free and the
-      // CPU side has to agree with this bit for bit.
-      put(ctx, `float ${g}_a = ${g}_00 + ` +
-          `((${g}_10 - ${g}_00) * ${g}_wx);`);
-      put(ctx, `float ${g}_b = ${g}_01 + ` +
-          `((${g}_11 - ${g}_01) * ${g}_wx);`);
-      put(ctx, `float ${g}_v = ` +
-          `(${g}_a + ((${g}_b - ${g}_a) * ${g}_wy)) - 0.5;`);
-      return { type: "float", code: `${g}_v` };
-    }
-    case "depth": {
-      const a = n.args[0];
-      if (!(a.t === "member" && a.o.t === "id" && a.o.n === ctx.P)) err("s.depth wants a lever for its maximum");
-      const maxVar = intLeverVar(ctx, a.name);
-      const staticMax = ctx.pos.levers[ctx.leverIx[a.name]].max;
-      let bias = "1.0";
-      if (n.args[1]) {
-        if (n.args[1].t !== "object") err("s.depth options must be a literal object");
-        for (const pr of n.args[1].props) {
-          if (pr.key !== "bias" || pr.value.t !== "num") err("s.depth understands { bias: <number> } only");
-          bias = num(pr.value.v, "float");
-        }
-      }
-      draw(ctx);
-      const dv = fresh(ctx, "depth");
-      // THIS pow DECIDES AN INTEGER. A last-place difference in it
-      // flips the depth at a boundary, so the walk does not go a
-      // slightly different way - it goes a different way.
-      //
-      // AND AT bias 1.0 THERE IS NO pow TO TAKE. det_pow(x, y) is
-      // det_exp2(y * det_log2(x)), so at y = 1 it is a log/exp round
-      // trip - correctly rounded at each step and still not x:
-      // measured, it moves 16.27% of inputs by up to 10 ULP. The CPU
-      // evaluator meanwhile computes Math.pow(x, 1.0), which IS
-      // exactly x, so the two backends disagreed about the depth of
-      // roughly one point in a million and that point then walked a
-      // different path.
-      //
-      // This never broke GPU-to-GPU parity - det_pow is bit-identical
-      // on every stack measured - which is why no census ever caught
-      // it. It broke the property everything else rests on: that the
-      // evaluator says what the shader will say. Found by an agent
-      // converting breakdown, which noticed the emitted GLSL had a
-      // pow where the plate had a bare multiply.
-      //
-      // 1.0 is the DEFAULT bias, so this is the common path, not an
-      // edge case.
-      const unbiased = bias === "1.0" || Number(bias) === 1;
-      const draw0 = "u2f(pt)";
-      const biased = unbiased ? draw0
-        : `${ctx.pin ? "det_pow" : "pow"}(${draw0}, ${bias})`;
-      put(ctx, `int ${dv} = int(${biased} * float(${maxVar}));`);
-      return { type: "int", code: dv, staticMax };
-    }
+    case "vnoise": return emitVnoise(ctx, n);
+    case "depth": return emitDepth(ctx, n);
     case "descend": err("s.descend must be bound directly: const x = s.descend(...)");
     case "deposit": err("s.deposit is only valid as the returned expression");
     default: err(`s.${name} is not in the subset`);
   }
+}
+
+// s.pick(n): an integer draw in [0, n), n a lever or a literal
+function emitPick(ctx, n) {
+  const a = n.args[0];
+  let bi;
+  if (a.t === "member" && a.o.t === "id" && a.o.n === ctx.P) bi = intLeverVar(ctx, a.name);
+  else if (a.t === "num") bi = a.v;
+  else err("pick wants a lever or an integer literal");
+  draw(ctx);
+  const pv = fresh(ctx, "pick");
+  put(ctx, `int ${pv} = min(int(u2f(pt) * float(${bi})), ${bi} - 1);`);
+  return { type: "int", code: pv };
+}
+
+// s.vnoise(x, y, oc): value noise on a hashed lattice.
+//
+// A FIELD, NOT A SEQUENCE, and that is the whole reason it is a
+// primitive. It draws nothing from the stream: the value is a
+// function of the lattice cell and the octave alone, so two
+// points landing in the same cell see the same value however
+// many draws came before them. A plate cannot get that from
+// s.u() no matter how it is arranged.
+//
+// It is here rather than in a plate because a hand-rolled
+// lattice hash is unpinned arithmetic in a plate body, which is
+// where every cross-vendor residue in this project has lived.
+// The integer half is exact by construction - hashu and the
+// multiplies are uint, which wrap identically everywhere - and
+// the float half is written through named `precise` locals so
+// no interpolation step is a contraction candidate.
+//
+// floor is exact on every conforming stack, so the cell offset
+// x - floor(x) is written out here rather than through fract(),
+// which iris rounds toward zero. Same reason det_fract exists.
+// The locals are declared plain. `precise` is added by the
+// post-process under `pin`, which is how every other
+// primitive here does it - emitting it directly put
+// `precise` into the UNPINNED variant too, and that variant
+// feeds a #version 330 vertex shader where `precise` is a
+// syntax error. The plate compiled as compute and failed as
+// a preview, which is the one path a census never exercises.
+function emitVnoise(ctx, n) {
+  if (n.args.length !== 3) err("s.vnoise wants (x, y, octave)");
+  const X = asFloat(emit(ctx, n.args[0]));
+  const Y = asFloat(emit(ctx, n.args[1]));
+  const OC = asInt(emit(ctx, n.args[2]));
+  const g = fresh(ctx, "vn");
+  // BIND THE ARGUMENTS ONCE. Each is used twice below - floor,
+  // then the subtraction - and emitting the expression twice
+  // would evaluate it twice. For a pure expression that is only
+  // wasteful; for `s.vnoise(s.u(), ...)` it would advance the
+  // stream twice and silently change the picture.
+  put(ctx, `float ${g}_x = ${X};`);
+  put(ctx, `float ${g}_y = ${Y};`);
+  put(ctx, `float ${g}_ix = floor(${g}_x);`);
+  put(ctx, `float ${g}_iy = floor(${g}_y);`);
+  put(ctx, `float ${g}_fx = ${g}_x - ${g}_ix;`);
+  put(ctx, `float ${g}_fy = ${g}_y - ${g}_iy;`);
+  put(ctx, `float ${g}_wx = (${g}_fx * ${g}_fx) * ` +
+      `(3.0 - (2.0 * ${g}_fx));`);
+  put(ctx, `float ${g}_wy = (${g}_fy * ${g}_fy) * ` +
+      `(3.0 - (2.0 * ${g}_fy));`);
+  put(ctx, `uint ${g}_bx = uint(int(${g}_ix) & 1023);`);
+  put(ctx, `uint ${g}_by = uint(int(${g}_iy) & 1023);`);
+  put(ctx, `uint ${g}_oc = uint(${OC});`);
+  const corner = (dx, dy) =>
+    `u2f(hashu(${g}_oc ^ hashu((${g}_bx + ${dx}u) * 374761393u + ` +
+    `(${g}_by + ${dy}u) * 668265263u)))`;
+  put(ctx, `float ${g}_00 = ${corner(0, 0)};`);
+  put(ctx, `float ${g}_10 = ${corner(1, 0)};`);
+  put(ctx, `float ${g}_01 = ${corner(0, 1)};`);
+  put(ctx, `float ${g}_11 = ${corner(1, 1)};`);
+  // the lerps as a + (b - a) * w, matching the evaluator term
+  // for term. mix() is not used: its association is free and the
+  // CPU side has to agree with this bit for bit.
+  put(ctx, `float ${g}_a = ${g}_00 + ` +
+      `((${g}_10 - ${g}_00) * ${g}_wx);`);
+  put(ctx, `float ${g}_b = ${g}_01 + ` +
+      `((${g}_11 - ${g}_01) * ${g}_wx);`);
+  put(ctx, `float ${g}_v = ` +
+      `(${g}_a + ((${g}_b - ${g}_a) * ${g}_wy)) - 0.5;`);
+  return { type: "float", code: `${g}_v` };
+}
+
+// s.depth(max, {bias}): the budget draw, an integer under a lever
+function emitDepth(ctx, n) {
+  const a = n.args[0];
+  if (!(a.t === "member" && a.o.t === "id" && a.o.n === ctx.P)) err("s.depth wants a lever for its maximum");
+  const maxVar = intLeverVar(ctx, a.name);
+  const staticMax = ctx.pos.levers[ctx.leverIx[a.name]].max;
+  let bias = "1.0";
+  if (n.args[1]) {
+    if (n.args[1].t !== "object") err("s.depth options must be a literal object");
+    for (const pr of n.args[1].props) {
+      if (pr.key !== "bias" || pr.value.t !== "num") err("s.depth understands { bias: <number> } only");
+      bias = num(pr.value.v, "float");
+    }
+  }
+  draw(ctx);
+  const dv = fresh(ctx, "depth");
+  // THIS pow DECIDES AN INTEGER. A last-place difference in it
+  // flips the depth at a boundary, so the walk does not go a
+  // slightly different way - it goes a different way.
+  //
+  // AND AT bias 1.0 THERE IS NO pow TO TAKE. det_pow(x, y) is
+  // det_exp2(y * det_log2(x)), so at y = 1 it is a log/exp round
+  // trip - correctly rounded at each step and still not x:
+  // measured, it moves 16.27% of inputs by up to 10 ULP. The CPU
+  // evaluator meanwhile computes Math.pow(x, 1.0), which IS
+  // exactly x, so the two backends disagreed about the depth of
+  // roughly one point in a million and that point then walked a
+  // different path.
+  //
+  // This never broke GPU-to-GPU parity - det_pow is bit-identical
+  // on every stack measured - which is why no census ever caught
+  // it. It broke the property everything else rests on: that the
+  // evaluator says what the shader will say. Found by an agent
+  // converting breakdown, which noticed the emitted GLSL had a
+  // pow where the plate had a bare multiply.
+  //
+  // 1.0 is the DEFAULT bias, so this is the common path, not an
+  // edge case.
+  const unbiased = bias === "1.0" || Number(bias) === 1;
+  const draw0 = "u2f(pt)";
+  const biased = unbiased ? draw0
+    : `${ctx.pin ? "det_pow" : "pow"}(${draw0}, ${bias})`;
+  put(ctx, `int ${dv} = int(${biased} * float(${maxVar}));`);
+  return { type: "int", code: dv, staticMax };
 }
 
 // ---- descend as a statement-level special form ----
