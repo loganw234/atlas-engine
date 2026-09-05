@@ -24,16 +24,24 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { emitWalk } from "../core/emit.mjs";
 import { substitute } from "../core/oracle.mjs";
+import { unfuse } from "../core/unfuse.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 const OUT = join(ROOT, "build", "pinned");
 mkdirSync(OUT, { recursive: true });
 
-for (const [src, dst] of [["detlib.glsl.template", "detlib.glsl"],
-                          ["detpre.glsl.template", "detpre.glsl"]]) {
+// The det library is filled from the record and then UNFUSED, which is
+// how the darkroom ships it (core/unfuse.mjs): every fma() in the
+// generator's source becomes a multiply and an add, because that is
+// the form every measured stack computes identically. The prelude is
+// this engine's own and keeps its fma calls, which the emitted plates
+// also carry; the darkroom bakes both the way it bakes plates.
+for (const [src, dst, rewrite] of [["detlib.glsl.template", "detlib.glsl", true],
+                                   ["detpre.glsl.template", "detpre.glsl", false]]) {
   const t = readFileSync(join(ROOT, "core", src), "utf8");
-  writeFileSync(join(OUT, dst), substitute(t), "utf8");
+  const filled = substitute(t);
+  writeFileSync(join(OUT, dst), rewrite ? unfuse(filled).text : filled, "utf8");
 }
 
 // BOTH VARIANTS, because a bit-identity result without a control is

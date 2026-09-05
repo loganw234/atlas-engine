@@ -67,8 +67,11 @@ def swap_horner(rec, name):
     this - there is nothing wrong with any constant - and it is a
     plausible mistake, being one line moved in a hand-written kernel."""
     ev = rec["approximations"][name]["eval"]
-    # find two adjacent fma steps and swap the constants they add
-    idx = [i for i, s in enumerate(ev) if s[1] == "fma"]
+    # find two adjacent Horner steps - the add of each unfused
+    # multiply-add pair carries the coefficient - and swap the
+    # constants they add
+    idx = [i for i, s in enumerate(ev)
+           if s[1] in ("fma", "add") and s[-1] in rec["constants"]]
     i, j = idx[0], idx[1]
     ev[i][-1], ev[j][-1] = ev[j][-1], ev[i][-1]
     return f"{name}: two Horner coefficients traded places"
@@ -100,8 +103,10 @@ CONTROLS = [
     ("derived constant, one ulp",
      lambda r: bump_bits_and_decimal(r, "PIO2_2"), ["LEVEL 2"]),
     # THE CONTROL THAT MOVED THE DESIGN. This was expected to fail on
-    # the behavioural bound and did not: one ulp of AT1 shifts atan by
-    # 3e-8, sixty times under a bound of 1.9e-6. A bound loose enough
+    # the behavioural bound and did not: one ulp of a fitted atan
+    # coefficient (AT1 then, ATQ1 since the 2026-09-04 reconcile) shifts
+    # atan by tens of nanoradians, far under any bound that has to hold
+    # over the whole domain. A bound loose enough
     # to be a promise about a whole domain cannot also be a tripwire
     # for a typo, and pretending otherwise would mean pinning bounds so
     # tight that ordinary re-measurement broke them. So the seal and
@@ -109,7 +114,7 @@ CONTROLS = [
     # this control now expects THOSE - not the bound, which is doing
     # its own job correctly.
     ("fitted coefficient, one ulp, consistently",
-     lambda r: bump_bits_and_decimal(r, "AT1"), ["SEAL", "UPSTREAM"]),
+     lambda r: bump_bits_and_decimal(r, "ATQ1"), ["SEAL", "UPSTREAM"]),
     ("decimal edited alone", lambda r: corrupt_decimal(r, "SQRT2"),
      ["LEVEL 2"]),
     ("provenance removed", lambda r: drop_provenance(r, "SS1"),

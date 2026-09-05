@@ -375,3 +375,91 @@ source but is fitted`.
   near the top of this document is **no longer true**, and the count is
   37 (36 with upstream counterparts; `LN2` is engine-only). See the
   drift table. Left as written, for the same reason.
+
+## 2026-09-04 - the record catches up with the deployed library
+
+The two drifts recorded above are reconciled, and the way they were
+reconciled is the part worth keeping.
+
+### What moved, and where it came from
+
+| | was (sealed 2026-08-22, seal `9c9d3f12…`) | is (seal `9983848e…`) |
+|---|---|---|
+| pi/2 split | three full-precision limbs seeded from float64 pi/2, `PIO2_1..3` | four limbs seeded from pi/2 at fifty digits, the first three with their low 15 mantissa bits cleared, `PIO2_1..4` |
+| `SINCOS_LIM` | 6 588 397 (2²²·pi/2) | 51 471.85 (2¹⁵·pi/2, rounded down) |
+| atan kernel | `AT0`–`AT5`, Hastings 1955, an absolute-error fit | `ATQ0`–`ATQ7`, fitatan.py 2026-08-25, `atan(r) = r + r·z·q(z)`, a relative-error fit |
+| `LN2` | engine-only | matched upstream too: gendetlib.py carries it since 2026-08-25 |
+| constants | 37 | 40, and `UPSTREAM fitted vs darkroom` matches all 40 |
+
+Every value is the darkroom generator's, taken the way the seeder has
+always taken values - by re-deriving them in its own code, not by
+reading the record - and `verify-constants.py` re-derives the four
+limbs independently at fifty digits, through float64 on the way to
+float32 exactly as `gendetlib.py`'s `f32(float(rem))` does, so a double
+rounding there is reproduced rather than idealised away.
+
+### The library ships unfused, so the record models two roundings
+
+The darkroom's generator has, since 2026-08-24, rewritten every `fma()`
+in its source to `((a) * (b) + (c))` before writing `detlib.glsl`,
+because five of eleven measured stacks collapse the fused form whatever
+`precise` says and the unfused form is the one they all compute
+identically. Two consequences for this repository:
+
+- `tools/gen-detlib.mjs` could no longer be byte-identical to the
+  deployed library from the fma-form template, whatever the constants
+  said. `core/unfuse.mjs` is a port of `bakearchive.unfuse` - same
+  innermost-first order, same parenthesis matching, same top-level
+  comma split - and the byte comparison is the proof of the port:
+  **IDENTICAL**, 27,435 characters, 56 rewrites on both sides.
+  `compile-pinned.mjs` applies the same pass, so `build/pinned/detlib.glsl`
+  is the deployed library now rather than a fused cousin of it.
+- Level 3's chain error was modelled as one rounding per Horner step.
+  The shader performs two. Every `eval` in the record is now spelled
+  as the shipped text has it - a `mul` and an `add` per step - and the
+  bounds were re-measured against that chain:
+
+  | kernel | chain ulp, fused model | chain ulp, unfused (measured) | bound |
+  |---|---|---|---|
+  | sin_kernel | 0.64 | 0.639 | 0.71 |
+  | cos_kernel | (recorded 1.19) | 1.185 | 1.40 |
+  | exp2_kernel | 1.00 | 1.047 | 1.20 |
+  | atanh_series | (recorded 1.40) | 1.404 | 1.60 |
+  | atan_kernel | new kernel | 1.001 | 1.20 |
+
+  The fit errors are unchanged where the kernels are unchanged, because
+  the exact evaluation ignores rounding, and the equioscillation
+  verdicts stand where they stood: INCONCLUSIVE for sin, cos and exp2.
+  atan is no longer judged at all - its provenance makes no optimality
+  claim, and the checker keys on the word.
+
+### The derived properties, re-stated for the four-limb split
+
+- the split carries **61 bits** of pi/2 (relative error 1.2e-18),
+  against the 55 the float64-seeded three-limb split carried;
+- each of the first three limbs has its low 15 bits clear, and every
+  one of the 98,301 products `k * limb` for `|k| < 2¹⁵` came back exact
+  through the same `mul32` the chain uses - which is the whole reason
+  the reduction can run on a multiply and an add per stage;
+- over `|x| <= SINCOS_LIM` the reduction, modelled unfused, stays
+  bounded and int32-safe, and the displacement `TWO_OVER_PI`'s own
+  rounding puts into `k` is reported as a number.
+
+### The controls run again
+
+`verify-negative-controls.py` had been dark since the upstream gate
+first failed: its first step demands an untouched copy of the record
+pass, and none could. With the gate green all nine controls run and
+all nine are caught at the level that claims to catch them. Two
+followed the record: the fitted-coefficient control moves `ATQ1`
+rather than `AT1`, and the Horner-swap control trades the constants of
+two adjacent `add` steps, since the add of each unfused pair is where
+the coefficient lives.
+
+### And the seeder agrees with the record again
+
+The sixty-five prose differences `seed-constants.py` reported after the
+citations round are gone: its provenance texts are the record's,
+verbatim, with a note saying that keeping them in step by hand is the
+only honest way for a file that is not allowed to read the record.
+`seed-constants.py` in its default mode reports no drift.

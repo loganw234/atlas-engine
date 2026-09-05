@@ -33,9 +33,11 @@ LEVEL 3 IS MEASURED TWICE, and the split is the useful part:
                 can be tested - by equioscillation, which is a
                 property no citation is needed to check.
   chain error   the same polynomial evaluated as the GLSL evaluates
-                it: float32 fma, rounded once per step, in the order
-                the record states. This is the number the shader
-                actually delivers.
+                it: float32, rounded once per operation, in the order
+                the record states - a multiply and an add per Horner
+                step since 2026-09-04, because the library ships
+                unfused (docs/CONSTANTS-FINDINGS.md). This is the
+                number the shader actually delivers.
 
 They differ by roughly the rounding noise of the chain, and for these
 kernels the chain dominates - which is itself worth knowing, because
@@ -418,21 +420,34 @@ def level2(rec, verbose):
         elif verbose:
             notes.append(f"    {name:12} 0x{got:08X}  = f32({c['expr']})")
 
-    # derived: re-run the stated procedure
-    pio2_64 = f64_of(m_pi / 2)
-    c1 = nearest32(pio2_64)
-    r1 = pio2_64 - to_mp(c1)
-    c2 = nearest32(r1)
-    r2 = r1 - to_mp(c2)
-    c3 = nearest32(r2)
-    for name, want in [("PIO2_1", c1), ("PIO2_2", c2), ("PIO2_3", c3)]:
+    # derived: the four-limb truncated split, re-run as the generator
+    # runs it. pi/2 at 50 digits; each limb goes Decimal -> float64 ->
+    # float32 exactly as gendetlib.py's f32(float(rem)) does, so a
+    # double rounding there is reproduced here rather than idealised
+    # away; the first three limbs have their low 15 mantissa bits
+    # cleared, and the fourth keeps every bit.
+    def trunc15(pair):
+        return from_bits(bits_of(pair) & ~0x7FFF)
+
+    rem = m_pi / 2
+    limbs = []
+    for i in range(4):
+        limb = nearest32(f64_of(rem))
+        if i < 3:
+            limb = trunc15(limb)
+        limbs.append(limb)
+        rem = rem - to_mp(limb)
+    for name, want in zip(("PIO2_1", "PIO2_2", "PIO2_3", "PIO2_4"), limbs):
         got = int(C[name]["bits"], 16)
         if bits_of(want) != got:
             out.append(f"{name}: 2 says 0x{bits_of(want):08X}, record has "
                        f"0x{got:08X}")
 
-    # SINCOS_LIM = nextafter(f32(2^22 * f64(pi/2)), 0)
-    base = nearest32(m_power(2, 22) * pio2_64)
+    # SINCOS_LIM = nextafter(f32(2^15 * f64(pi/2)), 0). The split's
+    # products are exact only while |k| < 2^15, and that is the binding
+    # limit now rather than the shift trick's 2^22.
+    pio2_64 = f64_of(m_pi / 2)
+    base = nearest32(m_power(2, 15) * pio2_64)
     lim_bits = bits_of(base) - 1                 # toward zero, positive value
     got = int(C["SINCOS_LIM"]["bits"], 16)
     if lim_bits != got:
@@ -449,62 +464,77 @@ def derived_properties(rec):
     than believed. Each returns (label, ok, detail)."""
     C = rec["constants"]
     res = []
+    names = ("PIO2_1", "PIO2_2", "PIO2_3", "PIO2_4")
+    limbs = [from_bits(int(C[n]["bits"], 16)) for n in names]
 
-    # THE THREE-LIMB pi/2: how many bits does it actually carry?
+    # THE FOUR-LIMB pi/2: how many bits does it actually carry?
     #
-    # Three float32 limbs could hold about 72 bits of pi/2. This split
-    # is seeded from the FLOAT64 pi/2, so the residual it splits is
-    # already wrong at the 2^-53 level and no amount of limbs recovers
-    # it. Measured rather than assumed, because the answer sets how far
-    # the argument reduction can be trusted, and the generator's
-    # comment says nothing about it.
-    s = sum(to_mp(from_bits(int(C[n]["bits"], 16)))
-            for n in ("PIO2_1", "PIO2_2", "PIO2_3"))
+    # Three truncated limbs and a full 24-bit tail, seeded from fifty
+    # digits rather than from a float64, so the ceiling is the tail's own
+    # rounding: measured at 61 bits when this was written, against the
+    # 55 the old float64-seeded three-limb split carried. More bits AND
+    # exact products - the truncation costs nothing the tail does not
+    # recover. Measured rather than assumed, because the answer sets how
+    # far the argument reduction can be trusted.
+    s = sum(to_mp(l) for l in limbs)
     err = abs(s - m_pi / 2)
     bits_carried = -int(mp.floor(mp.log(err / (m_pi / 2), 2)))
-    ok = bits_carried >= 50
+    ok = bits_carried >= 48
     res.append((
-        "pi/2 three-limb split carries "
+        "pi/2 four-limb split carries "
         f"{bits_carried} bits (relative error {mp.nstr(err, 4)})",
         ok,
-        "seeded from float64 pi/2, so ~53 bits is the ceiling, not the "
-        "~72 three float32 limbs could hold. Reduction error at the top "
-        "of the domain is |k| * that, i.e. about "
-        f"{mp.nstr(m_power(2, 22) * err, 4)} - well under a float32 ulp "
-        "of the results, so the domain stands."))
+        "three limbs of 9 significant bits and a 24-bit tail. Reduction "
+        "error at the top of the domain is |k| * that, i.e. about "
+        f"{mp.nstr(m_power(2, 15) * err, 4)} - well under a float32 ulp of "
+        "any result, so the domain stands."))
 
-    # SINCOS_LIM: WHAT IT ACTUALLY PROMISES.
-    #
-    # The first version of this test asked whether k came out an
-    # integer, and reported a failure - k is STILL an integer one ulp
-    # past the limit, it has merely quantised to a spacing of 2. The
-    # test was measuring a property that does not break at the
-    # boundary. What breaks is the KERNEL'S DOMAIN: once t leaves the
-    # binade [2^23, 2^24) the rounding error in k can reach a whole
-    # unit instead of half of one, and the reduced r walks out of the
-    # +-pi/4 interval the minimax coefficients were fitted on.
-    #
-    # So the property is swept, not sampled at one point, and the
-    # margin above the limit is reported as a number rather than a
-    # boolean.
+    # THE PRODUCTS ARE EXACT, which is the entire reason the reduction
+    # can ship without fma. Each of the first three limbs must have its
+    # low 15 mantissa bits clear, so k * limb for |k| < 2^15 needs at
+    # most 24 bits and rounds to itself. Checked on the bit pattern and
+    # then by doing the multiplications: every k against every limb,
+    # through the same mul32 the chain uses, against the exact product.
+    clear = all((int(C[n]["bits"], 16) & 0x7FFF) == 0 for n in names[:3])
+    inexact = 0
+    for limb in limbs[:3]:
+        for k in range(1, 1 << 15):
+            got = mul32((k, 0), limb)
+            if Fraction(got[0]) * Fraction(2) ** got[1] != \
+                    Fraction(k * limb[0]) * Fraction(2) ** limb[1]:
+                inexact += 1
+    res.append((
+        "the first three limbs have their low 15 bits clear, so k * limb "
+        "is exact for every |k| < 2**15",
+        clear and inexact == 0,
+        f"{inexact} inexact products of {3 * ((1 << 15) - 1):,} (three "
+        f"limbs, every k); this is what lets each reduction stage run on "
+        f"a multiply and an add, which every measured stack computes "
+        f"identically. The fourth limb is not exact and need not be."))
+
+    # SINCOS_LIM: WHAT IT ACTUALLY PROMISES. The reduction is swept over
+    # the admitted domain, exactly as the GLSL now has it - a multiply
+    # and an add per stage, no fma anywhere - and the property asserted
+    # is the one the library sells: the reduced argument stays BOUNDED
+    # and the quadrant index stays inside int32. |r| can leave the
+    # +-pi/4 interval the kernels were fitted on by the displacement
+    # TWO_OVER_PI's own rounding puts into k, which at 2^15 * pi/2 is
+    # small; it is reported as a number rather than asserted away.
     two_over_pi = from_bits(int(C["TWO_OVER_PI"]["bits"], 16))
     magic = from_bits(int(C["RND_MAGIC"]["bits"], 16))
-    p1 = from_bits(int(C["PIO2_1"]["bits"], 16))
-    p2 = from_bits(int(C["PIO2_2"]["bits"], 16))
-    p3 = from_bits(int(C["PIO2_3"]["bits"], 16))
     lim = from_bits(int(C["SINCOS_LIM"]["bits"], 16))
     limv = to_mp(lim)
     quarter = m_pi / 4
 
     def reduce_arg(x):
-        """det_sincos's argument reduction, exactly as the GLSL has
-        it, returning (|r|, k)."""
-        t = fma32(x, two_over_pi, magic)
+        """det_sincos's argument reduction, exactly as the GLSL has it
+        since the fma-free rebuild, returning (|r|, k)."""
+        t = add32(mul32(x, two_over_pi), magic)
         k = sub32(t, magic)
         nk = (-k[0], k[1])
-        r = fma32(nk, p1, x)
-        r = fma32(nk, p2, r)
-        r = fma32(nk, p3, r)
+        r = add32(mul32(nk, limbs[0]), x)
+        for limb in limbs[1:]:
+            r = add32(mul32(nk, limb), r)
         return abs(to_mp(r)), to_mp(k)
 
     worst_in, at_in, worst_k = mpf(0), None, mpf(0)
@@ -520,34 +550,6 @@ def derived_properties(rec):
         if ar > worst_in:
             worst_in, at_in = ar, to_mp(x)
         worst_k = max(worst_k, abs(kv))
-
-    # WHAT THE DOMAIN ACTUALLY GUARANTEES, which is not what I first
-    # asserted here. The test used to read "|r| stays inside +-pi/4"
-    # and it FAILED - correctly. TWO_OVER_PI is the float32 nearest
-    # 2/pi, off by 4.03e-8 relative, so k is the nearest integer to
-    # x*float32(2/pi) rather than to x*(2/pi), and at the top of the
-    # domain those differ by up to 0.169. The residual reaches 0.669
-    # instead of 0.5 and |r| reaches 1.0498 - 34% outside the interval
-    # the coefficients were fitted on.
-    #
-    # Measured cost: worst |det_sin(x) - sin(x)| over the admitted
-    # domain is 1.01e-6, near x = 6.58e6, against about 3e-8 at
-    # ordinary magnitudes. Roughly 17 ulp where the library is
-    # otherwise sub-ulp.
-    #
-    # It is NOT a parity break, and that distinction is the whole
-    # point of the library: every step is float32 with fma and
-    # `precise`, so every conforming driver computes the SAME wide r
-    # and the SAME degraded answer. Bits still match everywhere.
-    # Accuracy is what degrades, only above about 10^6, and the
-    # displacement scales linearly with x - at 10^5 it is 0.0026 and
-    # invisible.
-    #
-    # So the property asserted is the one that holds and that the
-    # library actually sells: the reduction stays BOUNDED and the
-    # quadrant index stays inside int32, over the whole admitted
-    # domain. The accuracy figure is recorded next to it rather than
-    # asserted away.
     bounded = worst_in < m_pi / 2 and worst_k < mpf(2) ** 31
     two_pi_rel = abs(to_mp(two_over_pi) - 2 / m_pi) / (2 / m_pi)
     displace = limv * two_pi_rel * 2 / m_pi
@@ -555,13 +557,11 @@ def derived_properties(rec):
         "over |x| <= SINCOS_LIM the reduction stays bounded and int32-safe",
         bounded,
         f"worst |r| = {mp.nstr(worst_in, 8)} at x = "
-        f"{mp.nstr(at_in, 8)} (bound pi/2 = {mp.nstr(m_pi / 2, 8)}), "
-        f"worst |k| = {mp.nstr(worst_k, 8)} (bound 2^31). NOTE |r| "
-        f"exceeds the pi/4 = {mp.nstr(quarter, 8)} the kernel was fitted "
-        f"on: TWO_OVER_PI is off true 2/pi by {mp.nstr(two_pi_rel, 4)}, "
-        f"which displaces k by up to {mp.nstr(displace, 4)} at the top of "
-        f"the domain. Deterministic, not accurate - see "
-        f"docs/CONSTANTS-FINDINGS.md."))
+        f"{mp.nstr(at_in, 8)} (bound pi/2 = {mp.nstr(m_pi / 2, 8)}; the "
+        f"kernels were fitted on pi/4 = {mp.nstr(quarter, 8)}), worst |k| "
+        f"= {mp.nstr(worst_k, 8)} (bound 2^31). TWO_OVER_PI is off true "
+        f"2/pi by {mp.nstr(two_pi_rel, 4)}, which displaces k by up to "
+        f"{mp.nstr(displace, 4)} at the top of the domain."))
 
     # RND_MAGIC must be exactly 1.5 * 2^23 - if it is off by an ulp
     # the shift trick rounds to a half-integer and every quadrant is

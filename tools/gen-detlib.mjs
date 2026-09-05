@@ -13,8 +13,10 @@
 // (27c0f355…, a71fe904…) are the pinned reference; re-deriving them
 // here would be a silent version bump wearing a tidy-up's clothes.
 //
-// AND THE CHECK THAT MAKES THIS WORTH DOING: the generated file must be
-// byte-identical to tools/determinism/detlib.glsl in the darkroom. Not
+// AND THE CHECK THAT MAKES THIS WORTH DOING: the generated file - the
+// template filled from the record, then unfused exactly as gendetlib.py
+// unfuses it (core/unfuse.mjs, since 2026-09-04) - must be byte-identical
+// to tools/determinism/detlib.glsl in the darkroom. Not
 // equivalent, not equal after normalisation of the interesting parts —
 // identical. That single comparison proves the record reproduces the
 // deployed library exactly, so every guarantee the darkroom has earned
@@ -28,6 +30,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { substitute, names } from "../core/oracle.mjs";
+import { unfuse, noFmaLeft } from "../core/unfuse.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
@@ -51,7 +54,17 @@ function main(argv) {
   const left = out.match(/@[A-Z][A-Z0-9_]*/g);
   if (left) throw new Error(`unsubstituted placeholders: ${left.join(" ")}`);
 
-  console.log(`detlib: ${out.length.toLocaleString()} chars from ` +
+  // THE LIBRARY SHIPS UNFUSED. gendetlib.py rewrites every fma() to a
+  // multiply and an add after substitution (2026-08-24), because five
+  // of eleven measured stacks collapse the fused form regardless of
+  // `precise` and the unfused one is what they all compute identically.
+  // The same rewrite, ported, so the byte comparison below stays the
+  // check it was: core/unfuse.mjs.
+  const { text: outUnfused, count } = unfuse(out);
+  if (!noFmaLeft(outUnfused)) throw new Error("an fma call survived the rewrite");
+  console.log(`  ${count} fma call(s) rewritten - the library ships fma-free`);
+
+  console.log(`detlib: ${out.length.toLocaleString()} chars (fused source) from ` +
               `${used.size} constants`);
 
   // A constant in the record that the library never uses is not an
@@ -67,7 +80,7 @@ function main(argv) {
 
   if (argv.includes("--write")) {
     mkdirSync(join(ROOT, "build"), { recursive: true });
-    writeFileSync(OUT, out, "utf8");
+    writeFileSync(OUT, outUnfused, "utf8");
     console.log(`  wrote ${OUT}`);
   }
 
@@ -78,7 +91,7 @@ function main(argv) {
     return 1;
   }
   const proven = lf(readFileSync(PROVEN, "utf8"));
-  const mine = lf(out);
+  const mine = lf(outUnfused);
   if (mine === proven) {
     console.log(`\n  IDENTICAL to the darkroom's proven detlib.glsl ` +
                 `(${proven.length.toLocaleString()} chars).`);

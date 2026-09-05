@@ -259,6 +259,13 @@ extracted template from the verified record and the result is
 **identical to the darkroom's proven `detlib.glsl`**, all 16,138
 characters. Every guarantee that file has earned transfers.
 
+> **2026-09-04.** Identical again, at 27,435 characters: the darkroom's
+> library has shipped fma-free on a four-limb reduction since
+> 2026-08-24, and the record, the template and the generator followed
+> it together - `core/unfuse.mjs` ports the darkroom's rewrite so the
+> byte comparison stays the proof. The full account is the last section
+> of `CONSTANTS-FINDINGS.md`.
+
 New pinned forms live in `core/detpre.glsl.template`, separate so
 `detlib.glsl` is never added to: `det_len2/3`, `det_dot3`, `det_cross`,
 `det_mix/mix3`, `det_smoothstep`, `det_div2`, `det_rodrigues`.

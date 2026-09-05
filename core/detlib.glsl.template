@@ -11,9 +11,15 @@
    deterministic on the cards measured, but the camera must not
    lean on it.
    AND A DOMAIN, which this list used to omit: det_sin/det_cos/
-   det_tan are defined for |x| < 2^22*pi/2 = 6588397. Beyond that
+   det_tan are defined for |x| < 2^15*pi/2 = 51471. Beyond that
    the argument reduction stops being exact, and the list said
    nothing while the functions returned 3147, then 4e30, then Inf.
+   The limit was 2^22*pi/2 = 6588397 until 2026-08-24, when the
+   reduction was rebuilt on truncated splits to remove its need for
+   a fused multiply-add; those splits are exact only while |k| is
+   under 2^15, and that is now the binding constraint rather than
+   the shift trick. No plate in the atlas passes an argument above
+   about 804, measured by lowering this guard and re-rendering.
    They now return (0, 1) there - deterministic, bounded, and
    obviously not a measurement. Nothing this camera renders comes
    near the limit; the point is that a contract naming no domain is
@@ -53,9 +59,21 @@ void det_sincos(float x, out float s_out, out float c_out){
   precise float t = fma(x, @TWO_OVER_PI, @RND_MAGIC);
   precise float k = t - @RND_MAGIC;
   int q = int(k) & 3;
+  /* FOUR STAGES ON TRUNCATED SPLITS, so no product needs rounding.
+     This was three stages on FULL-PRECISION pieces of pi/2, where
+     k*PIO2_1 wants ~47 bits and only a single-rounded fma can carry
+     the residual the next stage cancels. That made the whole camera
+     depend on a guarantee five of eleven measured stacks do not
+     honour, and on those the reduction lost the residual outright -
+     det_sin wrong by up to 2.9e9 ULP past |x| > 2pi.
+     Each piece here has its low 15 bits zeroed, so it carries 9
+     significant bits and k*P is EXACTLY a float32 for |k| < 2^15.
+     Nothing is shed, so nothing needs capturing, and plain * and -
+     suffice - which every stack computes identically. */
   precise float r = fma(-k, @PIO2_1, x);
   r = fma(-k, @PIO2_2, r);
   r = fma(-k, @PIO2_3, r);
+  r = fma(-k, @PIO2_4, r);
   precise float r2 = r * r;
   precise float ps = fma(r2, @SS3, @SS2);
   ps = fma(r2, ps, @SS1);
@@ -252,12 +270,13 @@ float det_exp2(float x){
 
 /* log2: exponent peeled by bits, mantissa folded to
    [sqrt2/2, sqrt2), atanh series through the exact divide */
-float det_log2(float x){
+float det_log2_ef(float x, out float f){
   uint ux = floatBitsToUint(x);
-  if (ux == 0u) return uintBitsToFloat(0xFF800000u);     /* -inf */
-  if (ux >= 0x7F800000u || (ux & 0x80000000u) != 0u)
+  if (ux == 0u) { f = 0.0; return uintBitsToFloat(0xFF800000u); }  /* -inf */
+  if (ux >= 0x7F800000u || (ux & 0x80000000u) != 0u) {
+    f = 0.0;
     return uintBitsToFloat((ux == 0x7F800000u) ? 0x7F800000u
-                                               : 0x7FC00000u);
+                                               : 0x7FC00000u); }
   float e0 = 0.0;
   if (ux < 0x00800000u) {                    /* denormal rescue */
     /* in the integers, so a driver that flushes denormals cannot
@@ -279,7 +298,62 @@ float det_log2(float x){
   precise float q = fma(z, p, 1.0);
   precise float twos = s + s;
   precise float ln = twos * q;
-  return fma(ln, @LOG2E, e);
+  f = ln * @LOG2E;
+  return e;
+}
+/* det_log2 KEEPS ITS ORIGINAL BODY, DUPLICATED ON PURPOSE.
+   The obvious move is `float f; e = det_log2_ef(x, f); return e + f;`
+   and it is WRONG. The shipped tail is `((ln) * (@LOG2E) + (e))` as
+   one unqualified return expression, which a driver may contract into
+   a single-rounded fma; recombining a pre-rounded f gives two
+   roundings and a different answer on 0.53% of inputs, by 1 ULP.
+
+   Measured 2026-08-25, and the 1 ULP is not the point - the blast
+   radius is. Swapping only det_pow moved starfield's worst bin by 15
+   deposits; also swapping det_log2 moved it by 16,660,144, about 15%
+   of that bin. A one-ULP shift in log2 relocates an enormous
+   accumulated value in a chaotic plate, and det_log2 is EQUALLY
+   accurate both ways (p99 1.0, max 3). That is churn for nothing:
+   44 plates that never call det_pow would move for no gain.
+
+   So the series is written twice. The duplication is the cheap half
+   of this trade. NOTE the shipped tail's contractability is a real
+   latent hazard - it is an unqualified expression deciding a value -
+   but all 23 columns agree on it today, so changing it is unforced
+   risk and belongs in its own deliberate experiment. */
+float det_log2(float x){
+  uint ux = floatBitsToUint(x);
+  if (ux == 0u) return uintBitsToFloat(0xFF800000u);     /* -inf */
+  if (ux >= 0x7F800000u || (ux & 0x80000000u) != 0u)
+    return uintBitsToFloat((ux == 0x7F800000u) ? 0x7F800000u
+                                               : 0x7FC00000u);
+  float e0 = 0.0;
+  if (ux < 0x00800000u) {
+    ux = floatBitsToUint(det_scale48(ux)); e0 = -48.0;
+  }
+  float e = float(int(ux >> 23u) - 127) + e0;
+  precise float m = uintBitsToFloat((ux & 0x007FFFFFu)
+                                    | 0x3F800000u);
+  if (m > @SQRT2) { m = m * 0.5; e = e + 1.0; }
+  precise float num = m - 1.0;
+  precise float den = m + 1.0;
+  precise float s = det_div(num, den);
+  precise float z = s * s;
+  precise float p = fma(z, @NINTH, @SEVENTH);
+  p = fma(z, p, @FIFTH);
+  p = fma(z, p, @THIRD);
+  precise float q = fma(z, p, 1.0);
+  precise float twos = s + s;
+  precise float ln = twos * q;
+  /* ASSIGNED, NOT RETURNED. In a return expression this fma - after
+     the bake unfuses it to a mul and an add - reaches no precise
+     destination, and a front end that does not inline (ANGLE,
+     measured 2026-08-26) may legally re-fuse it. Three of five
+     Vulkan backends did, and nine log-heavy plates split into a
+     second self-consistent answer. The precise local closes the
+     license; on inlining stacks the bits are identical either way. */
+  precise float r = fma(ln, @LOG2E, e);
+  return r;
 }
 
 /* atan2: octant fold through the exact divide, odd minimax,
@@ -292,12 +366,22 @@ float det_atan(float y, float x){
   if (mx == 0.0) return 0.0;
   precise float r = det_div(mn, mx);
   precise float z = r * r;
-  precise float p = fma(z, @AT5, @AT4);
-  p = fma(z, p, @AT3);
-  p = fma(z, p, @AT2);
-  p = fma(z, p, @AT1);
-  p = fma(z, p, @AT0);
-  precise float a = r * p;
+  /* atan(r) = r + r*z*q(z), NOT r * p(z).
+     The old form multiplied r by a polynomial whose constant term was
+     0.99997726, so for small r - where atan(r) tends to r - the answer
+     came back scaled by that constant. A fixed 382 ULP that never
+     improved as r shrank, worst exactly where the function is
+     simplest. Splitting off the leading r makes small arguments right
+     by construction and leaves q to carry only the correction. */
+  precise float q = fma(z, @ATQ7, @ATQ6);
+  q = fma(z, q, @ATQ5);
+  q = fma(z, q, @ATQ4);
+  q = fma(z, q, @ATQ3);
+  q = fma(z, q, @ATQ2);
+  q = fma(z, q, @ATQ1);
+  q = fma(z, q, @ATQ0);
+  precise float rz = r * z;
+  precise float a = fma(rz, q, r);
   if (ay > ax) a = @PIO2_F - a;
   if (x < 0.0) a = @PI_F - a;
   /* THE SIGN BIT, NOT THE COMPARISON. `-0.0 < 0.0` is false, so a
@@ -317,11 +401,109 @@ float det_atan(float y, float x){
   return ((floatBitsToUint(y) & 0x80000000u) != 0u) ? -a : a;
 }
 
+/* EXACT PRODUCT AS A HI+LO PAIR, WITHOUT fma.
+   Dekker 1971. fma was never required - it is the shortcut. Split
+   both operands so every partial product fits in 24 bits, and the
+   error term falls out of exact arithmetic.
+
+   THE SPLIT IS A BITMASK, NOT Veltkamp's multiply. Veltkamp computes
+   hi = c - (c - a) with c = a*(2^12+1), which is algebraically `a`;
+   a backend permitted to reassociate may fold the whole thing away
+   and silently destroy the split. Masking is an integer operation
+   that no float reassociation rule can touch. It is also cheaper,
+   and it cannot overflow the way c = 4097*a can above 2^115.
+
+   ONLY VALID BECAUSE p = 24 IS EVEN. Masking gives each half 12
+   bits and 12+12 = 24 fits. At odd precision one half needs
+   ceil(p/2) and hi*hi needs p+1 bits: measured 15% of products wrong
+   at p=13. NEVER port this to a float64 library (p=53) - use
+   Veltkamp there. That is exactly why the literature standardised on
+   Veltkamp, which is precision-agnostic.
+
+   Every step is its own `precise` local so no pair of them can be
+   contracted into an fma; a fused step here is MORE accurate and
+   therefore WRONG, because the error term would no longer be the
+   exact residual. */
+float det_split12(float a){
+  return uintBitsToFloat(floatBitsToUint(a) & 0xFFFFF000u); }
+float det_twoprod(float a, float b, out float lo){
+  precise float p  = a * b;
+  precise float ah = det_split12(a);
+  precise float al = a - ah;
+  precise float bh = det_split12(b);
+  precise float bl = b - bh;
+  precise float t1 = ah * bh;
+  precise float t2 = t1 - p;
+  precise float t3 = ah * bl;
+  precise float t4 = t2 + t3;
+  precise float t5 = al * bh;
+  precise float t6 = t4 + t5;
+  precise float t7 = al * bl;
+  precise float e  = t6 + t7;
+  lo = e;
+  return p; }
+
 /* composites - deterministic by composition */
 float det_tan(float x){ float s, c; det_sincos(x, s, c);
                         return det_div(s, c); }
+
+/* pow, with the product carried to double width.
+   MEASURED 2026-08-25, before: p50 6 ULP, p99 52, max 100 over
+   |y*log2(x)| spanning [0, 64+); the "1 ULP p99" this library
+   advertised holds only inside |y*log2(x)| <= 1, which is what the
+   old harness happened to sample.
+
+   The mechanism is amplification, not a bad log2: an absolute error
+   in the exponent becomes a RELATIVE error in the result, scaled by
+   |y*log2(x)|*ln2 - up to ~89. Collapsing y*log2(x) into one float32
+   therefore throws away exactly the bits that matter. Carrying the
+   product as h+l and folding l back through 2^l = 1 + l*ln2 (exact
+   to second order, since |l| <= ulp(h)/2) recovers them.
+
+   det_log2's own error is untouched by this and remains the floor on
+   how good pow can get. */
 float det_pow(float x, float y){
-  return det_exp2(y * det_log2(x)); }
+  /* EDGE CASES TAKE THE OLD PATH, unchanged. det_log2_ef returns
+     +-inf or nan in `e` for x <= 0, inf or nan, and det_twoprod on an
+     infinity produces inf - inf = nan in its residual, which would
+     turn pow(0, 2) into nan where it used to be 0. Short-circuit
+     before any of the double-width machinery sees a non-finite. */
+  uint px = floatBitsToUint(x);
+  if (px == 0u || px >= 0x7F800000u || (px & 0x80000000u) != 0u)
+    return det_exp2(y * det_log2(x));
+
+  float f;
+  precise float e = det_log2_ef(x, f);
+  /* y*log2(x) = y*e + y*f, computed WITHOUT ever forming log2(x) as
+     one float. That sum is where the precision went: `e` is an exact
+     integer up to +-175 and `f` is under 0.5, so collapsing them
+     absorbs f's low bits into e's exponent - and the exponent is
+     exactly what gets amplified by ln2*|y*log2(x)|, up to ~89x.
+     Splitting the product in two keeps both parts at full width. */
+  float l1, l2;
+  precise float h1 = det_twoprod(y, e, l1);
+  precise float h2 = det_twoprod(y, f, l2);
+  /* twoSum of h1 and h2: exact, branch-free, no fma */
+  precise float s  = h1 + h2;
+  precise float bb = s - h1;
+  precise float u1 = s - bb;
+  precise float u2 = h1 - u1;
+  precise float u3 = h2 - bb;
+  precise float er = u2 + u3;
+  precise float lo = (l1 + l2) + er;
+  precise float E  = det_exp2(s);
+  precise float c  = lo * @LN2;
+  /* E * (1 + c), NOT E*c + E - see det_exp, same hazard. When the
+     result is small the correction term E*c lands in the denormals
+     and a driver is permitted to flush it, discarding the whole
+     correction. Forming (1 + c) first keeps the arithmetic near 1
+     where nothing underflows. */
+  precise float m  = 1.0 + c;
+  /* pinned into a precise local before returning - see det_exp;
+     an unqualified return expression is reassociated back to
+     E + E*c and the correction underflows away. */
+  precise float res = E * m;
+  return res; }
 /* AND THE COMPOSITES CARRY `precise` TOO, which they did not until
    2026-08-22. Written as one-liners, `fma(-x, x, 1.0)` here and
    `fma(-y, q, x)` in det_mod had NO qualifier on their results - and an
@@ -337,8 +519,25 @@ float det_pow(float x, float y){
    single-round an unqualified fma, so every det_ hash on those stacks
    is unchanged, det_sin still 27c0f355 and det_cos still a71fe904.
    What changes is that radeonsi now agrees with them. */
+/* acos via (1-x)(1+x), NOT 1 - x*x.
+   MEASURED 2026-08-25: p50 80 ULP, p99 451, max 511 for x in
+   [0.999, 1]. Two things go wrong at once there and they multiply.
+   `1 - x*x` cancels - x*x rounds first, losing the low bits before
+   the subtraction, and at x = 0.99999994 the true 1-x^2 is 1.2e-7
+   against a rounding error of 6e-8, so half the answer is noise. And
+   acos(x) tends to 0 as x tends to 1, so that error is measured
+   against a vanishing result.
+
+   (1-x)(1+x) is the same quantity with neither problem: 1-x is EXACT
+   by Sterbenz for x in [0.5, 2], 1+x is exact to a rounding, and the
+   single product rounds once. Note this is better than a true fma
+   here, not merely a replacement for one - fma(-x, x, 1.0) is
+   correctly rounded but still measures a tiny difference of large
+   numbers, while the factored form never forms the large numbers. */
 float det_acos(float x){
-  precise float t = fma(-x, x, 1.0);
+  precise float u = 1.0 - x;
+  precise float v = 1.0 + x;
+  precise float t = u * v;
   precise float r = det_sqrt(t);
   return det_atan(r, x); }
 float det_mod(float x, float y){
