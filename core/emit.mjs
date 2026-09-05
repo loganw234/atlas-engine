@@ -693,172 +693,191 @@ function emit(ctx, n) {
       if (sym.kind === "vec2") return { type: "vec2", code: sym.v };
       return { kind: sym.kind, sym };
     }
-    case "un": {
-      const v = emit(ctx, n.e);
-      if (n.op === "-") return { type: v.type, code: `(-${v.code})` };
-      if (n.op === "~") {
-        if (v.type !== "int")
-          err("~ needs an integer; a float carries no bits to flip. "
-              + "Convert with bits(x) first", n.line);
-        return { type: "int", code: `(~${v.code})` };
-      }
-      return { type: "bool", code: `(!${v.code})` };
-    }
-    case "cond": {
-      if (effectful(ctx, n.a) || effectful(ctx, n.b))
-        err("a stream draw inside a ternary branch is conditional on the test; draw order must be structural, so hoist the draw", n.line);
-      const c = emit(ctx, n.c), a = emit(ctx, n.a), b = emit(ctx, n.b);
-      const ty = a.type === "int" && b.type === "int" ? "int" : "float";
-      const ca = ty === "float" ? asFloat(a) : a.code;
-      const cb = ty === "float" ? asFloat(b) : b.code;
-      return { type: ty, code: `((${c.code}) ? ${ca} : ${cb})` };
-    }
-    case "bin": {
-      if ((n.op === "&&" || n.op === "||") && effectful(ctx, n.r))
-        err(`a stream draw on the right of ${n.op} is conditional on the left operand; draw order must be structural, so hoist the draw`, n.line);
-      const l = emit(ctx, n.l);
-      const r = emit(ctx, n.r);
-      if (n.op === "&&" || n.op === "||")
-        return { type: "bool", code: `(${l.code} ${n.op} ${r.code})` };
-      if (["<", ">", "<=", ">=", "==", "!="].includes(n.op)) {
-        // A COMPARISON HAS NO PRECISE DESTINATION, and that is the
-        // hole this closes. `precise` qualifies a variable; the
-        // result of a comparison is a bool and cannot be one. So a
-        // compound expression that feeds a comparison and nothing
-        // else reaches no precise variable at all, and the compiler
-        // is free to contract or reassociate it - the one place in
-        // an emitted plate where that freedom survived.
-        //
-        // Measured on mirage. Its leapfrog switches on
-        // `n*n - C*C > 0.0`, which the emitter bound down to
-        // `((pb_79 - pb_80) > 0.0)`: both products pinned, the
-        // subtraction between them floating free as an fma
-        // candidate. n and C are both near 1.02 and the difference
-        // is the ray's turning point, so it cancels to nothing -
-        // over a sweep of 345,600 rays, 23.2% present that
-        // comparison a value SMALLER THAN THE ROUNDING ERROR OF ITS
-        // OWN SUBTRACTION, and 11.8% get within 1e-9 of zero. Which
-        // side of zero a single- or double-rounded evaluation lands
-        // on is then arbitrary, the ray turns a step apart, and the
-        // plate splits NVIDIA against Mesa - which is exactly the
-        // two-way split the emitted census found.
-        //
-        // Comparisons are where control flow lives, so this is the
-        // most expensive place in the emitter to leave unpinned. Int
-        // comparisons are exact and stay bare.
-        if (l.type === r.type && l.type !== "float")
-          return { type: "bool", code: `(${l.code} ${n.op} ${r.code})` };
-        const lc = ctx.pin ? bindPrecise(ctx, asFloat(l)) : asFloat(l);
-        const rc = ctx.pin ? bindPrecise(ctx, asFloat(r)) : asFloat(r);
-        return { type: "bool", code: `(${lc} ${n.op} ${rc})` };
-      }
-      // BITWISE, INTEGER ONLY, AND NO det_ FORM BECAUSE NONE EXISTS
-      // TO NEED. `&`, `|`, `^` and `~` on a 32-bit integer are exact
-      // on every conforming implementation - there is no ULP
-      // latitude to pin, which is the whole reason the det_ library
-      // exists for floats. Measured before it was relied on: 4,096
-      // int pairs through all six operators, identical to an int32
-      // reference on RTX 5060 Ti, GTX 1080, radeonsi and iris
-      // (docs/bitwise-dsl-log.md, stage 0).
-      //
-      // Refused on floats rather than coerced. A silent float-to-int
-      // conversion is how a walk comes to mean something different
-      // from the JavaScript it is written in, and the CPU evaluator
-      // runs that JavaScript.
-      if (["&", "|", "^"].includes(n.op)) {
-        if (l.type !== "int" || r.type !== "int")
-          err(`${n.op} needs integers on both sides; a float carries `
-              + "no bits. Convert with bits(x) first", n.line);
-        return { type: "int", code: `(${l.code} ${n.op} ${r.code})` };
-      }
-      // SHIFTS TAKE A LITERAL COUNT, 0 TO 31, and the restriction is
-      // not fussiness. JS masks the count to five bits, so
-      // `x << 32 === x << 0`; GLSL calls a shift at or past the bit
-      // width UNDEFINED. The two agree only while the count is in
-      // range, and a literal is the only kind the emitter can check.
-      if (n.op === "<<" || n.op === ">>") {
-        if (l.type !== "int")
-          err(`${n.op} needs an integer on the left; convert with `
-              + "bits(x) first", n.line);
-        // the lexer keeps a literal as the SOURCE SLICE, a string -
-        // so this reads the number out rather than testing the token
-        const k = n.r.t === "num" ? Number(n.r.v) : NaN;
-        if (!Number.isInteger(k) || k < 0 || k > 31)
-          err(`${n.op} needs a literal count between 0 and 31 - JS `
-              + "masks the count to five bits and GLSL leaves it "
-              + "undefined past the width, so they agree only here",
-              n.line);
-        return { type: "int", code: `(${l.code} ${n.op} ${r.code})` };
-      }
-      // arithmetic
-      if (n.op === "%") {
-        if (l.type === "int" && r.type === "int")
-          return { type: "int", code: `(${l.code} % ${r.code})` };
-        err("float modulus diverges between JS and GLSL; use mod(a, b)");
-      }
-      if (l.type === "int" && r.type === "int" && (n.op === "+" || n.op === "-" || n.op === "*"))
-        return { type: "int", code: `(${l.code} ${n.op} ${r.code})` };
-      if (l.type === "vec2" || r.type === "vec2" || l.type === "vec3" || r.type === "vec3") {
-        if (l.type === r.type && (n.op === "+" || n.op === "-")) {
-          // VECTORS NEED BINDING TOO. `precise vec3 c = (a * 0.30) +
-          // (vec3(...) * (b * 0.95));` is the same compound-inline
-          // shape that broke tpms, and the float path's hoisting
-          // never reached it.
-          //
-          // WHAT THIS DID NOT FIX, recorded because the honest
-          // reading cost a long detour. It was written to close the
-          // colour divergence left on logz after position had gone
-          // bit-identical - 427 of 8,977 deposits landing in the
-          // SAME pixel with a different colour, radeonsi against
-          // iris - and it changed that number by EXACTLY ZERO. So
-          // did three other candidates. The cause was det_fract:
-          // written as the spec defines fract, folded straight back
-          // into the builtin by the compiler, and so never actually
-          // compiled. Four zeroes in a row are not four facts about
-          // the plate; they are a reason to doubt the compilation.
-          //
-          // This stays because the shape is genuinely unpinned and
-          // tpms proves it can bite - but it is prophylactic, not a
-          // fix, and calling it one would leave the next reader
-          // hunting a divergence that is already closed.
-          const lv = ctx.pin ? bindPreciseV(ctx, l.code, l.type) : l.code;
-          const rv = ctx.pin ? bindPreciseV(ctx, r.code, r.type) : r.code;
-          return { type: l.type, code: `(${lv} ${n.op} ${rv})` };
-        }
-        err(`use the vector helpers (add3, mul3, .scale) instead of ${n.op} on mixed vector types`);
-      }
-      // THE ONE LINE WHERE A FLOAT DIVISION BECOMES GLSL. Every `/`
-      // in every emitted plate passes through here, which is the
-      // whole reason the plan put the pinning in this repository
-      // rather than in a regex over sixty-eight authors' source.
-      // GLSL gives division 2.5 ULP of latitude; det_div refines a
-      // bit-trick seed with exact arithmetic and has none.
-      //
-      // AND THE OPERANDS ARE BOUND FIRST, which `precise` on the
-      // destination does not do for you. Measured on radeonsi with
-      // tpms: `(A - level) - (B - level)` written inline is cancelled
-      // to `A - B` and the rounding changes, even though the result
-      // is assigned to a `precise` local. Binding each side to its
-      // own `precise` temporary stops it, and is the difference
-      // between that plate agreeing across vendors and not. Same
-      // rule the darkroom states above pal(): never hand a compound
-      // expression onward - bind it to a local first.
-      const lf = ctx.pin ? bindPrecise(ctx, asFloat(l)) : asFloat(l);
-      const rf = ctx.pin ? bindPrecise(ctx, asFloat(r)) : asFloat(r);
-      if (ctx.pin && n.op === "/") {
-        // a power-of-two divisor needs no refinement - see exactRecip
-        const rec = exactRecip(rf);
-        if (rec) return { type: "float", code: `(${lf} * ${rec})` };
-        return { type: "float", code: `det_div(${lf}, ${rf})` };
-      }
-      return { type: "float", code: `(${lf} ${n.op} ${rf})` };
-    }
+    case "un": return emitUnary(ctx, n);
+    case "cond": return emitCond(ctx, n);
+    case "bin": return emitBinary(ctx, n);
     case "array": err("array literal outside pal()");
     case "object": err("object literal outside a known call");
     case "member": return emitMember(ctx, n);
     case "call": return emitCall(ctx, n);
     default: err(`unhandled node ${n.t}`);
   }
+}
+
+function emitUnary(ctx, n) {
+  const v = emit(ctx, n.e);
+  if (n.op === "-") return { type: v.type, code: `(-${v.code})` };
+  if (n.op === "~") {
+    if (v.type !== "int")
+      err("~ needs an integer; a float carries no bits to flip. "
+          + "Convert with bits(x) first", n.line);
+    return { type: "int", code: `(~${v.code})` };
+  }
+  return { type: "bool", code: `(!${v.code})` };
+}
+
+function emitCond(ctx, n) {
+  if (effectful(ctx, n.a) || effectful(ctx, n.b))
+    err("a stream draw inside a ternary branch is conditional on the test; draw order must be structural, so hoist the draw", n.line);
+  const c = emit(ctx, n.c), a = emit(ctx, n.a), b = emit(ctx, n.b);
+  const ty = a.type === "int" && b.type === "int" ? "int" : "float";
+  const ca = ty === "float" ? asFloat(a) : a.code;
+  const cb = ty === "float" ? asFloat(b) : b.code;
+  return { type: ty, code: `((${c.code}) ? ${ca} : ${cb})` };
+}
+
+// a binary operator: both operands first, in source order, then the
+// family the operator belongs to
+function emitBinary(ctx, n) {
+  if ((n.op === "&&" || n.op === "||") && effectful(ctx, n.r))
+    err(`a stream draw on the right of ${n.op} is conditional on the left operand; draw order must be structural, so hoist the draw`, n.line);
+  const l = emit(ctx, n.l);
+  const r = emit(ctx, n.r);
+  if (n.op === "&&" || n.op === "||")
+    return { type: "bool", code: `(${l.code} ${n.op} ${r.code})` };
+  if (["<", ">", "<=", ">=", "==", "!="].includes(n.op)) return emitComparison(ctx, n, l, r);
+  if (["&", "|", "^", "<<", ">>"].includes(n.op)) return emitBitwise(ctx, n, l, r);
+  return emitArithmetic(ctx, n, l, r);
+}
+
+function emitComparison(ctx, n, l, r) {
+  // A COMPARISON HAS NO PRECISE DESTINATION, and that is the
+  // hole this closes. `precise` qualifies a variable; the
+  // result of a comparison is a bool and cannot be one. So a
+  // compound expression that feeds a comparison and nothing
+  // else reaches no precise variable at all, and the compiler
+  // is free to contract or reassociate it - the one place in
+  // an emitted plate where that freedom survived.
+  //
+  // Measured on mirage. Its leapfrog switches on
+  // `n*n - C*C > 0.0`, which the emitter bound down to
+  // `((pb_79 - pb_80) > 0.0)`: both products pinned, the
+  // subtraction between them floating free as an fma
+  // candidate. n and C are both near 1.02 and the difference
+  // is the ray's turning point, so it cancels to nothing -
+  // over a sweep of 345,600 rays, 23.2% present that
+  // comparison a value SMALLER THAN THE ROUNDING ERROR OF ITS
+  // OWN SUBTRACTION, and 11.8% get within 1e-9 of zero. Which
+  // side of zero a single- or double-rounded evaluation lands
+  // on is then arbitrary, the ray turns a step apart, and the
+  // plate splits NVIDIA against Mesa - which is exactly the
+  // two-way split the emitted census found.
+  //
+  // Comparisons are where control flow lives, so this is the
+  // most expensive place in the emitter to leave unpinned. Int
+  // comparisons are exact and stay bare.
+  if (l.type === r.type && l.type !== "float")
+    return { type: "bool", code: `(${l.code} ${n.op} ${r.code})` };
+  const lc = ctx.pin ? bindPrecise(ctx, asFloat(l)) : asFloat(l);
+  const rc = ctx.pin ? bindPrecise(ctx, asFloat(r)) : asFloat(r);
+  return { type: "bool", code: `(${lc} ${n.op} ${rc})` };
+}
+
+function emitBitwise(ctx, n, l, r) {
+  // BITWISE, INTEGER ONLY, AND NO det_ FORM BECAUSE NONE EXISTS
+  // TO NEED. `&`, `|`, `^` and `~` on a 32-bit integer are exact
+  // on every conforming implementation - there is no ULP
+  // latitude to pin, which is the whole reason the det_ library
+  // exists for floats. Measured before it was relied on: 4,096
+  // int pairs through all six operators, identical to an int32
+  // reference on RTX 5060 Ti, GTX 1080, radeonsi and iris
+  // (docs/bitwise-dsl-log.md, stage 0).
+  //
+  // Refused on floats rather than coerced. A silent float-to-int
+  // conversion is how a walk comes to mean something different
+  // from the JavaScript it is written in, and the CPU evaluator
+  // runs that JavaScript.
+  if (["&", "|", "^"].includes(n.op)) {
+    if (l.type !== "int" || r.type !== "int")
+      err(`${n.op} needs integers on both sides; a float carries `
+          + "no bits. Convert with bits(x) first", n.line);
+    return { type: "int", code: `(${l.code} ${n.op} ${r.code})` };
+  }
+  // SHIFTS TAKE A LITERAL COUNT, 0 TO 31, and the restriction is
+  // not fussiness. JS masks the count to five bits, so
+  // `x << 32 === x << 0`; GLSL calls a shift at or past the bit
+  // width UNDEFINED. The two agree only while the count is in
+  // range, and a literal is the only kind the emitter can check.
+  if (l.type !== "int")
+    err(`${n.op} needs an integer on the left; convert with `
+        + "bits(x) first", n.line);
+  // the lexer keeps a literal as the SOURCE SLICE, a string -
+  // so this reads the number out rather than testing the token
+  const k = n.r.t === "num" ? Number(n.r.v) : NaN;
+  if (!Number.isInteger(k) || k < 0 || k > 31)
+    err(`${n.op} needs a literal count between 0 and 31 - JS `
+        + "masks the count to five bits and GLSL leaves it "
+        + "undefined past the width, so they agree only here",
+        n.line);
+  return { type: "int", code: `(${l.code} ${n.op} ${r.code})` };
+}
+
+// arithmetic
+function emitArithmetic(ctx, n, l, r) {
+  if (n.op === "%") {
+    if (l.type === "int" && r.type === "int")
+      return { type: "int", code: `(${l.code} % ${r.code})` };
+    err("float modulus diverges between JS and GLSL; use mod(a, b)");
+  }
+  if (l.type === "int" && r.type === "int" && (n.op === "+" || n.op === "-" || n.op === "*"))
+    return { type: "int", code: `(${l.code} ${n.op} ${r.code})` };
+  if (l.type === "vec2" || r.type === "vec2" || l.type === "vec3" || r.type === "vec3")
+    return emitVectorOp(ctx, n, l, r);
+  // THE ONE LINE WHERE A FLOAT DIVISION BECOMES GLSL. Every `/`
+  // in every emitted plate passes through here, which is the
+  // whole reason the plan put the pinning in this repository
+  // rather than in a regex over sixty-eight authors' source.
+  // GLSL gives division 2.5 ULP of latitude; det_div refines a
+  // bit-trick seed with exact arithmetic and has none.
+  //
+  // AND THE OPERANDS ARE BOUND FIRST, which `precise` on the
+  // destination does not do for you. Measured on radeonsi with
+  // tpms: `(A - level) - (B - level)` written inline is cancelled
+  // to `A - B` and the rounding changes, even though the result
+  // is assigned to a `precise` local. Binding each side to its
+  // own `precise` temporary stops it, and is the difference
+  // between that plate agreeing across vendors and not. Same
+  // rule the darkroom states above pal(): never hand a compound
+  // expression onward - bind it to a local first.
+  const lf = ctx.pin ? bindPrecise(ctx, asFloat(l)) : asFloat(l);
+  const rf = ctx.pin ? bindPrecise(ctx, asFloat(r)) : asFloat(r);
+  if (ctx.pin && n.op === "/") {
+    // a power-of-two divisor needs no refinement - see exactRecip
+    const rec = exactRecip(rf);
+    if (rec) return { type: "float", code: `(${lf} * ${rec})` };
+    return { type: "float", code: `det_div(${lf}, ${rf})` };
+  }
+  return { type: "float", code: `(${lf} ${n.op} ${rf})` };
+}
+
+function emitVectorOp(ctx, n, l, r) {
+  if (l.type === r.type && (n.op === "+" || n.op === "-")) {
+    // VECTORS NEED BINDING TOO. `precise vec3 c = (a * 0.30) +
+    // (vec3(...) * (b * 0.95));` is the same compound-inline
+    // shape that broke tpms, and the float path's hoisting
+    // never reached it.
+    //
+    // WHAT THIS DID NOT FIX, recorded because the honest
+    // reading cost a long detour. It was written to close the
+    // colour divergence left on logz after position had gone
+    // bit-identical - 427 of 8,977 deposits landing in the
+    // SAME pixel with a different colour, radeonsi against
+    // iris - and it changed that number by EXACTLY ZERO. So
+    // did three other candidates. The cause was det_fract:
+    // written as the spec defines fract, folded straight back
+    // into the builtin by the compiler, and so never actually
+    // compiled. Four zeroes in a row are not four facts about
+    // the plate; they are a reason to doubt the compilation.
+    //
+    // This stays because the shape is genuinely unpinned and
+    // tpms proves it can bite - but it is prophylactic, not a
+    // fix, and calling it one would leave the next reader
+    // hunting a divergence that is already closed.
+    const lv = ctx.pin ? bindPreciseV(ctx, l.code, l.type) : l.code;
+    const rv = ctx.pin ? bindPreciseV(ctx, r.code, r.type) : r.code;
+    return { type: l.type, code: `(${lv} ${n.op} ${rv})` };
+  }
+  err(`use the vector helpers (add3, mul3, .scale) instead of ${n.op} on mixed vector types`);
 }
 
 function emitMember(ctx, n) {
