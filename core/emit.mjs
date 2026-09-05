@@ -403,259 +403,279 @@ function asInt(v, line) {
   err(`an integer is required here`, line);
 }
 
-export function emitWalk(pos, opts = {}) {
-  const pin = !!opts.pin;
+// ------------------------------------------------------- the emission
+// ONE OBJECT CARRIES THE STATE of a walk's emission. It is built here
+// and handed to every function below as its first argument, so what a
+// piece reads and writes can be seen at its call rather than inherited
+// from a closure. P and S are the walk's own names for its levers and
+// its stream; the rest is what the emitter accumulates.
+function newEmission(pos, opts) {
   const src = pos.walk.toString();
   const ast = parse(src);
-  const P = ast.pName, S = ast.sName;
-
-  const lines = [];
-  let indent = "  ";
-  // WHERE EACH EMITTED TEMPORARY IS DEFINED, so a hoist can be placed
-  // at its definition rather than at its first use. See sincosOf.
-  const defAt = new Map();
-  /** COMPOUND EXPRESSIONS ALREADY BOUND IN THIS RUN OF DECLARATIONS.
-   *
-   *  The emitter writes the same subexpression more than once - 11% of
-   *  the atlas's precise declarations repeat an earlier right-hand
-   *  side within their own block, and threebody repeats 36% of them.
-   *  universal's fourteen-cell loop computes `2.0 * ob_215_v` twice
-   *  per iteration; rule30's computes `floor(g * 0.5)` twice.
-   *
-   *  Mesa removes these; NVIDIA does not, which is the same asymmetry
-   *  the det_sincos hoist was for (three identical calls cost radeonsi
-   *  1.10x and NVIDIA 2.19x). Sharing them here settles it for both.
-   *
-   *  Bit-exact: emitted temporaries are single-assignment, so the same
-   *  text over the same names is the same value by construction.
-   *
-   *  INVALIDATED AT ONE CHOKE POINT, and deliberately a blunt one.
-   *  Every emitted line passes through put(), so anything that is not
-   *  a plain declaration - a brace, an assignment to orbit state, a
-   *  break, a branch - clears the map. That gives up sharing across
-   *  statements for a rule that cannot be wrong about when a name it
-   *  cached has since been reassigned. The runs of declarations that
-   *  make up the hot loops are what this is for, and they are intact
-   *  within one run. */
-  const cse = new Map();          // normalised text -> { name, depth }
-  let cseDepth = 0;
-  const put = (s) => {
-    lines.push(indent + s);
-    const decl =
-      /^(?:precise\s+)?(?:float|vec2|vec3|vec4)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/
-        .exec(s);
-    if (decl) defAt.set(decl[1], { at: lines.length - 1, ind: indent });
-
-    // INVALIDATE WHAT ACTUALLY CHANGED, and nothing else.
-    //
-    // This used to clear the whole map on any line that was not a
-    // plain declaration, which is safe and threw most of the value
-    // away. threebody's 2,560-step integrator recomputed
-    // `det_div(h_41, 6.0)` - a Newton reciprocal, on a value declared
-    // OUTSIDE the loop - twenty-four times per step, and the two
-    // stage-weight ternaries twelve times each, because they sat in
-    // different runs of declarations with assignments between them.
-    //
-    // So: an assignment drops only the entries whose text mentions the
-    // name assigned, and a closing brace drops only what was bound
-    // inside the scope that just ended. An opening brace drops
-    // nothing - an outer temporary is perfectly visible inside a
-    // nested block, and that is exactly the loop-invariant case.
-    for (const mm of s.matchAll(
-      /([A-Za-z_][A-Za-z0-9_]*)\s*(?:\+|-|\*|\/)?=(?!=)/g)) {
-      if (decl && mm[1] === decl[1]) continue;   // its own declarator
-      const re = new RegExp(`\\b${mm[1]}\\b`);
-      for (const k of [...cse.keys()]) if (re.test(k)) cse.delete(k);
-    }
-    // BRACES IN ORDER, never netted. `} else {` closes one scope and
-    // opens another at the SAME depth, so a net count sees no change
-    // and keeps everything the closing branch bound - which arnold
-    // then referenced from the else branch as an undefined variable.
-    // Fifteen plates failed to bake on that, and not one of the five
-    // gates caught it, because none of them runs a GLSL compiler.
-    for (const ch of s) {
-      if (ch === "{") cseDepth++;
-      else if (ch === "}") {
-        cseDepth--;
-        for (const [k, v] of [...cse]) if (v.depth > cseDepth) cse.delete(k);
-      }
-    }
-  };
-
-  let vn = 0;
-
-  /** Bind a compound float expression to its own `precise` temporary.
-   *
-   *  Only compound ones: a bare name, a literal, a swizzle or a lever
-   *  read is already a single value, and naming it again would double
-   *  the length of every emitted plate to say nothing. The test is
-   *  deliberately syntactic and slightly generous - if it binds
-   *  something that did not need it, the cost is a redundant local the
-   *  compiler removes; if it misses something that did, a plate stops
-   *  agreeing across vendors, which is far more expensive. */
-  /** The same binding, for a vector expression. */
-  /** ONE det_sincos WHERE THE PLATE ASKED FOR SEVERAL.
-   *
-   *  det_sin(x) and det_cos(x) both call det_sincos and throw half of
-   *  it away, and a plate asks the same question over and over: tpms
-   *  makes 786 det_sin/det_cos calls over 235 distinct arguments,
-   *  `det_cos(px_8)` alone appearing 175 times. Across the atlas it is
-   *  4,662 calls over 2,026 arguments - a median redundancy of 2.20x,
-   *  and 60 of 68 plates above 2x. It is not one plate's quirk.
-   *
-   *  Mesa removes it for free. NVIDIA does not: running three
-   *  textually identical calls costs radeonsi 1.10x and iris 1.14x
-   *  against one, and NVIDIA 2.19x (2026-08-24). So the plate that
-   *  agrees on every card costs 60x more on NVIDIA than on Mesa, and a
-   *  third of that is redundancy the emitter is handing over.
-   *
-   *  THIS IS BIT-EXACT AND THAT IS THE ONLY REASON IT IS ALLOWED. The
-   *  same input to the same deterministic function returns the same
-   *  bits, and `precise` constrains HOW an expression is computed, not
-   *  that it must be computed again. The census re-run is what proves
-   *  it rather than this paragraph.
-   *
-   *  Two rules keep it safe:
-   *
-   *  ONLY EMITTER TEMPORARIES. The name must carry the `_<counter>`
-   *  suffix that fresh/bindPrecise/bindPreciseV append from a
-   *  monotonic `vn`, so it is unique for the whole emission and cannot
-   *  be a redefined walk name or a det_ library local (`t`, `k`, `r`,
-   *  `r2` - the only names this emitter ever repeats).
-   *
-   *  AT THE DEFINITION, NOT THE FIRST USE. px_8 is defined at brace
-   *  depth 1 and used at depths 1 and 2; caching at first use would
-   *  put the temporary inside a block and reference it outside. Its
-   *  definition dominates every use by construction, and a hoist
-   *  placed just after it lands in exactly the scope the argument
-   *  itself lives in. */
-  const sincos = new Map();
-  const hoists = [];
-  function sincosOf(code, which) {
-    const fallback = which === "s" ? `det_sin(${code})` : `det_cos(${code})`;
-    if (!/^[A-Za-z_][A-Za-z0-9_]*_[0-9]+$/.test(code)) return fallback;
-    const d = defAt.get(code);
-    if (!d) return fallback;
-    let e = sincos.get(code);
-    if (!e) {
-      const t = `sc_${vn++}`;
-      e = { s: `${t}_s`, c: `${t}_c` };
-      // ONE DECLARATOR PER LINE, so the `precise` post-pass qualifies
-      // both. It matches a single declarator and skips a comma list.
-      //
-      // The comma-list form was tried first, because it reproduces
-      // what det_sin and det_cos already do internally:
-      //
-      //   float det_sin(float x){ float s, c; det_sincos(x,s,c); return s; }
-      //
-      // and it does keep the old hashes. verify-orbit-block refused
-      // it: "2 unpinned local(s) inside the orbit". That gate exists
-      // because an unpinned local inside an orbit is what made mirage
-      // disagree across vendors, so the library's own idiom is a
-      // hazard the emitter must not copy inward.
-      //
-      // Qualified, `precise` propagates back through the out parameter
-      // into det_sincos - a tighter constraint than the old chain, not
-      // a looser one - and the plate's hash moves. That is allowed
-      // where the cards still agree with each other; agreement, not
-      // continuity with a previous number, is the claim.
-      hoists.push({ at: d.at, ind: d.ind, text: [
-        `float ${e.s};`, `float ${e.c};`,
-        `det_sincos(${code}, ${e.s}, ${e.c});`] });
-      sincos.set(code, e);
-    }
-    return which === "s" ? e.s : e.c;
-  }
-
-  function bindPreciseV(code, type) {
-    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(code)) return code;
-    const t = `pv_${vn++}`;
-    put(`precise ${type} ${t} = ${code};`);
-    return t;
-  }
-
-  function bindPrecise(code) {
-    // NOTE: hoisting DOES descend into ternary branches. Binding a
-    // branch computes it whether or not it is selected - harmless,
-    // since draws are already refused there and every det_ function
-    // is total - but tpms has four branches of six det_ calls each
-    // and pays for all of them, and mirage's emitted source roughly
-    // doubles. That is the price of the last plates: with the
-    // exemption in place mirage disagreed between vendors, and
-    // without it every GPU pair reaches 50/50.
-    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(code)) return code;        // name
-    if (/^[A-Za-z_][A-Za-z0-9_]*\.[xyzw]$/.test(code)) return code; // swizzle
-    if (/^-?[0-9.]+(e-?[0-9]+)?$/.test(code)) return code;          // literal
-    if (/^P\[[0-9]+\]$/.test(code)) return code;                    // lever
-    // KEYED ON THE NORMALISED TEXT. The emitter parenthesises
-    // inconsistently - universal's fourteen-cell loop binds
-    // `((2.0 * ob_v))` and then `(2.0 * ob_v)`, the same value twice,
-    // and a raw string key sees two different expressions. Only the
-    // key is normalised; what is emitted is untouched.
-    const key = cseKey(code);
-    const hit = cse.get(key);
-    if (hit) return hit.name;
-    const t = `pb_${vn++}`;
-    put(`precise float ${t} = ${code};`);
-    // AFTER the put, so the invalidation pass inside it cannot drop
-    // the entry it is about to gain; depth recorded so a closing brace
-    // knows whether this one went out of scope with it
-    cse.set(key, { name: t, depth: cseDepth });
-    return t;
-  }
-  // GLSL reserves the gl_ prefix, so a walk variable named "gl" would
-  // emit gl_5 and fail at GPU link time only - emit and smoke are both
-  // CPU-side and would pass it through. Rename at the source.
-  const fresh = (base) => `${/^gl(_|$)/.test(base) ? "v" + base : base}_${++vn}`;
-  const helpers = new Set();
-
   const leverIx = {};
   pos.leverNames.forEach((n, i) => leverIx[n] = i);
-  const usedIntLevers = new Set();
-  const intLeverVar = (name) => {
-    const lv = pos.levers[leverIx[name]];
-    if (!(lv.step === 1 && Number.isInteger(lv.min) && Number.isInteger(lv.max)))
-      err(`lever ${name} used where an integer is required, but it is not an integer lever`);
-    usedIntLevers.add(name);
-    return `li_${name}`;
-  };
-
   const syms = new Map();  // name -> {kind, ...}
   // the classic stratum's givens, when the walk names them
   if (ast.qName) syms.set(ast.qName, { kind: "vec2", v: "q" });
   if (ast.tName) syms.set(ast.tName, { kind: "scalar", type: "float", v: "uT" });
   syms.set("TAU", { kind: "scalar", type: "float", v: "TAU" });
   syms.set("PI", { kind: "scalar", type: "float", v: "PI" });
+  return {
+    pin: !!opts.pin,
+    pos, ast, P: ast.pName, S: ast.sName,
+    lines: [],
+    indent: "  ",
+    // WHERE EACH EMITTED TEMPORARY IS DEFINED, so a hoist can be placed
+    // at its definition rather than at its first use. See sincosOf.
+    defAt: new Map(),
+    /** COMPOUND EXPRESSIONS ALREADY BOUND IN THIS RUN OF DECLARATIONS.
+     *
+     *  The emitter writes the same subexpression more than once - 11% of
+     *  the atlas's precise declarations repeat an earlier right-hand
+     *  side within their own block, and threebody repeats 36% of them.
+     *  universal's fourteen-cell loop computes `2.0 * ob_215_v` twice
+     *  per iteration; rule30's computes `floor(g * 0.5)` twice.
+     *
+     *  Mesa removes these; NVIDIA does not, which is the same asymmetry
+     *  the det_sincos hoist was for (three identical calls cost radeonsi
+     *  1.10x and NVIDIA 2.19x). Sharing them here settles it for both.
+     *
+     *  Bit-exact: emitted temporaries are single-assignment, so the same
+     *  text over the same names is the same value by construction.
+     *
+     *  INVALIDATED AT ONE CHOKE POINT, and deliberately a blunt one.
+     *  Every emitted line passes through put(), so anything that is not
+     *  a plain declaration - a brace, an assignment to orbit state, a
+     *  break, a branch - clears the map. That gives up sharing across
+     *  statements for a rule that cannot be wrong about when a name it
+     *  cached has since been reassigned. The runs of declarations that
+     *  make up the hot loops are what this is for, and they are intact
+     *  within one run. */
+    cse: new Map(),          // normalised text -> { name, depth }
+    cseDepth: 0,
+    vn: 0,                   // behind every fresh temporary name
+    sincos: new Map(),       // argument -> its det_sincos pair, see sincosOf
+    hoists: [],              // the det_sincos lines, spliced in at the end
+    helpers: new Set(),      // shape-level helpers the walk asked for
+    leverIx,
+    usedIntLevers: new Set(),
+    syms,
+  };
+}
 
-  // resolve a loop bound: a lever gives its max as the static bound
-  // and its runtime int as the break; a literal is both
-  function staticBoundOf(a) {
-    if (a.t === "num") return { staticN: Math.round(+a.v), runtime: null };
-    if (a.t === "member" && a.o.t === "id" && a.o.n === P) {
-      const lv = pos.levers[leverIx[a.name]];
-      if (!lv) err(`unknown lever ${a.name}`);
-      return { staticN: Math.ceil(lv.max), runtime: intLeverVar(a.name) };
-    }
-    if (a.t === "id") {
-      const sym = syms.get(a.n);
-      if (sym && sym.staticMax !== undefined)
-        return { staticN: sym.staticMax, runtime: sym.v };
-    }
-    err("a loop bound must be a lever, a literal, or carry a known maximum");
-  }
+// ---- the output stream ----
+function put(ctx, s) {
+  ctx.lines.push(ctx.indent + s);
+  const decl =
+    /^(?:precise\s+)?(?:float|vec2|vec3|vec4)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/
+      .exec(s);
+  if (decl) ctx.defAt.set(decl[1], { at: ctx.lines.length - 1, ind: ctx.indent });
 
-  // ---- effect analysis: does this subtree draw from the stream ----
-  function effectful(n) {
-    if (!n || typeof n !== "object") return false;
-    if (n.t === "call") {
-      const c = n.callee;
-      if (c.t === "member" && c.o.t === "id" && c.o.n === S) return true;
-      return effectful(c) || n.args.some(effectful);
-    }
-    if (n.t === "arrow") return false;             // bodies checked at their call sites
-    return Object.values(n).some(v =>
-      Array.isArray(v) ? v.some(effectful) : effectful(v));
+  // INVALIDATE WHAT ACTUALLY CHANGED, and nothing else.
+  //
+  // This used to clear the whole map on any line that was not a
+  // plain declaration, which is safe and threw most of the value
+  // away. threebody's 2,560-step integrator recomputed
+  // `det_div(h_41, 6.0)` - a Newton reciprocal, on a value declared
+  // OUTSIDE the loop - twenty-four times per step, and the two
+  // stage-weight ternaries twelve times each, because they sat in
+  // different runs of declarations with assignments between them.
+  //
+  // So: an assignment drops only the entries whose text mentions the
+  // name assigned, and a closing brace drops only what was bound
+  // inside the scope that just ended. An opening brace drops
+  // nothing - an outer temporary is perfectly visible inside a
+  // nested block, and that is exactly the loop-invariant case.
+  for (const mm of s.matchAll(
+    /([A-Za-z_][A-Za-z0-9_]*)\s*(?:\+|-|\*|\/)?=(?!=)/g)) {
+    if (decl && mm[1] === decl[1]) continue;   // its own declarator
+    const re = new RegExp(`\\b${mm[1]}\\b`);
+    for (const k of [...ctx.cse.keys()]) if (re.test(k)) ctx.cse.delete(k);
   }
+  // BRACES IN ORDER, never netted. `} else {` closes one scope and
+  // opens another at the SAME depth, so a net count sees no change
+  // and keeps everything the closing branch bound - which arnold
+  // then referenced from the else branch as an undefined variable.
+  // Fifteen plates failed to bake on that, and not one of the five
+  // gates caught it, because none of them runs a GLSL compiler.
+  for (const ch of s) {
+    if (ch === "{") ctx.cseDepth++;
+    else if (ch === "}") {
+      ctx.cseDepth--;
+      for (const [k, v] of [...ctx.cse]) if (v.depth > ctx.cseDepth) ctx.cse.delete(k);
+    }
+  }
+}
+
+function draw(ctx) { put(ctx, `pt = hashu(pt);`); }
+
+// GLSL reserves the gl_ prefix, so a walk variable named "gl" would
+// emit gl_5 and fail at GPU link time only - emit and smoke are both
+// CPU-side and would pass it through. Rename at the source.
+function fresh(ctx, base) {
+  return `${/^gl(_|$)/.test(base) ? "v" + base : base}_${++ctx.vn}`;
+}
+
+// ---- pinning: precise temporaries, shared subexpressions, sincos ----
+/** Bind a compound float expression to its own `precise` temporary.
+ *
+ *  Only compound ones: a bare name, a literal, a swizzle or a lever
+ *  read is already a single value, and naming it again would double
+ *  the length of every emitted plate to say nothing. The test is
+ *  deliberately syntactic and slightly generous - if it binds
+ *  something that did not need it, the cost is a redundant local the
+ *  compiler removes; if it misses something that did, a plate stops
+ *  agreeing across vendors, which is far more expensive. */
+function bindPrecise(ctx, code) {
+  // NOTE: hoisting DOES descend into ternary branches. Binding a
+  // branch computes it whether or not it is selected - harmless,
+  // since draws are already refused there and every det_ function
+  // is total - but tpms has four branches of six det_ calls each
+  // and pays for all of them, and mirage's emitted source roughly
+  // doubles. That is the price of the last plates: with the
+  // exemption in place mirage disagreed between vendors, and
+  // without it every GPU pair reaches 50/50.
+  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(code)) return code;        // name
+  if (/^[A-Za-z_][A-Za-z0-9_]*\.[xyzw]$/.test(code)) return code; // swizzle
+  if (/^-?[0-9.]+(e-?[0-9]+)?$/.test(code)) return code;          // literal
+  if (/^P\[[0-9]+\]$/.test(code)) return code;                    // lever
+  // KEYED ON THE NORMALISED TEXT. The emitter parenthesises
+  // inconsistently - universal's fourteen-cell loop binds
+  // `((2.0 * ob_v))` and then `(2.0 * ob_v)`, the same value twice,
+  // and a raw string key sees two different expressions. Only the
+  // key is normalised; what is emitted is untouched.
+  const key = cseKey(code);
+  const hit = ctx.cse.get(key);
+  if (hit) return hit.name;
+  const t = `pb_${ctx.vn++}`;
+  put(ctx, `precise float ${t} = ${code};`);
+  // AFTER the put, so the invalidation pass inside it cannot drop
+  // the entry it is about to gain; depth recorded so a closing brace
+  // knows whether this one went out of scope with it
+  ctx.cse.set(key, { name: t, depth: ctx.cseDepth });
+  return t;
+}
+
+/** The same binding, for a vector expression. */
+function bindPreciseV(ctx, code, type) {
+  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(code)) return code;
+  const t = `pv_${ctx.vn++}`;
+  put(ctx, `precise ${type} ${t} = ${code};`);
+  return t;
+}
+
+/** ONE det_sincos WHERE THE PLATE ASKED FOR SEVERAL.
+ *
+ *  det_sin(x) and det_cos(x) both call det_sincos and throw half of
+ *  it away, and a plate asks the same question over and over: tpms
+ *  makes 786 det_sin/det_cos calls over 235 distinct arguments,
+ *  `det_cos(px_8)` alone appearing 175 times. Across the atlas it is
+ *  4,662 calls over 2,026 arguments - a median redundancy of 2.20x,
+ *  and 60 of 68 plates above 2x. It is not one plate's quirk.
+ *
+ *  Mesa removes it for free. NVIDIA does not: running three
+ *  textually identical calls costs radeonsi 1.10x and iris 1.14x
+ *  against one, and NVIDIA 2.19x (2026-08-24). So the plate that
+ *  agrees on every card costs 60x more on NVIDIA than on Mesa, and a
+ *  third of that is redundancy the emitter is handing over.
+ *
+ *  THIS IS BIT-EXACT AND THAT IS THE ONLY REASON IT IS ALLOWED. The
+ *  same input to the same deterministic function returns the same
+ *  bits, and `precise` constrains HOW an expression is computed, not
+ *  that it must be computed again. The census re-run is what proves
+ *  it rather than this paragraph.
+ *
+ *  Two rules keep it safe:
+ *
+ *  ONLY EMITTER TEMPORARIES. The name must carry the `_<counter>`
+ *  suffix that fresh/bindPrecise/bindPreciseV append from a
+ *  monotonic `vn`, so it is unique for the whole emission and cannot
+ *  be a redefined walk name or a det_ library local (`t`, `k`, `r`,
+ *  `r2` - the only names this emitter ever repeats).
+ *
+ *  AT THE DEFINITION, NOT THE FIRST USE. px_8 is defined at brace
+ *  depth 1 and used at depths 1 and 2; caching at first use would
+ *  put the temporary inside a block and reference it outside. Its
+ *  definition dominates every use by construction, and a hoist
+ *  placed just after it lands in exactly the scope the argument
+ *  itself lives in. */
+function sincosOf(ctx, code, which) {
+  const fallback = which === "s" ? `det_sin(${code})` : `det_cos(${code})`;
+  if (!/^[A-Za-z_][A-Za-z0-9_]*_[0-9]+$/.test(code)) return fallback;
+  const d = ctx.defAt.get(code);
+  if (!d) return fallback;
+  let e = ctx.sincos.get(code);
+  if (!e) {
+    const t = `sc_${ctx.vn++}`;
+    e = { s: `${t}_s`, c: `${t}_c` };
+    // ONE DECLARATOR PER LINE, so the `precise` post-pass qualifies
+    // both. It matches a single declarator and skips a comma list.
+    //
+    // The comma-list form was tried first, because it reproduces
+    // what det_sin and det_cos already do internally:
+    //
+    //   float det_sin(float x){ float s, c; det_sincos(x,s,c); return s; }
+    //
+    // and it does keep the old hashes. verify-orbit-block refused
+    // it: "2 unpinned local(s) inside the orbit". That gate exists
+    // because an unpinned local inside an orbit is what made mirage
+    // disagree across vendors, so the library's own idiom is a
+    // hazard the emitter must not copy inward.
+    //
+    // Qualified, `precise` propagates back through the out parameter
+    // into det_sincos - a tighter constraint than the old chain, not
+    // a looser one - and the plate's hash moves. That is allowed
+    // where the cards still agree with each other; agreement, not
+    // continuity with a previous number, is the claim.
+    ctx.hoists.push({ at: d.at, ind: d.ind, text: [
+      `float ${e.s};`, `float ${e.c};`,
+      `det_sincos(${code}, ${e.s}, ${e.c});`] });
+    ctx.sincos.set(code, e);
+  }
+  return which === "s" ? e.s : e.c;
+}
+
+// ---- levers and loop bounds ----
+function intLeverVar(ctx, name) {
+  const lv = ctx.pos.levers[ctx.leverIx[name]];
+  if (!(lv.step === 1 && Number.isInteger(lv.min) && Number.isInteger(lv.max)))
+    err(`lever ${name} used where an integer is required, but it is not an integer lever`);
+  ctx.usedIntLevers.add(name);
+  return `li_${name}`;
+}
+
+// resolve a loop bound: a lever gives its max as the static bound
+// and its runtime int as the break; a literal is both
+function staticBoundOf(ctx, a) {
+  if (a.t === "num") return { staticN: Math.round(+a.v), runtime: null };
+  if (a.t === "member" && a.o.t === "id" && a.o.n === ctx.P) {
+    const lv = ctx.pos.levers[ctx.leverIx[a.name]];
+    if (!lv) err(`unknown lever ${a.name}`);
+    return { staticN: Math.ceil(lv.max), runtime: intLeverVar(ctx, a.name) };
+  }
+  if (a.t === "id") {
+    const sym = ctx.syms.get(a.n);
+    if (sym && sym.staticMax !== undefined)
+      return { staticN: sym.staticMax, runtime: sym.v };
+  }
+  err("a loop bound must be a lever, a literal, or carry a known maximum");
+}
+
+// ---- effect analysis: does this subtree draw from the stream ----
+function effectful(ctx, n) {
+  if (!n || typeof n !== "object") return false;
+  if (n.t === "call") {
+    const c = n.callee;
+    if (c.t === "member" && c.o.t === "id" && c.o.n === ctx.S) return true;
+    return effectful(ctx, c) || n.args.some(a => effectful(ctx, a));
+  }
+  if (n.t === "arrow") return false;             // bodies checked at their call sites
+  return Object.values(n).some(v =>
+    Array.isArray(v) ? v.some(x => effectful(ctx, x)) : effectful(ctx, v));
+}
+
+export function emitWalk(pos, opts = {}) {
+  const ctx = newEmission(pos, opts);
 
   // ---- expression emission (draws hoisted in evaluation order) ----
   function emit(n) {
@@ -669,8 +689,8 @@ export function emitWalk(pos, opts = {}) {
         return { ...v, code: `(${v.code})` };
       }
       case "id": {
-        if (n.n === P || n.n === S) err(`${n.n} used bare`);
-        const sym = syms.get(n.n);
+        if (n.n === ctx.P || n.n === ctx.S) err(`${n.n} used bare`);
+        const sym = ctx.syms.get(n.n);
         if (!sym) err(`unknown name ${n.n}`);
         if (sym.kind === "scalar") return { type: sym.type, code: sym.v };
         if (sym.kind === "vec2") return { type: "vec2", code: sym.v };
@@ -688,7 +708,7 @@ export function emitWalk(pos, opts = {}) {
         return { type: "bool", code: `(!${v.code})` };
       }
       case "cond": {
-        if (effectful(n.a) || effectful(n.b))
+        if (effectful(ctx, n.a) || effectful(ctx, n.b))
           err("a stream draw inside a ternary branch is conditional on the test; draw order must be structural, so hoist the draw", n.line);
         const c = emit(n.c), a = emit(n.a), b = emit(n.b);
         const ty = a.type === "int" && b.type === "int" ? "int" : "float";
@@ -697,7 +717,7 @@ export function emitWalk(pos, opts = {}) {
         return { type: ty, code: `((${c.code}) ? ${ca} : ${cb})` };
       }
       case "bin": {
-        if ((n.op === "&&" || n.op === "||") && effectful(n.r))
+        if ((n.op === "&&" || n.op === "||") && effectful(ctx, n.r))
           err(`a stream draw on the right of ${n.op} is conditional on the left operand; draw order must be structural, so hoist the draw`, n.line);
         const l = emit(n.l);
         const r = emit(n.r);
@@ -731,8 +751,8 @@ export function emitWalk(pos, opts = {}) {
           // comparisons are exact and stay bare.
           if (l.type === r.type && l.type !== "float")
             return { type: "bool", code: `(${l.code} ${n.op} ${r.code})` };
-          const lc = pin ? bindPrecise(asFloat(l)) : asFloat(l);
-          const rc = pin ? bindPrecise(asFloat(r)) : asFloat(r);
+          const lc = ctx.pin ? bindPrecise(ctx, asFloat(l)) : asFloat(l);
+          const rc = ctx.pin ? bindPrecise(ctx, asFloat(r)) : asFloat(r);
           return { type: "bool", code: `(${lc} ${n.op} ${rc})` };
         }
         // BITWISE, INTEGER ONLY, AND NO det_ FORM BECAUSE NONE EXISTS
@@ -804,8 +824,8 @@ export function emitWalk(pos, opts = {}) {
             // tpms proves it can bite - but it is prophylactic, not a
             // fix, and calling it one would leave the next reader
             // hunting a divergence that is already closed.
-            const lv = pin ? bindPreciseV(l.code, l.type) : l.code;
-            const rv = pin ? bindPreciseV(r.code, r.type) : r.code;
+            const lv = ctx.pin ? bindPreciseV(ctx, l.code, l.type) : l.code;
+            const rv = ctx.pin ? bindPreciseV(ctx, r.code, r.type) : r.code;
             return { type: l.type, code: `(${lv} ${n.op} ${rv})` };
           }
           err(`use the vector helpers (add3, mul3, .scale) instead of ${n.op} on mixed vector types`);
@@ -826,9 +846,9 @@ export function emitWalk(pos, opts = {}) {
         // between that plate agreeing across vendors and not. Same
         // rule the darkroom states above pal(): never hand a compound
         // expression onward - bind it to a local first.
-        const lf = pin ? bindPrecise(asFloat(l)) : asFloat(l);
-        const rf = pin ? bindPrecise(asFloat(r)) : asFloat(r);
-        if (pin && n.op === "/") {
+        const lf = ctx.pin ? bindPrecise(ctx, asFloat(l)) : asFloat(l);
+        const rf = ctx.pin ? bindPrecise(ctx, asFloat(r)) : asFloat(r);
+        if (ctx.pin && n.op === "/") {
           // a power-of-two divisor needs no refinement - see exactRecip
           const rec = exactRecip(rf);
           if (rec) return { type: "float", code: `(${lf} * ${rec})` };
@@ -893,8 +913,8 @@ export function emitWalk(pos, opts = {}) {
     if (o.kind === "addr") return { kind: "addrmethod", base: o, name: n.name };
     if (o.t === "id" && o.n === "Math") return { kind: "mathfn", name: n.name };
     if (o.isP) {
-      if (!(n.name in leverIx)) err(`unknown lever ${n.name}`);
-      return { type: "float", code: `P[${leverIx[n.name]}]`, lever: n.name };
+      if (!(n.name in ctx.leverIx)) err(`unknown lever ${n.name}`);
+      return { type: "float", code: `P[${ctx.leverIx[n.name]}]`, lever: n.name };
     }
     if (o.isS) return { kind: "streamfn", name: n.name };
     err(`cannot take .${n.name} here`);
@@ -903,10 +923,10 @@ export function emitWalk(pos, opts = {}) {
   // resolve an expression that may be a namespace (P, s, Math) or value
   function emitTarget(n) {
     if (n.t === "id") {
-      if (n.n === P) return { isP: true };
-      if (n.n === S) return { isS: true };
+      if (n.n === ctx.P) return { isP: true };
+      if (n.n === ctx.S) return { isS: true };
       if (n.n === "Math") return { t: "id", n: "Math" };
-      const sym = syms.get(n.n);
+      const sym = ctx.syms.get(n.n);
       if (!sym) err(`unknown name ${n.n}`);
       if (sym.kind === "scalar") return { type: sym.type, code: sym.v };
       if (sym.kind === "vec2") return { type: "vec2", code: sym.v };
@@ -916,8 +936,6 @@ export function emitWalk(pos, opts = {}) {
     if (v.type) return v;
     return v;
   }
-
-  function draw() { put(`pt = hashu(pt);`); }
 
   function emitCall(n) {
     const c = n.callee;
@@ -930,7 +948,7 @@ export function emitWalk(pos, opts = {}) {
         return `vec3(${xs.join(", ")})`;
       });
       if (vecs.length !== 4) err("pal wants t plus four arrays");
-      return { type: "vec3", code: `${pin ? "det_pal" : "pal"}(${asFloat(t)}, ${vecs.join(", ")})` };
+      return { type: "vec3", code: `${ctx.pin ? "det_pal" : "pal"}(${asFloat(t)}, ${vecs.join(", ")})` };
     }
     // len2/len3: GLSL length(), which is what these spell on the CPU
     if (c.t === "id" && (c.n === "len2" || c.n === "len3")) {
@@ -939,7 +957,7 @@ export function emitWalk(pos, opts = {}) {
       const xs = n.args.map(a => asFloat(emit(a)));
       // length() is sqrt(dot(v,v)), and dot chooses its own order
       // and contraction. det_len2/3 name every square and the sum.
-      if (pin)
+      if (ctx.pin)
         return { type: "float",
                  code: `det_len${want}(${xs.join(", ")})` };
       return { type: "float", code: `length(vec${want}(${xs.join(", ")}))` };
@@ -947,17 +965,17 @@ export function emitWalk(pos, opts = {}) {
     // grid2(b)
     if (c.t === "id" && c.n === "grid2") {
       const a = n.args[0];
-      if (a.t === "member" && a.o.t === "id" && a.o.n === P) return { kind: "grid2", b: intLeverVar(a.name) };
+      if (a.t === "member" && a.o.t === "id" && a.o.n === ctx.P) return { kind: "grid2", b: intLeverVar(ctx, a.name) };
       if (a.t === "num") return { kind: "grid2", b: a.v };
       err("grid2 wants a lever or an integer literal");
     }
     // prime(P.nth): the nth prime, 2 3 5 7
     if (c.t === "id" && c.n === "prime") {
       const a = n.args[0];
-      if (!(a.t === "member" && a.o.t === "id" && a.o.n === P)) err("prime wants a lever");
-      const iv = intLeverVar(a.name);
-      const v = fresh("prm");
-      put(`int ${v} = (${iv} <= 1) ? 2 : (${iv} == 2) ? 3 : (${iv} == 3) ? 5 : 7;`);
+      if (!(a.t === "member" && a.o.t === "id" && a.o.n === ctx.P)) err("prime wants a lever");
+      const iv = intLeverVar(ctx, a.name);
+      const v = fresh(ctx, "prm");
+      put(ctx, `int ${v} = (${iv} <= 1) ? 2 : (${iv} == 2) ? 3 : (${iv} == 3) ? 5 : 7;`);
       return { type: "int", code: v };
     }
     // stain(col, amount): rotation about grey, emitted as a helper
@@ -965,8 +983,8 @@ export function emitWalk(pos, opts = {}) {
       const colV = emit(n.args[0]);
       const amt = asFloat(emit(n.args[1]));
       if (colV.type !== "vec3") err("stain wants a vec3 first");
-      helpers.add("stain");
-      return { type: "vec3", code: `stain_${pos.id}(${colV.code}, ${amt})` };
+      ctx.helpers.add("stain");
+      return { type: "vec3", code: `stain_${ctx.pos.id}(${colV.code}, ${amt})` };
     }
     if (c.t === "id" && c.n === "digitTriangle")
       err("digitTriangle only lives inside s.descend(...)");
@@ -1032,7 +1050,7 @@ export function emitWalk(pos, opts = {}) {
       // nothing from the divisor fix: its hot loop asks for
       // mod(g, 2.0) and mod(e, 131072.0), and both were still routed
       // through det_div inside det_mod.
-      if (pin && c.n === "mod" && args.length === 2) {
+      if (ctx.pin && c.n === "mod" && args.length === 2) {
         const rec = exactRecip(args[1]);
         if (rec) {
           // bound, because x appears twice and a compound expression
@@ -1049,9 +1067,9 @@ export function emitWalk(pos, opts = {}) {
           // then `floor(pb)`. Emitting `floor(g * 0.5)` as one
           // expression is the same value spelled differently, which
           // the CSE above cannot see through.
-          const x = bindPrecise(args[0]);
-          const h = bindPrecise(`${x} * ${rec}`);
-          const f = bindPrecise(`floor(${h})`);
+          const x = bindPrecise(ctx, args[0]);
+          const h = bindPrecise(ctx, `${x} * ${rec}`);
+          const f = bindPrecise(ctx, `floor(${h})`);
           // WRITTEN OUT, NOT FUSED. This was `fma(-y, f, x)`, which is
           // one rounding rather than two and therefore the better
           // arithmetic - on a stack that performs it. Measured across
@@ -1071,7 +1089,7 @@ export function emitWalk(pos, opts = {}) {
                    code: `((-${args[1]}) * (${f}) + (${x}))` };
         }
       }
-      if (pin && c.n in PINNED_VOCAB)
+      if (ctx.pin && c.n in PINNED_VOCAB)
         return { type: "float",
                  code: `${PINNED_VOCAB[c.n]}(${args.join(", ")})` };
       return { type: "float", code: `${c.n}(${args.join(", ")})` };
@@ -1085,7 +1103,7 @@ export function emitWalk(pos, opts = {}) {
         return v.code;
       });
       return { type: "vec2",
-               code: `${pin ? "det_" : ""}${c.n}(${args.join(", ")})` };
+               code: `${ctx.pin ? "det_" : ""}${c.n}(${args.join(", ")})` };
     }
     if (c.t === "id" && c.n === "v2") {
       const args = n.args.map(a => asFloat(emit(a)));
@@ -1111,21 +1129,21 @@ export function emitWalk(pos, opts = {}) {
       // gone bit-identical. Measured on logz: every deposit landed in
       // the SAME pixel while 427 of 8,977 carried a different colour.
       if (c.n === "add3") {
-        const a3 = pin ? bindPreciseV(v3s[0], "vec3") : v3s[0];
-        const b3 = pin ? bindPreciseV(v3s[1], "vec3") : v3s[1];
+        const a3 = ctx.pin ? bindPreciseV(ctx, v3s[0], "vec3") : v3s[0];
+        const b3 = ctx.pin ? bindPreciseV(ctx, v3s[1], "vec3") : v3s[1];
         return { type: "vec3", code: `(${a3} + ${b3})` };
       }
       if (c.n === "mul3") {
-        const a3 = pin ? bindPreciseV(v3s[0], "vec3") : v3s[0];
-        const k3 = pin ? bindPrecise(asFloat(vs[1])) : asFloat(vs[1]);
+        const a3 = ctx.pin ? bindPreciseV(ctx, v3s[0], "vec3") : v3s[0];
+        const k3 = ctx.pin ? bindPrecise(ctx, asFloat(vs[1])) : asFloat(vs[1]);
         return { type: "vec3", code: `(${a3} * ${k3})` };
       }
       if (c.n === "mix3")
-        return { type: "vec3", code: pin
+        return { type: "vec3", code: ctx.pin
           ? `det_mix3(${v3s[0]}, ${v3s[1]}, ${asFloat(vs[2])})`
           : `mix(${v3s[0]}, ${v3s[1]}, ${asFloat(vs[2])})` };
       if (c.n === "dot3")
-        return { type: "float", code: pin
+        return { type: "float", code: ctx.pin
           ? `det_dot3(${v3s[0]}, ${v3s[1]})`
           : `dot(${v3s[0]}, ${v3s[1]})` };
       // These two emitted RAW under pin while dot3 and length3 beside
@@ -1136,33 +1154,33 @@ export function emitWalk(pos, opts = {}) {
       // failed the gate. Found by an agent converting starfield, which
       // wrote its cross products componentwise to get around it.
       if (c.n === "cross3")
-        return { type: "vec3", code: pin
+        return { type: "vec3", code: ctx.pin
           ? `det_cross(${v3s[0]}, ${v3s[1]})`
           : `cross(${v3s[0]}, ${v3s[1]})` };
       if (c.n === "normalize3")
-        return { type: "vec3", code: pin
+        return { type: "vec3", code: ctx.pin
           ? `det_normalize3(${v3s[0]})`
           : `normalize(${v3s[0]})` };
       if (c.n === "length3")
         return { type: "float",
-                 code: pin ? `det_len3v(${v3s[0]})` : `length(${v3s[0]})` };
+                 code: ctx.pin ? `det_len3v(${v3s[0]})` : `length(${v3s[0]})` };
     }
     // sum(n, k => term): the reduction loop, usable inside expressions
     if (c.t === "id" && c.n === "sum") {
-      const bound = staticBoundOf(n.args[0]);
+      const bound = staticBoundOf(ctx, n.args[0]);
       const arrow = n.args[1];
       if (!arrow || arrow.t !== "arrow") err("sum wants (k) => term");
-      const acc = fresh("acc"), kv = fresh("sk");
-      put(`float ${acc} = 0.0;`);
-      put(`for (int ${kv} = 0; ${kv} < ${bound.staticN}; ${kv}++) {`);
-      indent += "  ";
-      if (bound.runtime) put(`if (${kv} >= ${bound.runtime}) break;`);
-      syms.set(arrow.params[0], { kind: "scalar", type: "int", v: kv });
+      const acc = fresh(ctx, "acc"), kv = fresh(ctx, "sk");
+      put(ctx, `float ${acc} = 0.0;`);
+      put(ctx, `for (int ${kv} = 0; ${kv} < ${bound.staticN}; ${kv}++) {`);
+      ctx.indent += "  ";
+      if (bound.runtime) put(ctx, `if (${kv} >= ${bound.runtime}) break;`);
+      ctx.syms.set(arrow.params[0], { kind: "scalar", type: "int", v: kv });
       const term = emit(arrow.body);
-      syms.delete(arrow.params[0]);
-      put(`${acc} += ${asFloat(term)};`);
-      indent = indent.slice(2);
-      put(`}`);
+      ctx.syms.delete(arrow.params[0]);
+      put(ctx, `${acc} += ${asFloat(term)};`);
+      ctx.indent = ctx.indent.slice(2);
+      put(ctx, `}`);
       return { type: "float", code: acc };
     }
     const target = c.t === "member" ? emitMember(c) : null;
@@ -1202,7 +1220,7 @@ export function emitWalk(pos, opts = {}) {
       // same fix, one line: never hand a compound expression onward.
       const args = n.args.map(a => {
         const c = asFloat(emit(a));
-        return pin ? bindPrecise(c) : c;
+        return ctx.pin ? bindPrecise(ctx, c) : c;
       });
 
       // Math.round IS NOT GLSL round(), and this was wrong before any
@@ -1216,7 +1234,7 @@ export function emitWalk(pos, opts = {}) {
       if (target.name === "round")
         return { type: "float", code: `floor((${args[0]}) + 0.5)` };
 
-      if (pin) {
+      if (ctx.pin) {
         if (target.name in NO_DET_FORM)
           err(`Math.${target.name} has no deterministic form: ` +
               `${NO_DET_FORM[target.name]}. Emitting it would put an ` +
@@ -1226,7 +1244,7 @@ export function emitWalk(pos, opts = {}) {
         // argument; everything else is emitted as written
         if (target.name === "sin" || target.name === "cos")
           return { type: "float",
-            code: sincosOf(args[0], target.name === "sin" ? "s" : "c") };
+            code: sincosOf(ctx, args[0], target.name === "sin" ? "s" : "c") };
         if (target.name in DET)
           return { type: "float", code: DET[target.name](args) };
         if (!EXACT_BUILTINS.has(target.name))
@@ -1289,32 +1307,32 @@ export function emitWalk(pos, opts = {}) {
   function emitStreamCall(name, n) {
     switch (name) {
       case "u": {
-        draw();
-        const v = fresh("draw");
-        put(`float ${v} = u2f(pt);`);
+        draw(ctx);
+        const v = fresh(ctx, "draw");
+        put(ctx, `float ${v} = u2f(pt);`);
         return { type: "float", code: v };
       }
       case "centered": {
-        draw();
-        const v = fresh("draw");
-        put(`float ${v} = u2f(pt) - 0.5;`);
+        draw(ctx);
+        const v = fresh(ctx, "draw");
+        put(ctx, `float ${v} = u2f(pt) - 0.5;`);
         return { type: "float", code: v };
       }
       case "pick": {
         const a = n.args[0];
         let bi;
-        if (a.t === "member" && a.o.t === "id" && a.o.n === P) bi = intLeverVar(a.name);
+        if (a.t === "member" && a.o.t === "id" && a.o.n === ctx.P) bi = intLeverVar(ctx, a.name);
         else if (a.t === "num") bi = a.v;
         else err("pick wants a lever or an integer literal");
-        draw();
-        const pv = fresh("pick");
-        put(`int ${pv} = min(int(u2f(pt) * float(${bi})), ${bi} - 1);`);
+        draw(ctx);
+        const pv = fresh(ctx, "pick");
+        put(ctx, `int ${pv} = min(int(u2f(pt) * float(${bi})), ${bi} - 1);`);
         return { type: "int", code: pv };
       }
       case "jitter2": {
-        const vx = fresh("jx"), v = fresh("jit");
-        draw(); put(`float ${vx} = u2f(pt) - 0.5;`);
-        draw(); put(`vec2 ${v} = vec2(${vx}, u2f(pt) - 0.5);`);
+        const vx = fresh(ctx, "jx"), v = fresh(ctx, "jit");
+        draw(ctx); put(ctx, `float ${vx} = u2f(pt) - 0.5;`);
+        draw(ctx); put(ctx, `vec2 ${v} = vec2(${vx}, u2f(pt) - 0.5);`);
         return { type: "vec2", code: v };
       }
       // s.vnoise(x, y, oc): value noise on a hashed lattice.
@@ -1349,48 +1367,48 @@ export function emitWalk(pos, opts = {}) {
         const X = asFloat(emit(n.args[0]));
         const Y = asFloat(emit(n.args[1]));
         const OC = asInt(emit(n.args[2]));
-        const g = fresh("vn");
+        const g = fresh(ctx, "vn");
         // BIND THE ARGUMENTS ONCE. Each is used twice below - floor,
         // then the subtraction - and emitting the expression twice
         // would evaluate it twice. For a pure expression that is only
         // wasteful; for `s.vnoise(s.u(), ...)` it would advance the
         // stream twice and silently change the picture.
-        put(`float ${g}_x = ${X};`);
-        put(`float ${g}_y = ${Y};`);
-        put(`float ${g}_ix = floor(${g}_x);`);
-        put(`float ${g}_iy = floor(${g}_y);`);
-        put(`float ${g}_fx = ${g}_x - ${g}_ix;`);
-        put(`float ${g}_fy = ${g}_y - ${g}_iy;`);
-        put(`float ${g}_wx = (${g}_fx * ${g}_fx) * ` +
+        put(ctx, `float ${g}_x = ${X};`);
+        put(ctx, `float ${g}_y = ${Y};`);
+        put(ctx, `float ${g}_ix = floor(${g}_x);`);
+        put(ctx, `float ${g}_iy = floor(${g}_y);`);
+        put(ctx, `float ${g}_fx = ${g}_x - ${g}_ix;`);
+        put(ctx, `float ${g}_fy = ${g}_y - ${g}_iy;`);
+        put(ctx, `float ${g}_wx = (${g}_fx * ${g}_fx) * ` +
             `(3.0 - (2.0 * ${g}_fx));`);
-        put(`float ${g}_wy = (${g}_fy * ${g}_fy) * ` +
+        put(ctx, `float ${g}_wy = (${g}_fy * ${g}_fy) * ` +
             `(3.0 - (2.0 * ${g}_fy));`);
-        put(`uint ${g}_bx = uint(int(${g}_ix) & 1023);`);
-        put(`uint ${g}_by = uint(int(${g}_iy) & 1023);`);
-        put(`uint ${g}_oc = uint(${OC});`);
+        put(ctx, `uint ${g}_bx = uint(int(${g}_ix) & 1023);`);
+        put(ctx, `uint ${g}_by = uint(int(${g}_iy) & 1023);`);
+        put(ctx, `uint ${g}_oc = uint(${OC});`);
         const corner = (dx, dy) =>
           `u2f(hashu(${g}_oc ^ hashu((${g}_bx + ${dx}u) * 374761393u + ` +
           `(${g}_by + ${dy}u) * 668265263u)))`;
-        put(`float ${g}_00 = ${corner(0, 0)};`);
-        put(`float ${g}_10 = ${corner(1, 0)};`);
-        put(`float ${g}_01 = ${corner(0, 1)};`);
-        put(`float ${g}_11 = ${corner(1, 1)};`);
+        put(ctx, `float ${g}_00 = ${corner(0, 0)};`);
+        put(ctx, `float ${g}_10 = ${corner(1, 0)};`);
+        put(ctx, `float ${g}_01 = ${corner(0, 1)};`);
+        put(ctx, `float ${g}_11 = ${corner(1, 1)};`);
         // the lerps as a + (b - a) * w, matching the evaluator term
         // for term. mix() is not used: its association is free and the
         // CPU side has to agree with this bit for bit.
-        put(`float ${g}_a = ${g}_00 + ` +
+        put(ctx, `float ${g}_a = ${g}_00 + ` +
             `((${g}_10 - ${g}_00) * ${g}_wx);`);
-        put(`float ${g}_b = ${g}_01 + ` +
+        put(ctx, `float ${g}_b = ${g}_01 + ` +
             `((${g}_11 - ${g}_01) * ${g}_wx);`);
-        put(`float ${g}_v = ` +
+        put(ctx, `float ${g}_v = ` +
             `(${g}_a + ((${g}_b - ${g}_a) * ${g}_wy)) - 0.5;`);
         return { type: "float", code: `${g}_v` };
       }
       case "depth": {
         const a = n.args[0];
-        if (!(a.t === "member" && a.o.t === "id" && a.o.n === P)) err("s.depth wants a lever for its maximum");
-        const maxVar = intLeverVar(a.name);
-        const staticMax = pos.levers[leverIx[a.name]].max;
+        if (!(a.t === "member" && a.o.t === "id" && a.o.n === ctx.P)) err("s.depth wants a lever for its maximum");
+        const maxVar = intLeverVar(ctx, a.name);
+        const staticMax = ctx.pos.levers[ctx.leverIx[a.name]].max;
         let bias = "1.0";
         if (n.args[1]) {
           if (n.args[1].t !== "object") err("s.depth options must be a literal object");
@@ -1399,8 +1417,8 @@ export function emitWalk(pos, opts = {}) {
             bias = num(pr.value.v, "float");
           }
         }
-        draw();
-        const dv = fresh("depth");
+        draw(ctx);
+        const dv = fresh(ctx, "depth");
         // THIS pow DECIDES AN INTEGER. A last-place difference in it
         // flips the depth at a boundary, so the walk does not go a
         // slightly different way - it goes a different way.
@@ -1426,8 +1444,8 @@ export function emitWalk(pos, opts = {}) {
         const unbiased = bias === "1.0" || Number(bias) === 1;
         const draw0 = "u2f(pt)";
         const biased = unbiased ? draw0
-          : `${pin ? "det_pow" : "pow"}(${draw0}, ${bias})`;
-        put(`int ${dv} = int(${biased} * float(${maxVar}));`);
+          : `${ctx.pin ? "det_pow" : "pow"}(${draw0}, ${bias})`;
+        put(ctx, `int ${dv} = int(${biased} * float(${maxVar}));`);
         return { type: "int", code: dv, staticMax };
       }
       case "descend": err("s.descend must be bound directly: const x = s.descend(...)");
@@ -1444,7 +1462,7 @@ export function emitWalk(pos, opts = {}) {
     const lev = emit(levA);
     if (lev.type !== "int") err("descend levels must be an int");
     const staticMax = lev.staticMax !== undefined ? lev.staticMax
-      : (syms.get(levA.n || "") || {}).staticMax;
+      : (ctx.syms.get(levA.n || "") || {}).staticMax;
     if (staticMax === undefined) err("descend cannot bound its loop: levels must come from s.depth or carry a lever maximum");
     if (cfgA.t !== "object") err("descend wants a config object");
     let tries = "1", childArrow = null, keepArrow = null;
@@ -1461,83 +1479,83 @@ export function emitWalk(pos, opts = {}) {
       && cb.callee.o.t === "id" && cb.callee.o.n === childArrow.params[0];
     if (!okShape) err("the child arrow must be (a) => a.child(ex, ey) in this version");
 
-    const xy = fresh("dc_xy"), sc = fresh("dc_sc"), adr = fresh("dc_adr"), rc = fresh("dc_n");
+    const xy = fresh(ctx, "dc_xy"), sc = fresh(ctx, "dc_sc"), adr = fresh(ctx, "dc_adr"), rc = fresh(ctx, "dc_n");
     const bI = dom.b;
-    const wantTrail = pos.walk.toString().includes(".trail");
-    const tr = wantTrail ? fresh("dc_tr") : null;
-    put(`vec2 ${xy} = vec2(0.0);`);
-    put(`float ${sc} = 1.0;`);
-    put(`uint ${adr} = ${(pos.chains.root >>> 0)}u;`);
-    if (tr) put(`uint ${tr} = ${(pos.chains.root >>> 0)}u;`);
-    put(`int ${rc} = 0;`);
-    const dVar = fresh("dlim");
-    put(`int ${dVar} = ${lev.code};`);
-    put(`for (int l = 0; l < ${staticMax}; l++) {`);
-    indent += "  ";
-    put(`if (l >= ${dVar}) break;`);
-    put(`bool moved = false;`);
-    put(`for (int k = 0; k < ${tries}; k++) {`);
-    indent += "  ";
+    const wantTrail = ctx.pos.walk.toString().includes(".trail");
+    const tr = wantTrail ? fresh(ctx, "dc_tr") : null;
+    put(ctx, `vec2 ${xy} = vec2(0.0);`);
+    put(ctx, `float ${sc} = 1.0;`);
+    put(ctx, `uint ${adr} = ${(ctx.pos.chains.root >>> 0)}u;`);
+    if (tr) put(ctx, `uint ${tr} = ${(ctx.pos.chains.root >>> 0)}u;`);
+    put(ctx, `int ${rc} = 0;`);
+    const dVar = fresh(ctx, "dlim");
+    put(ctx, `int ${dVar} = ${lev.code};`);
+    put(ctx, `for (int l = 0; l < ${staticMax}; l++) {`);
+    ctx.indent += "  ";
+    put(ctx, `if (l >= ${dVar}) break;`);
+    put(ctx, `bool moved = false;`);
+    put(ctx, `for (int k = 0; k < ${tries}; k++) {`);
+    ctx.indent += "  ";
     const ex = emit(cb.args[0]);
-    const cxV = fresh("cx");
-    put(`int ${cxV} = ${asInt(ex)};`);
+    const cxV = fresh(ctx, "cx");
+    put(ctx, `int ${cxV} = ${asInt(ex)};`);
     const ey = emit(cb.args[1]);
-    const cyV = fresh("cy");
-    put(`int ${cyV} = ${asInt(ey)};`);
-    const cand = fresh("cand");
+    const cyV = fresh(ctx, "cy");
+    put(ctx, `int ${cyV} = ${asInt(ey)};`);
+    const cand = fresh(ctx, "cand");
     // child derivation follows the positive's chains: a pinned plate
     // convention (small additive key) or the canonical spread
-    if (pos.chains.childKey) {
-      const [mu, ad] = pos.chains.childKey;
-      put(`uint ${cand} = hashu(${adr} ^ uint(${cyV} * ${mu} + ${cxV} + ${ad}));`);
+    if (ctx.pos.chains.childKey) {
+      const [mu, ad] = ctx.pos.chains.childKey;
+      put(ctx, `uint ${cand} = hashu(${adr} ^ uint(${cyV} * ${mu} + ${cxV} + ${ad}));`);
     } else {
-      put(`uint ${cand} = hashu(${adr} ^ (uint(${cyV} * 1031 + ${cxV} + 1) * 2654435761u));`);
+      put(ctx, `uint ${cand} = hashu(${adr} ^ (uint(${cyV} * 1031 + ${cxV} + 1) * 2654435761u));`);
     }
     // keep body with the candidate bound
     const cName = keepArrow.params[0];
-    syms.set(cName, { kind: "candidate", h: cand });
+    ctx.syms.set(cName, { kind: "candidate", h: cand });
     const keep = emitKeep(keepArrow.body, cand);
-    syms.delete(cName);
-    put(`if (${keep}) {`);
-    indent += "  ";
+    ctx.syms.delete(cName);
+    put(ctx, `if (${keep}) {`);
+    ctx.indent += "  ";
     // The cell step addresses a LATTICE: a last-place difference here
     // does not move a sample slightly, it moves it into a different
     // cell. Both divisions go through the exact form under pinning.
-    if (pin) {
-      put(`${xy} += det_div2(vec2(float(${cxV}), float(${cyV})) * ${sc}, float(${bI}))`);
-      put(`     - vec2(${sc} * 0.5 * (1.0 - det_recip(float(${bI}))));`);
+    if (ctx.pin) {
+      put(ctx, `${xy} += det_div2(vec2(float(${cxV}), float(${cyV})) * ${sc}, float(${bI}))`);
+      put(ctx, `     - vec2(${sc} * 0.5 * (1.0 - det_recip(float(${bI}))));`);
     } else {
-      put(`${xy} += vec2(float(${cxV}), float(${cyV})) * ${sc} / float(${bI})`);
-      put(`     - vec2(${sc} * 0.5 * (1.0 - 1.0 / float(${bI})));`);
+      put(ctx, `${xy} += vec2(float(${cxV}), float(${cyV})) * ${sc} / float(${bI})`);
+      put(ctx, `     - vec2(${sc} * 0.5 * (1.0 - 1.0 / float(${bI})));`);
     }
     // the last float division the emitter writes by hand. `int`
     // divisions elsewhere are exact and stay as they are.
-    put(pin ? `${sc} = det_div(${sc}, float(${bI}));`
+    put(ctx, ctx.pin ? `${sc} = det_div(${sc}, float(${bI}));`
             : `${sc} /= float(${bI});`);
-    put(`${adr} = ${cand};`);
-    if (tr) put(`${tr} = hashu(${tr} ^ ${cand});`);
-    put(`${rc} += 1;`);
-    put(`moved = true;`);
-    put(`break;`);
-    indent = indent.slice(2);
-    put(`}`);
-    indent = indent.slice(2);
-    put(`}`);
-    put(`if (!moved) break;`);
-    indent = indent.slice(2);
-    put(`}`);
-    syms.set(name, { kind: "descend", xy, sc, adr, trail: tr, reached: rc, b: bI });
+    put(ctx, `${adr} = ${cand};`);
+    if (tr) put(ctx, `${tr} = hashu(${tr} ^ ${cand});`);
+    put(ctx, `${rc} += 1;`);
+    put(ctx, `moved = true;`);
+    put(ctx, `break;`);
+    ctx.indent = ctx.indent.slice(2);
+    put(ctx, `}`);
+    ctx.indent = ctx.indent.slice(2);
+    put(ctx, `}`);
+    put(ctx, `if (!moved) break;`);
+    ctx.indent = ctx.indent.slice(2);
+    put(ctx, `}`);
+    ctx.syms.set(name, { kind: "descend", xy, sc, adr, trail: tr, reached: rc, b: bI });
   }
 
   // keep bodies: boolean expressions over the candidate
   function emitKeep(n, cand) {
     if (n.t === "call" && n.callee.t === "member") {
       const o = n.callee.o;
-      const sym = o.t === "id" ? syms.get(o.n) : null;
+      const sym = o.t === "id" ? ctx.syms.get(o.n) : null;
       if (sym && sym.kind === "candidate") {
         if (n.callee.name === "coin") {
           const pE = emit(n.args[0]);
-          if (pos.chains.coin === "value")
+          if (ctx.pos.chains.coin === "value")
             return `(u2f(${cand}) < ${asFloat(pE)})`;
           const salt = n.args[1] ? emit(n.args[1]).code : "0xC01F";
           return `(u2f(hashu(${cand} ^ uint(${salt}))) < ${asFloat(pE)})`;
@@ -1562,26 +1580,26 @@ export function emitWalk(pos, opts = {}) {
   function emitLevels(name, call) {
     const pE = emit(call.args[0]);
     const dA = call.args[1];
-    if (!(dA.t === "member" && dA.o.t === "id" && dA.o.n === P)) err("levels wants a DEPTH lever second");
-    const dv = intLeverVar(dA.name);
-    const L = fresh("lv_L"), R = fresh("lv_R");
-    put(`int ${L} = 0;`);
-    put(`int ${R} = 1;`);
-    put(`{`);
-    indent += "  ";
-    const tg = fresh("lv_t"), pv = fresh("lv_p");
-    put(`int ${tg} = 1 << ${dv};`);
-    put(`int ${pv} = ${asInt(pE)};`);
-    put(`for (int i = 0; i < 24; i++) {`);
-    indent += "  ";
-    put(`if (${R} >= ${tg}) break;`);
-    put(`${R} *= ${pv};`);
-    put(`${L} += 1;`);
-    indent = indent.slice(2);
-    put(`}`);
-    indent = indent.slice(2);
-    put(`}`);
-    syms.set(name, { kind: "levels", L, R });
+    if (!(dA.t === "member" && dA.o.t === "id" && dA.o.n === ctx.P)) err("levels wants a DEPTH lever second");
+    const dv = intLeverVar(ctx, dA.name);
+    const L = fresh(ctx, "lv_L"), R = fresh(ctx, "lv_R");
+    put(ctx, `int ${L} = 0;`);
+    put(ctx, `int ${R} = 1;`);
+    put(ctx, `{`);
+    ctx.indent += "  ";
+    const tg = fresh(ctx, "lv_t"), pv = fresh(ctx, "lv_p");
+    put(ctx, `int ${tg} = 1 << ${dv};`);
+    put(ctx, `int ${pv} = ${asInt(pE)};`);
+    put(ctx, `for (int i = 0; i < 24; i++) {`);
+    ctx.indent += "  ";
+    put(ctx, `if (${R} >= ${tg}) break;`);
+    put(ctx, `${R} *= ${pv};`);
+    put(ctx, `${L} += 1;`);
+    ctx.indent = ctx.indent.slice(2);
+    put(ctx, `}`);
+    ctx.indent = ctx.indent.slice(2);
+    put(ctx, `}`);
+    ctx.syms.set(name, { kind: "levels", L, R });
   }
 
   // s.window({span, heart, magnify, unit}): the loupe, integers first
@@ -1592,26 +1610,26 @@ export function emitWalk(pos, opts = {}) {
     for (const pr of obj.props) cfg[pr.key] = pr.value;
     if (!cfg.span || cfg.span.t !== "array" || cfg.span.items.length !== 2) err("window wants span: [x, y]");
     if (!cfg.heart || cfg.heart.t !== "array" || cfg.heart.items.length !== 2) err("window wants heart: [x, y]");
-    if (!(cfg.magnify && cfg.magnify.t === "member" && cfg.magnify.o.t === "id" && cfg.magnify.o.n === P))
+    if (!(cfg.magnify && cfg.magnify.t === "member" && cfg.magnify.o.t === "id" && cfg.magnify.o.n === ctx.P))
       err("window wants magnify: <lever>");
     if (!cfg.unit) err("window wants unit: <world per lattice unit>");
     const sp = cfg.span.items.map(e => asInt(emit(e)));
-    const mg = fresh("mg");
-    put(`float ${mg} = ${pin ? "det_exp2" : "exp2"}(P[${leverIx[cfg.magnify.name]}]);`);
-    const ctr = fresh("ctr");
-    put(`ivec2 ${ctr} = ivec2((${sp[0]}) / 2, (${sp[1]}) / 2);`);
+    const mg = fresh(ctx, "mg");
+    put(ctx, `float ${mg} = ${ctx.pin ? "det_exp2" : "exp2"}(P[${ctx.leverIx[cfg.magnify.name]}]);`);
+    const ctr = fresh(ctx, "ctr");
+    put(ctx, `ivec2 ${ctr} = ivec2((${sp[0]}) / 2, (${sp[1]}) / 2);`);
     const hx = asInt(emit(cfg.heart.items[0])), hy = asInt(emit(cfg.heart.items[1]));
-    const hrt = fresh("hrt");
-    put(`ivec2 ${hrt} = ivec2(${hx}, ${hy});`);
-    const wc = fresh("wc");
-    put(`ivec2 ${wc} = ${ctr} + ivec2(vec2(${hrt} - ${ctr}) * (1.0 - ${pin ? `det_recip(${mg})` : `1.0 / ${mg}`}));`);
-    const hw = fresh("hw");
-    put(`ivec2 ${hw} = ivec2(${pin ? `det_div2(vec2(${ctr}), ${mg})` : `vec2(${ctr}) / ${mg}`});`);
-    const win = fresh("win");
-    put(`ivec4 ${win} = ivec4(${wc} - ${hw}, ${wc} + ${hw});`);
-    const km = fresh("km");
-    put(`float ${km} = (${asFloat(emit(cfg.unit))}) * ${mg};`);
-    syms.set(name, { kind: "window", win, wc, km });
+    const hrt = fresh(ctx, "hrt");
+    put(ctx, `ivec2 ${hrt} = ivec2(${hx}, ${hy});`);
+    const wc = fresh(ctx, "wc");
+    put(ctx, `ivec2 ${wc} = ${ctr} + ivec2(vec2(${hrt} - ${ctr}) * (1.0 - ${ctx.pin ? `det_recip(${mg})` : `1.0 / ${mg}`}));`);
+    const hw = fresh(ctx, "hw");
+    put(ctx, `ivec2 ${hw} = ivec2(${ctx.pin ? `det_div2(vec2(${ctr}), ${mg})` : `vec2(${ctr}) / ${mg}`});`);
+    const win = fresh(ctx, "win");
+    put(ctx, `ivec4 ${win} = ivec4(${wc} - ${hw}, ${wc} + ${hw});`);
+    const km = fresh(ctx, "km");
+    put(ctx, `float ${km} = (${asFloat(emit(cfg.unit))}) * ${mg};`);
+    ctx.syms.set(name, { kind: "window", win, wc, km });
   }
 
   // the weighted descent on the digit-triangle theorem domain
@@ -1624,98 +1642,98 @@ export function emitWalk(pos, opts = {}) {
     for (const pr of cfgA.props) {
       if (pr.key !== "within") err(`digit descend config has no ${pr.key}`);
       const t = pr.value;
-      if (!(t.t === "id" && syms.get(t.n) && syms.get(t.n).kind === "window")) err("within wants a window");
-      wSym = syms.get(t.n);
+      if (!(t.t === "id" && ctx.syms.get(t.n) && ctx.syms.get(t.n).kind === "window")) err("within wants a window");
+      wSym = ctx.syms.get(t.n);
     }
     if (!wSym) err("digit descend wants within: <window>");
     const LE = emit(levA);
     if (LE.type !== "int") err("descend levels must be an int");
-    const N = fresh("wd");
+    const N = fresh(ctx, "wd");
     const nV = `${N}_n`, kV = `${N}_k`, sV = `${N}_s`, vV = `${N}_v`, linV = `${N}_lin`, deadV = `${N}_dead`;
     const pV = `${N}_p`, RV = `${N}_R`, LV = `${N}_L`;
-    put(`int ${pV} = ${asInt(pE)};`);
-    put(`int ${RV} = ${asInt(RE)};`);
-    put(`int ${LV} = ${LE.code};`);
-    put(`int ${nV} = 0;`);
-    put(`int ${kV} = 0;`);
-    put(`int ${sV} = ${RV} / ${pV};`);
-    put(`int ${vV} = 1;`);
-    put(`uint ${linV} = 2166136261u;`);
-    put(`bool ${deadV} = false;`);
-    put(`for (int lev = 0; lev < 24; lev++) {`);
-    indent += "  ";
-    put(`if (lev >= ${LV}) break;`);
-    put(`float wts[28];`);
-    put(`float wsum = 0.0;`);
-    put(`for (int a = 0; a < 7; a++) {`);
-    indent += "  ";
-    put(`if (a >= ${pV}) break;`);
-    put(`int ny0 = 2 * (${nV} + a * ${sV});`);
-    put(`int ny1 = ny0 + 2 * ${sV};`);
-    put(`int oy = min(ny1, ${wSym.win}.w) - max(ny0, ${wSym.win}.y);`);
-    put(`for (int b = 0; b < 7; b++) {`);
-    indent += "  ";
-    put(`if (b > a) break;`);
-    put(`int sl = (a * (a + 1)) / 2 + b;`);
-    put(`wts[sl] = 0.0;`);
-    put(`if (oy > 0) {`);
-    indent += "  ";
-    put(`int xlo = 2 * (${kV} + b * ${sV}) + (${RV} - 1) - (${nV} + (a + 1) * ${sV} - 1);`);
-    put(`int xhi = 2 * (${kV} + b * ${sV} + ${sV} - 1) + (${RV} - 1) - (${nV} + a * ${sV});`);
-    put(`int ox = min(xhi + 1, ${wSym.win}.z) - max(xlo, ${wSym.win}.x);`);
-    put(`if (ox > 0) wts[sl] = float(oy) * float(ox);`);
-    indent = indent.slice(2);
-    put(`}`);
-    put(`wsum += wts[sl];`);
-    indent = indent.slice(2);
-    put(`}`);
-    indent = indent.slice(2);
-    put(`}`);
-    put(`if (wsum <= 0.0) { ${deadV} = true; break; }`);
-    put(`pt = hashu(pt);`);
-    put(`float pick = u2f(pt) * wsum;`);
-    put(`float run = 0.0;`);
-    put(`int ca = 0;`);
-    put(`int cb = 0;`);
-    put(`int cc = 1;`);
-    put(`for (int a = 0; a < 7; a++) {`);
-    indent += "  ";
-    put(`if (a >= ${pV}) break;`);
-    put(`for (int b = 0; b < 7; b++) {`);
-    indent += "  ";
-    put(`if (b > a) break;`);
-    put(`int sl = (a * (a + 1)) / 2 + b;`);
-    put(`run += wts[sl];`);
-    put(`if (pick < run && pick >= run - wts[sl] && wts[sl] > 0.0) {`);
-    indent += "  ";
-    put(`ca = a;`);
-    put(`cb = b;`);
-    put(`cc = (sl == 0) ? 1 : (sl == 1) ? 1 : (sl == 2) ? 1`);
-    put(`   : (sl == 3) ? 1 : (sl == 4) ? 2 : (sl == 5) ? 1`);
-    put(`   : (sl == 6) ? 1 : (sl == 7) ? 3 : (sl == 8) ? 3 : (sl == 9) ? 1`);
-    put(`   : (sl == 10) ? 1 : (sl == 11) ? 4 : (sl == 12) ? 6 : (sl == 13) ? 4 : (sl == 14) ? 1`);
-    put(`   : (sl == 15) ? 1 : (sl == 16) ? 5 : (sl == 17) ? 10 : (sl == 18) ? 10 : (sl == 19) ? 5 : (sl == 20) ? 1`);
-    put(`   : (sl == 21) ? 1 : (sl == 22) ? 6 : (sl == 23) ? 15 : (sl == 24) ? 20 : (sl == 25) ? 15 : (sl == 26) ? 6 : 1;`);
-    indent = indent.slice(2);
-    put(`}`);
-    indent = indent.slice(2);
-    put(`}`);
-    indent = indent.slice(2);
-    put(`}`);
-    put(`${vV} = (${vV} * cc) % ${pV};`);
-    put(`${nV} += ca * ${sV};`);
-    put(`${kV} += cb * ${sV};`);
-    put(`${linV} = hashu(${linV} ^ (uint(ca * 7 + cb) + 1u) * 2654435761u);`);
-    put(`${sV} /= ${pV};`);
-    indent = indent.slice(2);
-    put(`}`);
-    syms.set(name, { kind: "wdescend", n: nV, k: kV, v: vV, lin: linV, dead: deadV });
+    put(ctx, `int ${pV} = ${asInt(pE)};`);
+    put(ctx, `int ${RV} = ${asInt(RE)};`);
+    put(ctx, `int ${LV} = ${LE.code};`);
+    put(ctx, `int ${nV} = 0;`);
+    put(ctx, `int ${kV} = 0;`);
+    put(ctx, `int ${sV} = ${RV} / ${pV};`);
+    put(ctx, `int ${vV} = 1;`);
+    put(ctx, `uint ${linV} = 2166136261u;`);
+    put(ctx, `bool ${deadV} = false;`);
+    put(ctx, `for (int lev = 0; lev < 24; lev++) {`);
+    ctx.indent += "  ";
+    put(ctx, `if (lev >= ${LV}) break;`);
+    put(ctx, `float wts[28];`);
+    put(ctx, `float wsum = 0.0;`);
+    put(ctx, `for (int a = 0; a < 7; a++) {`);
+    ctx.indent += "  ";
+    put(ctx, `if (a >= ${pV}) break;`);
+    put(ctx, `int ny0 = 2 * (${nV} + a * ${sV});`);
+    put(ctx, `int ny1 = ny0 + 2 * ${sV};`);
+    put(ctx, `int oy = min(ny1, ${wSym.win}.w) - max(ny0, ${wSym.win}.y);`);
+    put(ctx, `for (int b = 0; b < 7; b++) {`);
+    ctx.indent += "  ";
+    put(ctx, `if (b > a) break;`);
+    put(ctx, `int sl = (a * (a + 1)) / 2 + b;`);
+    put(ctx, `wts[sl] = 0.0;`);
+    put(ctx, `if (oy > 0) {`);
+    ctx.indent += "  ";
+    put(ctx, `int xlo = 2 * (${kV} + b * ${sV}) + (${RV} - 1) - (${nV} + (a + 1) * ${sV} - 1);`);
+    put(ctx, `int xhi = 2 * (${kV} + b * ${sV} + ${sV} - 1) + (${RV} - 1) - (${nV} + a * ${sV});`);
+    put(ctx, `int ox = min(xhi + 1, ${wSym.win}.z) - max(xlo, ${wSym.win}.x);`);
+    put(ctx, `if (ox > 0) wts[sl] = float(oy) * float(ox);`);
+    ctx.indent = ctx.indent.slice(2);
+    put(ctx, `}`);
+    put(ctx, `wsum += wts[sl];`);
+    ctx.indent = ctx.indent.slice(2);
+    put(ctx, `}`);
+    ctx.indent = ctx.indent.slice(2);
+    put(ctx, `}`);
+    put(ctx, `if (wsum <= 0.0) { ${deadV} = true; break; }`);
+    put(ctx, `pt = hashu(pt);`);
+    put(ctx, `float pick = u2f(pt) * wsum;`);
+    put(ctx, `float run = 0.0;`);
+    put(ctx, `int ca = 0;`);
+    put(ctx, `int cb = 0;`);
+    put(ctx, `int cc = 1;`);
+    put(ctx, `for (int a = 0; a < 7; a++) {`);
+    ctx.indent += "  ";
+    put(ctx, `if (a >= ${pV}) break;`);
+    put(ctx, `for (int b = 0; b < 7; b++) {`);
+    ctx.indent += "  ";
+    put(ctx, `if (b > a) break;`);
+    put(ctx, `int sl = (a * (a + 1)) / 2 + b;`);
+    put(ctx, `run += wts[sl];`);
+    put(ctx, `if (pick < run && pick >= run - wts[sl] && wts[sl] > 0.0) {`);
+    ctx.indent += "  ";
+    put(ctx, `ca = a;`);
+    put(ctx, `cb = b;`);
+    put(ctx, `cc = (sl == 0) ? 1 : (sl == 1) ? 1 : (sl == 2) ? 1`);
+    put(ctx, `   : (sl == 3) ? 1 : (sl == 4) ? 2 : (sl == 5) ? 1`);
+    put(ctx, `   : (sl == 6) ? 1 : (sl == 7) ? 3 : (sl == 8) ? 3 : (sl == 9) ? 1`);
+    put(ctx, `   : (sl == 10) ? 1 : (sl == 11) ? 4 : (sl == 12) ? 6 : (sl == 13) ? 4 : (sl == 14) ? 1`);
+    put(ctx, `   : (sl == 15) ? 1 : (sl == 16) ? 5 : (sl == 17) ? 10 : (sl == 18) ? 10 : (sl == 19) ? 5 : (sl == 20) ? 1`);
+    put(ctx, `   : (sl == 21) ? 1 : (sl == 22) ? 6 : (sl == 23) ? 15 : (sl == 24) ? 20 : (sl == 25) ? 15 : (sl == 26) ? 6 : 1;`);
+    ctx.indent = ctx.indent.slice(2);
+    put(ctx, `}`);
+    ctx.indent = ctx.indent.slice(2);
+    put(ctx, `}`);
+    ctx.indent = ctx.indent.slice(2);
+    put(ctx, `}`);
+    put(ctx, `${vV} = (${vV} * cc) % ${pV};`);
+    put(ctx, `${nV} += ca * ${sV};`);
+    put(ctx, `${kV} += cb * ${sV};`);
+    put(ctx, `${linV} = hashu(${linV} ^ (uint(ca * 7 + cb) + 1u) * 2654435761u);`);
+    put(ctx, `${sV} /= ${pV};`);
+    ctx.indent = ctx.indent.slice(2);
+    put(ctx, `}`);
+    ctx.syms.set(name, { kind: "wdescend", n: nV, k: kV, v: vV, lin: linV, dead: deadV });
   }
 
   // s.orbit(n, {a: init...}, (st, k) => ({a: next...}), {until})
   // iterate a named-record state; simultaneous update via temps
   function emitOrbit(name, call) {
-    const bound = staticBoundOf(call.args[0]);
+    const bound = staticBoundOf(ctx, call.args[0]);
     const initObj = call.args[1];
     const stepArrow = call.args[2];
     const opts = call.args[3];
@@ -1729,30 +1747,30 @@ export function emitWalk(pos, opts = {}) {
         else err(`orbit option ${pr.key} is not in the subset`);
       }
     }
-    const N = fresh("ob");
+    const N = fresh(ctx, "ob");
     const fields = {};
     for (const pr of initObj.props) {
       const v = emit(pr.value);
       const fv = `${N}_${pr.key}`;
-      put(`float ${fv} = ${asFloat(v)};`);
+      put(ctx, `float ${fv} = ${asFloat(v)};`);
       fields[pr.key] = fv;
     }
     const cnt = `${N}_count`, esc = `${N}_esc`;
-    put(`int ${cnt} = 0;`);
-    put(`bool ${esc} = false;`);
-    const kv = fresh("ok");
-    put(`for (int ${kv} = 0; ${kv} < ${bound.staticN}; ${kv}++) {`);
-    indent += "  ";
-    if (bound.runtime) put(`if (${kv} >= ${bound.runtime}) break;`);
+    put(ctx, `int ${cnt} = 0;`);
+    put(ctx, `bool ${esc} = false;`);
+    const kv = fresh(ctx, "ok");
+    put(ctx, `for (int ${kv} = 0; ${kv} < ${bound.staticN}; ${kv}++) {`);
+    ctx.indent += "  ";
+    if (bound.runtime) put(ctx, `if (${kv} >= ${bound.runtime}) break;`);
     if (untilArrow) {
       if (untilArrow.t !== "arrow") err("until wants (st) => condition");
-      syms.set(untilArrow.params[0], { kind: "orbitstate", fields });
+      ctx.syms.set(untilArrow.params[0], { kind: "orbitstate", fields });
       const cond = emit(untilArrow.body);
-      syms.delete(untilArrow.params[0]);
-      put(`if (${cond.code}) { ${esc} = true; break; }`);
+      ctx.syms.delete(untilArrow.params[0]);
+      put(ctx, `if (${cond.code}) { ${esc} = true; break; }`);
     }
-    syms.set(stepArrow.params[0], { kind: "orbitstate", fields });
-    if (stepArrow.params[1]) syms.set(stepArrow.params[1], { kind: "scalar", type: "int", v: kv });
+    ctx.syms.set(stepArrow.params[0], { kind: "orbitstate", fields });
+    if (stepArrow.params[1]) ctx.syms.set(stepArrow.params[1], { kind: "scalar", type: "int", v: kv });
     // A BLOCK BODY, so the step can declare an intermediate.
     //
     // The step used to have to BE an object literal, and that single
@@ -1772,7 +1790,7 @@ export function emitWalk(pos, opts = {}) {
     let stepObj;
     const declared = [];
     if (stepArrow.block) {
-      const before = new Set(syms.keys());
+      const before = new Set(ctx.syms.keys());
       const last = stepArrow.block[stepArrow.block.length - 1];
       if (!last || last.t !== "return")
         err("an orbit step with a block body must end in `return { ... };`");
@@ -1786,7 +1804,7 @@ export function emitWalk(pos, opts = {}) {
       stepObj = re.t === "object" ? re
               : (re.t === "paren" && re.e.t === "object") ? re.e
               : err("an orbit step must return an object literal");
-      for (const k of syms.keys()) if (!before.has(k)) declared.push(k);
+      for (const k of ctx.syms.keys()) if (!before.has(k)) declared.push(k);
     } else {
       const body = stepArrow.body;
       stepObj = body.t === "object" ? body
@@ -1797,18 +1815,18 @@ export function emitWalk(pos, opts = {}) {
     for (const pr of stepObj.props) {
       if (!(pr.key in fields)) err(`orbit step writes unknown field ${pr.key}`);
       const v = emit(pr.value);
-      const tv = fresh(`${N}_t`);
-      put(`float ${tv} = ${asFloat(v)};`);
+      const tv = fresh(ctx, `${N}_t`);
+      put(ctx, `float ${tv} = ${asFloat(v)};`);
       temps.push([fields[pr.key], tv]);
     }
-    syms.delete(stepArrow.params[0]);
-    if (stepArrow.params[1]) syms.delete(stepArrow.params[1]);
-    for (const k of declared) syms.delete(k);
-    for (const [fv, tv] of temps) put(`${fv} = ${tv};`);
-    put(`${cnt} += 1;`);
-    indent = indent.slice(2);
-    put(`}`);
-    syms.set(name, { kind: "orbit", fields, count: cnt, escaped: esc });
+    ctx.syms.delete(stepArrow.params[0]);
+    if (stepArrow.params[1]) ctx.syms.delete(stepArrow.params[1]);
+    for (const k of declared) ctx.syms.delete(k);
+    for (const [fv, tv] of temps) put(ctx, `${fv} = ${tv};`);
+    put(ctx, `${cnt} += 1;`);
+    ctx.indent = ctx.indent.slice(2);
+    put(ctx, `}`);
+    ctx.syms.set(name, { kind: "orbit", fields, count: cnt, escaped: esc });
   }
 
   // ---- statements ----
@@ -1818,18 +1836,18 @@ export function emitWalk(pos, opts = {}) {
       return;
     }
     if (e.t === "call" && e.callee.t === "member" &&
-        e.callee.o.t === "id" && e.callee.o.n === S && e.callee.name === "window") {
+        e.callee.o.t === "id" && e.callee.o.n === ctx.S && e.callee.name === "window") {
       emitWindow(name, e);
       return;
     }
     if (e.t === "call" && e.callee.t === "member" &&
-        e.callee.o.t === "id" && e.callee.o.n === S && e.callee.name === "orbit") {
+        e.callee.o.t === "id" && e.callee.o.n === ctx.S && e.callee.name === "orbit") {
       emitOrbit(name, e);
       return;
     }
     // descend is a special form; the domain picks the shape
     if (e.t === "call" && e.callee.t === "member" &&
-        e.callee.o.t === "id" && e.callee.o.n === S && e.callee.name === "descend") {
+        e.callee.o.t === "id" && e.callee.o.n === ctx.S && e.callee.name === "descend") {
       const dom = e.args[0];
       if (dom && dom.t === "call" && dom.callee.t === "id" && dom.callee.n === "digitTriangle") {
         emitWDescend(name, e);
@@ -1840,15 +1858,15 @@ export function emitWalk(pos, opts = {}) {
     }
     const v = emit(e);
     if (v.type === "vec2") {
-      const nm = fresh(name);
-      put(`vec2 ${nm} = ${v.code};`);
-      syms.set(name, { kind: "vec2", v: nm });
+      const nm = fresh(ctx, name);
+      put(ctx, `vec2 ${nm} = ${v.code};`);
+      ctx.syms.set(name, { kind: "vec2", v: nm });
     } else if (v.type === "int" || v.type === "float" || v.type === "bool" || v.type === "vec3") {
-      const nm = fresh(name);
-      put(`${v.type} ${nm} = ${v.code};`);
+      const nm = fresh(ctx, name);
+      put(ctx, `${v.type} ${nm} = ${v.code};`);
       const rec = { kind: "scalar", type: v.type, v: nm };
       if (v.staticMax !== undefined) rec.staticMax = v.staticMax;
-      syms.set(name, rec);
+      ctx.syms.set(name, rec);
     } else err(`cannot bind ${name}: unhandled value`, line);
   }
   function stmt(st) {
@@ -1857,39 +1875,39 @@ export function emitWalk(pos, opts = {}) {
       return;
     }
     if (st.t === "assign") {
-      const sym = syms.get(st.name);
+      const sym = ctx.syms.get(st.name);
       if (!sym) err(`assignment to unknown ${st.name}`, st.line);
       const v = emit(st.e);
       const op = st.op === "=" ? "=" : st.op;
-      put(`${sym.v} ${op} ${v.code};`);
+      put(ctx, `${sym.v} ${op} ${v.code};`);
       return;
     }
     if (st.t === "if") {
       const c = emit(st.c);
-      put(`if (${c.code}) {`);
-      indent += "  ";
+      put(ctx, `if (${c.code}) {`);
+      ctx.indent += "  ";
       st.then.forEach(stmt);
-      indent = indent.slice(2);
+      ctx.indent = ctx.indent.slice(2);
       if (st.els) {
-        put(`} else {`);
-        indent += "  ";
+        put(ctx, `} else {`);
+        ctx.indent += "  ";
         st.els.forEach(stmt);
-        indent = indent.slice(2);
+        ctx.indent = ctx.indent.slice(2);
       }
-      put(`}`);
+      put(ctx, `}`);
       return;
     }
     if (st.t === "return") {
       const e = st.e;
       const isDecline = e.t === "call" && e.callee.t === "member" &&
-        e.callee.o.t === "id" && e.callee.o.n === S && e.callee.name === "decline";
+        e.callee.o.t === "id" && e.callee.o.n === ctx.S && e.callee.name === "decline";
       if (isDecline) {
-        put(`col = vec3(0.0);`);
-        put(`return vec3(0.0, -20000.0, 0.0);`);
+        put(ctx, `col = vec3(0.0);`);
+        put(ctx, `return vec3(0.0, -20000.0, 0.0);`);
         return;
       }
       const isDeposit = e.t === "call" && e.callee.t === "member" &&
-        e.callee.o.t === "id" && e.callee.o.n === S && e.callee.name === "deposit";
+        e.callee.o.t === "id" && e.callee.o.n === ctx.S && e.callee.name === "deposit";
       if (!isDeposit) err("the walk must end with return s.deposit({...}) or decline", st.line);
       const obj = e.args[0];
       if (!obj || obj.t !== "object") err("s.deposit wants an object literal");
@@ -1899,73 +1917,73 @@ export function emitWalk(pos, opts = {}) {
           if (pr.value.t !== "array" || pr.value.items.length !== 3) err("xyz wants [x, y, z]");
           parts.xyz = pr.value.items.map(e => {
             const v = emit(e);
-            const nm = fresh("dep_c");
-            put(`float ${nm} = ${asFloat(v)};`);
+            const nm = fresh(ctx, "dep_c");
+            put(ctx, `float ${nm} = ${asFloat(v)};`);
             return nm;
           });
           continue;
         }
         if (pr.key === "col" && pr.value.t === "array" && pr.value.items.length === 3) {
           const xs = pr.value.items.map(e2 => asFloat(emit(e2)));
-          const nm2 = fresh("dep_col");
-          put(`vec3 ${nm2} = vec3(${xs.join(", ")});`);
+          const nm2 = fresh(ctx, "dep_col");
+          put(ctx, `vec3 ${nm2} = vec3(${xs.join(", ")});`);
           parts.col = nm2;
           continue;
         }
         const v = emit(pr.value);
-        const nm = fresh("dep_" + pr.key);
-        if (pr.key === "xy") { put(`vec2 ${nm} = ${v.code};`); parts.xy = nm; }
-        else if (pr.key === "col") { put(`vec3 ${nm} = ${v.code};`); parts.col = nm; }
-        else { put(`float ${nm} = ${asFloat(v)};`); parts[pr.key] = nm; }
+        const nm = fresh(ctx, "dep_" + pr.key);
+        if (pr.key === "xy") { put(ctx, `vec2 ${nm} = ${v.code};`); parts.xy = nm; }
+        else if (pr.key === "col") { put(ctx, `vec3 ${nm} = ${v.code};`); parts.col = nm; }
+        else { put(ctx, `float ${nm} = ${asFloat(v)};`); parts[pr.key] = nm; }
       }
       if (!(parts.xy || parts.xyz) || !parts.col) err("s.deposit wants a seat (xy or xyz) and col");
       const glow = parts.glow ? ` * ${parts.glow}` : "";
-      put(`col = ${parts.col}${glow};`);
-      if (parts.xyz) put(`return vec3(${parts.xyz[0]}, ${parts.xyz[1]}, ${parts.xyz[2]});`);
-      else put(`return vec3(${parts.xy}.x, ${parts.xy}.y, ${parts.z || "0.0"});`);
+      put(ctx, `col = ${parts.col}${glow};`);
+      if (parts.xyz) put(ctx, `return vec3(${parts.xyz[0]}, ${parts.xyz[1]}, ${parts.xyz[2]});`);
+      else put(ctx, `return vec3(${parts.xy}.x, ${parts.xy}.y, ${parts.z || "0.0"});`);
       return;
     }
     err("unhandled statement");
   }
 
-  ast.body.forEach(stmt);
+  ctx.ast.body.forEach(stmt);
 
   // Splice the hoisted sincos in at each argument's definition.
   // Descending, so an earlier index is still an earlier index after a
   // later one has grown the array.
-  hoists.sort((a, b) => b.at - a.at);
-  for (const h of hoists)
-    lines.splice(h.at + 1, 0, ...h.text.map(l => h.ind + l));
+  ctx.hoists.sort((a, b) => b.at - a.at);
+  for (const h of ctx.hoists)
+    ctx.lines.splice(h.at + 1, 0, ...h.text.map(l => h.ind + l));
 
   // ---- assemble the shape function ----
-  const salt = ((fnv1a(pos.id) | 1) >>> 0);
+  const salt = ((fnv1a(ctx.pos.id) | 1) >>> 0);
   const head = [];
-  if (helpers.has("stain")) {
-    head.push(`vec3 stain_${pos.id}(vec3 c, float a){`);
+  if (ctx.helpers.has("stain")) {
+    head.push(`vec3 stain_${ctx.pos.id}(vec3 c, float a){`);
     // one det_sincos, not one each: det_cos(a) and det_sin(a) both
     // compute the pair and discard half, and this asks for both.
     // Qualified here rather than left to the post-pass, which skips a
     // comma list - and unqualified is the thing verify-orbit-block
     // exists to refuse.
-    if (pin) {
+    if (ctx.pin) {
       head.push(`  precise float sn, cs;`);
       head.push(`  det_sincos(a, sn, cs);`);
     } else {
       head.push(`  float cs = cos(a), sn = sin(a);`);
     }
     head.push(`  vec3 k = vec3(0.57735027);`);
-    head.push(pin
+    head.push(ctx.pin
       ? `  return det_rodrigues(c, k, cs, sn);`
       : `  return c * cs + cross(k, c) * sn + k * dot(k, c) * (1.0 - cs);`);
     head.push(`}`);
   }
-  head.push(`vec3 shape_${pos.id}(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){`);
+  head.push(`vec3 shape_${ctx.pos.id}(vec2 q, vec4 rnd, uint seed, float P[8], out vec3 col){`);
   head.push(`  uint pt = hashu(seed ^ hashu(floatBitsToUint(q.x))`);
   head.push(`                       ^ hashu(floatBitsToUint(q.y) * ${salt}u));`);
   head.push(`  pt = hashu(pt ^ floatBitsToUint(rnd.x));`);
-  for (const nm of usedIntLevers)
-    head.push(`  int li_${nm} = int(P[${leverIx[nm]}] + 0.5);`);
-  let glsl = head.join("\n") + "\n" + lines.join("\n") + "\n}";
+  for (const nm of ctx.usedIntLevers)
+    head.push(`  int li_${nm} = int(P[${ctx.leverIx[nm]}] + 0.5);`);
+  let glsl = head.join("\n") + "\n" + ctx.lines.join("\n") + "\n}";
 
   // `precise` ON THE WHOLE CHAIN, which the pinned set is worth
   // nothing without.
@@ -1996,7 +2014,7 @@ export function emitWalk(pos, opts = {}) {
   // this reason. So pinned-with-precise is the print path's text, not
   // the browser's, and which one an emitted plate ships as is a
   // deployment question rather than a numerical one.
-  if (pin) {
+  if (ctx.pin) {
     glsl = glsl.replace(
       /^(\s+)(float|vec2|vec3)(\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:\[[0-9]+\])?\s*(?:=|;))/gm,
       (m, indent, ty, rest) => `${indent}precise ${ty}${rest}`);
