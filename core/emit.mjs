@@ -1725,6 +1725,7 @@ function emitWDescend(ctx, name, call) {
   const N = fresh(ctx, "wd");
   const nV = `${N}_n`, kV = `${N}_k`, sV = `${N}_s`, vV = `${N}_v`, linV = `${N}_lin`, deadV = `${N}_dead`;
   const pV = `${N}_p`, RV = `${N}_R`, LV = `${N}_L`;
+  const names = { nV, kV, sV, pV, RV };
   put(ctx, `int ${pV} = ${asInt(pE)};`);
   put(ctx, `int ${RV} = ${asInt(RE)};`);
   put(ctx, `int ${LV} = ${LE.code};`);
@@ -1737,6 +1738,23 @@ function emitWDescend(ctx, name, call) {
   put(ctx, `for (int lev = 0; lev < 24; lev++) {`);
   ctx.indent += "  ";
   put(ctx, `if (lev >= ${LV}) break;`);
+  putDigitWeights(ctx, names, wSym.win);
+  put(ctx, `if (wsum <= 0.0) { ${deadV} = true; break; }`);
+  putDigitPick(ctx, names);
+  put(ctx, `${vV} = (${vV} * cc) % ${pV};`);
+  put(ctx, `${nV} += ca * ${sV};`);
+  put(ctx, `${kV} += cb * ${sV};`);
+  put(ctx, `${linV} = hashu(${linV} ^ (uint(ca * 7 + cb) + 1u) * 2654435761u);`);
+  put(ctx, `${sV} /= ${pV};`);
+  ctx.indent = ctx.indent.slice(2);
+  put(ctx, `}`);
+  ctx.syms.set(name, { kind: "wdescend", n: nV, k: kV, v: vV, lin: linV, dead: deadV });
+}
+
+// one level of the descent, first half: the weight of every (a, b)
+// cell of the triangle is the area of its overlap with the window
+function putDigitWeights(ctx, names, win) {
+  const { nV, kV, sV, pV, RV } = names;
   put(ctx, `float wts[28];`);
   put(ctx, `float wsum = 0.0;`);
   put(ctx, `for (int a = 0; a < 7; a++) {`);
@@ -1744,7 +1762,7 @@ function emitWDescend(ctx, name, call) {
   put(ctx, `if (a >= ${pV}) break;`);
   put(ctx, `int ny0 = 2 * (${nV} + a * ${sV});`);
   put(ctx, `int ny1 = ny0 + 2 * ${sV};`);
-  put(ctx, `int oy = min(ny1, ${wSym.win}.w) - max(ny0, ${wSym.win}.y);`);
+  put(ctx, `int oy = min(ny1, ${win}.w) - max(ny0, ${win}.y);`);
   put(ctx, `for (int b = 0; b < 7; b++) {`);
   ctx.indent += "  ";
   put(ctx, `if (b > a) break;`);
@@ -1754,7 +1772,7 @@ function emitWDescend(ctx, name, call) {
   ctx.indent += "  ";
   put(ctx, `int xlo = 2 * (${kV} + b * ${sV}) + (${RV} - 1) - (${nV} + (a + 1) * ${sV} - 1);`);
   put(ctx, `int xhi = 2 * (${kV} + b * ${sV} + ${sV} - 1) + (${RV} - 1) - (${nV} + a * ${sV});`);
-  put(ctx, `int ox = min(xhi + 1, ${wSym.win}.z) - max(xlo, ${wSym.win}.x);`);
+  put(ctx, `int ox = min(xhi + 1, ${win}.z) - max(xlo, ${win}.x);`);
   put(ctx, `if (ox > 0) wts[sl] = float(oy) * float(ox);`);
   ctx.indent = ctx.indent.slice(2);
   put(ctx, `}`);
@@ -1763,7 +1781,12 @@ function emitWDescend(ctx, name, call) {
   put(ctx, `}`);
   ctx.indent = ctx.indent.slice(2);
   put(ctx, `}`);
-  put(ctx, `if (wsum <= 0.0) { ${deadV} = true; break; }`);
+}
+
+// second half: one draw picks a cell by weight, and cc is that cell's
+// binomial coefficient, which the digit value carries forward
+function putDigitPick(ctx, names) {
+  const { pV } = names;
   put(ctx, `pt = hashu(pt);`);
   put(ctx, `float pick = u2f(pt) * wsum;`);
   put(ctx, `float run = 0.0;`);
@@ -1794,14 +1817,6 @@ function emitWDescend(ctx, name, call) {
   put(ctx, `}`);
   ctx.indent = ctx.indent.slice(2);
   put(ctx, `}`);
-  put(ctx, `${vV} = (${vV} * cc) % ${pV};`);
-  put(ctx, `${nV} += ca * ${sV};`);
-  put(ctx, `${kV} += cb * ${sV};`);
-  put(ctx, `${linV} = hashu(${linV} ^ (uint(ca * 7 + cb) + 1u) * 2654435761u);`);
-  put(ctx, `${sV} /= ${pV};`);
-  ctx.indent = ctx.indent.slice(2);
-  put(ctx, `}`);
-  ctx.syms.set(name, { kind: "wdescend", n: nV, k: kV, v: vV, lin: linV, dead: deadV });
 }
 
 // A BLOCK BODY, so the step can declare an intermediate.
