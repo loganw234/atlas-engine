@@ -1899,33 +1899,29 @@ function emitOrbit(ctx, name, call) {
 }
 
 // ---- statements ----
+// the shape every special form shares: a call of s.<name>(...)
+function isStreamCall(ctx, e, name) {
+  return e.t === "call" && e.callee.t === "member" &&
+    e.callee.o.t === "id" && e.callee.o.n === ctx.S && e.callee.name === name;
+}
+
 function declOne(ctx, name, e, line) {
-  if (e.t === "call" && e.callee.t === "id" && e.callee.n === "levels") {
-    emitLevels(ctx, name, e);
-    return;
-  }
-  if (e.t === "call" && e.callee.t === "member" &&
-      e.callee.o.t === "id" && e.callee.o.n === ctx.S && e.callee.name === "window") {
-    emitWindow(ctx, name, e);
-    return;
-  }
-  if (e.t === "call" && e.callee.t === "member" &&
-      e.callee.o.t === "id" && e.callee.o.n === ctx.S && e.callee.name === "orbit") {
-    emitOrbit(ctx, name, e);
-    return;
-  }
+  if (e.t === "call" && e.callee.t === "id" && e.callee.n === "levels")
+    return emitLevels(ctx, name, e);
+  if (isStreamCall(ctx, e, "window")) return emitWindow(ctx, name, e);
+  if (isStreamCall(ctx, e, "orbit")) return emitOrbit(ctx, name, e);
   // descend is a special form; the domain picks the shape
-  if (e.t === "call" && e.callee.t === "member" &&
-      e.callee.o.t === "id" && e.callee.o.n === ctx.S && e.callee.name === "descend") {
+  if (isStreamCall(ctx, e, "descend")) {
     const dom = e.args[0];
-    if (dom && dom.t === "call" && dom.callee.t === "id" && dom.callee.n === "digitTriangle") {
-      emitWDescend(ctx, name, e);
-      return;
-    }
-    emitDescend(ctx, name, e);
-    return;
+    if (dom && dom.t === "call" && dom.callee.t === "id" && dom.callee.n === "digitTriangle")
+      return emitWDescend(ctx, name, e);
+    return emitDescend(ctx, name, e);
   }
-  const v = emit(ctx, e);
+  bindDecl(ctx, name, emit(ctx, e), line);
+}
+
+// a plain declaration: a fresh GLSL local of the value's type
+function bindDecl(ctx, name, v, line) {
   if (v.type === "vec2") {
     const nm = fresh(ctx, name);
     put(ctx, `vec2 ${nm} = ${v.code};`);
@@ -1943,76 +1939,83 @@ function stmt(ctx, st) {
     for (const d of st.decls) declOne(ctx, d.name, d.e, st.line);
     return;
   }
-  if (st.t === "assign") {
-    const sym = ctx.syms.get(st.name);
-    if (!sym) err(`assignment to unknown ${st.name}`, st.line);
-    const v = emit(ctx, st.e);
-    const op = st.op === "=" ? "=" : st.op;
-    put(ctx, `${sym.v} ${op} ${v.code};`);
-    return;
-  }
-  if (st.t === "if") {
-    const c = emit(ctx, st.c);
-    put(ctx, `if (${c.code}) {`);
-    ctx.indent += "  ";
-    st.then.forEach(s => stmt(ctx, s));
-    ctx.indent = ctx.indent.slice(2);
-    if (st.els) {
-      put(ctx, `} else {`);
-      ctx.indent += "  ";
-      st.els.forEach(s => stmt(ctx, s));
-      ctx.indent = ctx.indent.slice(2);
-    }
-    put(ctx, `}`);
-    return;
-  }
-  if (st.t === "return") {
-    const e = st.e;
-    const isDecline = e.t === "call" && e.callee.t === "member" &&
-      e.callee.o.t === "id" && e.callee.o.n === ctx.S && e.callee.name === "decline";
-    if (isDecline) {
-      put(ctx, `col = vec3(0.0);`);
-      put(ctx, `return vec3(0.0, -20000.0, 0.0);`);
-      return;
-    }
-    const isDeposit = e.t === "call" && e.callee.t === "member" &&
-      e.callee.o.t === "id" && e.callee.o.n === ctx.S && e.callee.name === "deposit";
-    if (!isDeposit) err("the walk must end with return s.deposit({...}) or decline", st.line);
-    const obj = e.args[0];
-    if (!obj || obj.t !== "object") err("s.deposit wants an object literal");
-    const parts = {};
-    for (const pr of obj.props) {
-      if (pr.key === "xyz") {
-        if (pr.value.t !== "array" || pr.value.items.length !== 3) err("xyz wants [x, y, z]");
-        parts.xyz = pr.value.items.map(e => {
-          const v = emit(ctx, e);
-          const nm = fresh(ctx, "dep_c");
-          put(ctx, `float ${nm} = ${asFloat(v)};`);
-          return nm;
-        });
-        continue;
-      }
-      if (pr.key === "col" && pr.value.t === "array" && pr.value.items.length === 3) {
-        const xs = pr.value.items.map(e2 => asFloat(emit(ctx, e2)));
-        const nm2 = fresh(ctx, "dep_col");
-        put(ctx, `vec3 ${nm2} = vec3(${xs.join(", ")});`);
-        parts.col = nm2;
-        continue;
-      }
-      const v = emit(ctx, pr.value);
-      const nm = fresh(ctx, "dep_" + pr.key);
-      if (pr.key === "xy") { put(ctx, `vec2 ${nm} = ${v.code};`); parts.xy = nm; }
-      else if (pr.key === "col") { put(ctx, `vec3 ${nm} = ${v.code};`); parts.col = nm; }
-      else { put(ctx, `float ${nm} = ${asFloat(v)};`); parts[pr.key] = nm; }
-    }
-    if (!(parts.xy || parts.xyz) || !parts.col) err("s.deposit wants a seat (xy or xyz) and col");
-    const glow = parts.glow ? ` * ${parts.glow}` : "";
-    put(ctx, `col = ${parts.col}${glow};`);
-    if (parts.xyz) put(ctx, `return vec3(${parts.xyz[0]}, ${parts.xyz[1]}, ${parts.xyz[2]});`);
-    else put(ctx, `return vec3(${parts.xy}.x, ${parts.xy}.y, ${parts.z || "0.0"});`);
-    return;
-  }
+  if (st.t === "assign") return emitAssign(ctx, st);
+  if (st.t === "if") return emitIf(ctx, st);
+  if (st.t === "return") return emitReturn(ctx, st);
   err("unhandled statement");
+}
+
+function emitAssign(ctx, st) {
+  const sym = ctx.syms.get(st.name);
+  if (!sym) err(`assignment to unknown ${st.name}`, st.line);
+  const v = emit(ctx, st.e);
+  const op = st.op === "=" ? "=" : st.op;
+  put(ctx, `${sym.v} ${op} ${v.code};`);
+}
+
+function emitIf(ctx, st) {
+  const c = emit(ctx, st.c);
+  put(ctx, `if (${c.code}) {`);
+  ctx.indent += "  ";
+  st.then.forEach(s => stmt(ctx, s));
+  ctx.indent = ctx.indent.slice(2);
+  if (st.els) {
+    put(ctx, `} else {`);
+    ctx.indent += "  ";
+    st.els.forEach(s => stmt(ctx, s));
+    ctx.indent = ctx.indent.slice(2);
+  }
+  put(ctx, `}`);
+}
+
+// the walk's one exit: return s.decline(), or return s.deposit({...})
+function emitReturn(ctx, st) {
+  const e = st.e;
+  if (isStreamCall(ctx, e, "decline")) {
+    put(ctx, `col = vec3(0.0);`);
+    put(ctx, `return vec3(0.0, -20000.0, 0.0);`);
+    return;
+  }
+  if (!isStreamCall(ctx, e, "deposit")) err("the walk must end with return s.deposit({...}) or decline", st.line);
+  const obj = e.args[0];
+  if (!obj || obj.t !== "object") err("s.deposit wants an object literal");
+  emitDeposit(ctx, obj);
+}
+
+// s.deposit({xy | xyz, z, col, glow}): every field bound to a local of
+// its own, then the colour and the seat handed back in the registry's
+// form
+function emitDeposit(ctx, obj) {
+  const parts = {};
+  for (const pr of obj.props) {
+    if (pr.key === "xyz") {
+      if (pr.value.t !== "array" || pr.value.items.length !== 3) err("xyz wants [x, y, z]");
+      parts.xyz = pr.value.items.map(e => {
+        const v = emit(ctx, e);
+        const nm = fresh(ctx, "dep_c");
+        put(ctx, `float ${nm} = ${asFloat(v)};`);
+        return nm;
+      });
+      continue;
+    }
+    if (pr.key === "col" && pr.value.t === "array" && pr.value.items.length === 3) {
+      const xs = pr.value.items.map(e2 => asFloat(emit(ctx, e2)));
+      const nm2 = fresh(ctx, "dep_col");
+      put(ctx, `vec3 ${nm2} = vec3(${xs.join(", ")});`);
+      parts.col = nm2;
+      continue;
+    }
+    const v = emit(ctx, pr.value);
+    const nm = fresh(ctx, "dep_" + pr.key);
+    if (pr.key === "xy") { put(ctx, `vec2 ${nm} = ${v.code};`); parts.xy = nm; }
+    else if (pr.key === "col") { put(ctx, `vec3 ${nm} = ${v.code};`); parts.col = nm; }
+    else { put(ctx, `float ${nm} = ${asFloat(v)};`); parts[pr.key] = nm; }
+  }
+  if (!(parts.xy || parts.xyz) || !parts.col) err("s.deposit wants a seat (xy or xyz) and col");
+  const glow = parts.glow ? ` * ${parts.glow}` : "";
+  put(ctx, `col = ${parts.col}${glow};`);
+  if (parts.xyz) put(ctx, `return vec3(${parts.xyz[0]}, ${parts.xyz[1]}, ${parts.xyz[2]});`);
+  else put(ctx, `return vec3(${parts.xy}.x, ${parts.xy}.y, ${parts.z || "0.0"});`);
 }
 
 // Splice the hoisted sincos in at each argument's definition.
