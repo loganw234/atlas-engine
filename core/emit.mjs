@@ -1090,67 +1090,69 @@ function emitScalarBuiltin(ctx, n) {
   const PINNED_VOCAB = { mod: "det_mod", mix: "det_mix",
                          smoothstep: "det_smoothstep",
                          fract: "det_fract" };
-  // mod BY A POWER OF TWO carries a det_div that cannot pay.
-  //
-  //   float det_mod(float x, float y){
-  //     precise float q = floor(det_div(x, y));
-  //     precise float r = fma(-y, q, x);
-  //     return r; }
-  //
-  // det_div(x, 2^k) is exactly x * 2^-k (see exactRecip), so this
-  // is the same two operations with the reciprocal folded in -
-  // floor of an exact product, then the same fma. Identical
-  // arithmetic, one Newton reciprocal and four refinement rounds
-  // lighter.
-  //
-  // 165 of the atlas's 415 det_mod calls take a power-of-two
-  // modulus and rule30 alone has 36 of 39, which is why rule30 saw
-  // nothing from the divisor fix: its hot loop asks for
-  // mod(g, 2.0) and mod(e, 131072.0), and both were still routed
-  // through det_div inside det_mod.
   if (ctx.pin && c.n === "mod" && args.length === 2) {
     const rec = exactRecip(args[1]);
-    if (rec) {
-      // bound, because x appears twice and a compound expression
-      // evaluated twice is the cost this is trying to remove.
-      // The floor is bound too, and not for tidiness: a plate that
-      // asks for mod(g, 2.0) usually also asks for floor(g / 2.0)
-      // a line later - rule30's inner loop does exactly that - and
-      // an inlined subexpression is invisible to the CSE above
-      // unless it is given a name.
-      // BOUND IN THE SAME SHAPE THE PLATES USE: the product first,
-      // then the floor of it. A plate asking mod(g, 2.0) usually
-      // asks floor(g / 2.0) a line later - rule30's inner loop
-      // does exactly that - and its own path binds `(g * 0.5)` and
-      // then `floor(pb)`. Emitting `floor(g * 0.5)` as one
-      // expression is the same value spelled differently, which
-      // the CSE above cannot see through.
-      const x = bindPrecise(ctx, args[0]);
-      const h = bindPrecise(ctx, `${x} * ${rec}`);
-      const f = bindPrecise(ctx, `floor(${h})`);
-      // WRITTEN OUT, NOT FUSED. This was `fma(-y, f, x)`, which is
-      // one rounding rather than two and therefore the better
-      // arithmetic - on a stack that performs it. Measured across
-      // eleven stacks on 2026-08-24, five fold fma() into a
-      // multiply and an add whatever `precise` says: every zink
-      // route on every vendor, radeonsi on GFX10.1, and llvmpipe.
-      // A single fma anywhere in a plate is enough to split those
-      // stacks off from the rest, and this one site accounted for
-      // 165 of the atlas's 415 mod calls.
-      //
-      // Here the two forms are the SAME VALUE regardless: y is a
-      // power of two and f is a floor, so y*f is exact and there
-      // is no residual for the fusion to carry. The rewrite costs
-      // nothing at all on this path - it only stops asking five
-      // stacks for a guarantee they do not honour.
-      return { type: "float",
-               code: `((-${args[1]}) * (${f}) + (${x}))` };
-    }
+    if (rec) return emitModByPowerOfTwo(ctx, args, rec);
   }
   if (ctx.pin && c.n in PINNED_VOCAB)
     return { type: "float",
              code: `${PINNED_VOCAB[c.n]}(${args.join(", ")})` };
   return { type: "float", code: `${c.n}(${args.join(", ")})` };
+}
+
+// mod BY A POWER OF TWO carries a det_div that cannot pay.
+//
+//   float det_mod(float x, float y){
+//     precise float q = floor(det_div(x, y));
+//     precise float r = fma(-y, q, x);
+//     return r; }
+//
+// det_div(x, 2^k) is exactly x * 2^-k (see exactRecip), so this
+// is the same two operations with the reciprocal folded in -
+// floor of an exact product, then the same fma. Identical
+// arithmetic, one Newton reciprocal and four refinement rounds
+// lighter.
+//
+// 165 of the atlas's 415 det_mod calls take a power-of-two
+// modulus and rule30 alone has 36 of 39, which is why rule30 saw
+// nothing from the divisor fix: its hot loop asks for
+// mod(g, 2.0) and mod(e, 131072.0), and both were still routed
+// through det_div inside det_mod.
+function emitModByPowerOfTwo(ctx, args, rec) {
+  // bound, because x appears twice and a compound expression
+  // evaluated twice is the cost this is trying to remove.
+  // The floor is bound too, and not for tidiness: a plate that
+  // asks for mod(g, 2.0) usually also asks for floor(g / 2.0)
+  // a line later - rule30's inner loop does exactly that - and
+  // an inlined subexpression is invisible to the CSE above
+  // unless it is given a name.
+  // BOUND IN THE SAME SHAPE THE PLATES USE: the product first,
+  // then the floor of it. A plate asking mod(g, 2.0) usually
+  // asks floor(g / 2.0) a line later - rule30's inner loop
+  // does exactly that - and its own path binds `(g * 0.5)` and
+  // then `floor(pb)`. Emitting `floor(g * 0.5)` as one
+  // expression is the same value spelled differently, which
+  // the CSE above cannot see through.
+  const x = bindPrecise(ctx, args[0]);
+  const h = bindPrecise(ctx, `${x} * ${rec}`);
+  const f = bindPrecise(ctx, `floor(${h})`);
+  // WRITTEN OUT, NOT FUSED. This was `fma(-y, f, x)`, which is
+  // one rounding rather than two and therefore the better
+  // arithmetic - on a stack that performs it. Measured across
+  // eleven stacks on 2026-08-24, five fold fma() into a
+  // multiply and an add whatever `precise` says: every zink
+  // route on every vendor, radeonsi on GFX10.1, and llvmpipe.
+  // A single fma anywhere in a plate is enough to split those
+  // stacks off from the rest, and this one site accounted for
+  // 165 of the atlas's 415 mod calls.
+  //
+  // Here the two forms are the SAME VALUE regardless: y is a
+  // power of two and f is a floor, so y*f is exact and there
+  // is no residual for the fusion to carry. The rewrite costs
+  // nothing at all on this path - it only stops asking five
+  // stacks for a guarantee they do not honour.
+  return { type: "float",
+           code: `((-${args[1]}) * (${f}) + (${x}))` };
 }
 
 // complex arithmetic rides the shared header's own functions
@@ -1958,6 +1960,7 @@ function bindDecl(ctx, name, v, line) {
     ctx.syms.set(name, rec);
   } else err(`cannot bind ${name}: unhandled value`, line);
 }
+
 function stmt(ctx, st) {
   if (st.t === "decl") {
     for (const d of st.decls) declOne(ctx, d.name, d.e, st.line);
