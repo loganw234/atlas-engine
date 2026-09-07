@@ -196,6 +196,31 @@ quote-verified against GLSL 4.60.8 / ES 3.20.8 and the floating-point
 literature; the dossiers live in the darkroom repository under
 `docs/sources/`.
 
+### A second backend for the det library
+
+`docs/CFT-DETLIB.md`, 2026-09-07. The thirteen det functions - plus the
+shared header's `hashu` and `u2f` - now have a second edition compiled
+for the deterministic FP coprocessor next door (cft-fp256's orbit
+sequencer), and every one of them reproduces the shipped library's bits
+exactly on a 4,096-argument sweep, scored through that project's libcft
+rather than through anything here.
+
+```bash
+node tools/gen-detlib.mjs --target cft --isa-ext
+CFT_ROOT=../cft-fp256 node tools/verify-cft-detlib.mjs --points 4096 --isa-ext
+```
+
+The reason it is in this README rather than only in that project's is
+what the exercise found by having to reproduce the bits rather than
+describe them. **The library ships unfused**, so a backend that maps
+`precise fma` onto a fused multiply-add computes a different function:
+measured, 3,834 one-ULP differences over the same sweeps, worst in
+`det_mod` at better than one argument in three. And GLSL's `min`/`max`
+are not IEEE `minimum`/`maximum` - the spec defines them as
+`y < x ? y : x` - which is 36 points of divergence in `det_atan` and
+eight instructions to fix. Both were named as safe mappings in the
+port's own census; neither is.
+
 ### Running the gates
 
 ```
@@ -216,9 +241,12 @@ per-plate conversion reports `docs/CONVERSION.md` asks for live in
 Those four are pure node and run in CI (`.github/workflows/gates.yml`),
 whose last step prints what a green tick does NOT cover. The rest -
 `tools/compile-pinned.py --run`, `tools/detbits.py`, the four CDP
-probes, `tools/verify-constants.py` - need a GL context, a browser, a
-GPU per column or the darkroom beside this checkout, and are named
-there rather than left as a silence.
+probes, `tools/verify-constants.py`, `tools/verify-cft-detlib.mjs` -
+need a GL context, a browser, a GPU per column, the darkroom beside
+this checkout or the cft-fp256 checkout beside it, and are named there
+rather than left as a silence. The last of those refuses loudly when it
+cannot find libcft, because every arithmetic claim it makes is that
+library's and a run that could not find it has proven nothing.
 
 ### Three of the sixty-nine fail one smoke row
 
