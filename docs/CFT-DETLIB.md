@@ -423,3 +423,30 @@ and the twoSum's residual across `det_exp2`'s own working set.
   predicated form evaluates paths a branch would have skipped, so it
   raises flags the GLSL does not; the union per function is recorded in
   `build/cft-detlib-verify.json` for reference.
+
+## 2026-09-08 - the scheduler learned depth-first, and every function fits
+
+The lowering above was reused for whole positives (`docs/CFT-POSITIVE.md`),
+and a whole positive taught the scheduler two things the library could
+not: a kills-first list schedule interleaves independent chains, and a
+depth-first order needs eager completion or it leaves half of a shared
+tree live. Both are described there. Re-run on the library, the new
+policies and a local search over the schedule lower six functions'
+peaks and leave the other thirteen where they were:
+
+| function | was | is | | function | was | is |
+|---|---|---|---|---|---|---|
+| `det_exp2` | 7 | 6 | | `det_tan` | 9 | 8 |
+| `det_sincos` | 9 | 8 | | `det_pow` | **17** | **14** |
+| `det_sin` | 8 | 7 | | `det_cos` | 8 | 6 |
+
+`det_pow` was the one function over the wall, by one, and "What needs
+which ISA step" above lists it under "more than sixteen registers, or
+CALL". It no longer needs either: local moves alone bring it to 16, and
+the depth-first order to 14. **Every function of the shipped library
+fits a lane.** The instruction ORDER of the six changed and their bits
+did not - `node tools/verify-cft-detlib.mjs --points 4096 --isa-ext`
+exits 0 on all nineteen, same sweeps, same domains - which is what a
+scheduler is allowed to change and nothing else. The verification table
+and the register discipline above are kept as written, as the record of
+2026-09-07; `core/detlib.cft.json` carries today's schedules.

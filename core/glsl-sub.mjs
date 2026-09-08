@@ -1,4 +1,5 @@
-// The GLSL subset the det library is written in, parsed.
+// The GLSL subset the det library and the emitted plates are written
+// in, parsed.
 //
 // WHY A PARSER AND NOT A TRANSCRIPTION. The sequencer target has to say
 // what each det_* function IS, twice: once as a reference that computes
@@ -10,12 +11,25 @@
 // between them is a fact about the two execution models rather than
 // about somebody's typing.
 //
-// The subset is small because the library is small. Measured on the
+// The subset was small because the library is small. Measured on the
 // generated file (242 non-comment lines): no loops, no vectors, no
 // structs, no division, no modulus, three scalar types (float, int,
 // uint), `precise` and `out` as the only qualifiers, and thirteen
 // builtins - uintBitsToFloat, floatBitsToUint, int, uint, float, abs,
 // min, max, clamp, floor, findMSB, isinf, isnan.
+//
+// SINCE 2026-09-08 IT ALSO READS THE EMITTED PLATES, which is the same
+// text one level up: core/emit-cft.mjs lowers a positive's shape
+// function from the GLSL core/emit.mjs writes, so the plate text needs
+// what the library text did not. Measured over the sixty-nine pinned
+// plates before adding anything: vec2 and vec3 locals and constructors
+// (no swizzles, no vec4 outside the signature), `.x` `.y` `.z` members,
+// one indexed array (`float P[8]`), `for` with a literal bound and
+// `break`, `bool` locals with `true`/`false`, the casts `int(...)`
+// `float(...)` `uint(...)`, integer `%` and `/` in five plates, and six
+// more builtins - step, sign, intBitsToFloat, and min/max/abs on ints.
+// Each is a construct the emitter writes and the darkroom bakes, so each
+// is something a second backend has to reproduce, not a convenience.
 //
 // Precedence is C's, which is also GLSL's and also JavaScript's for
 // every operator that appears here. It is written out as a table rather
@@ -25,17 +39,39 @@
 // ------------------------------------------------------------ lexing
 
 const KEYWORDS = new Set(["void", "float", "int", "uint", "bool",
-                          "precise", "out", "in", "inout", "const",
-                          "if", "else", "return"]);
-const TYPES = new Set(["void", "float", "int", "uint", "bool"]);
+                          "vec2", "vec3", "vec4", "ivec2", "ivec3", "ivec4",
+                          "precise", "out", "in", "inout", "const", "uniform",
+                          "if", "else", "return", "for", "break",
+                          "true", "false"]);
+const TYPES = new Set(["void", "float", "int", "uint", "bool",
+                       "vec2", "vec3", "vec4", "ivec2", "ivec3", "ivec4"]);
+
+/** The vector types: how many components, and of what. Vectors are
+ *  SCALARISED by every consumer - the interpreter holds them as arrays,
+ *  the lowering as arrays of scalar values - because the ISA has no
+ *  vector register and the emitted text uses no operation that could
+ *  not be written componentwise. */
+export const VEC = {
+  vec2: { n: 2, elem: "float" },
+  vec3: { n: 3, elem: "float" },
+  vec4: { n: 4, elem: "float" },
+  ivec2: { n: 2, elem: "int" },
+  ivec3: { n: 3, elem: "int" },
+  ivec4: { n: 4, elem: "int" },
+};
+export const isVec = (t) => VEC[t] !== undefined;
+export const isArray = (t) => typeof t === "string" && t.endsWith("]");
+export const arrayElem = (t) => t.slice(0, t.indexOf("["));
+export const arrayLen = (t) => Number(t.slice(t.indexOf("[") + 1, -1));
 
 // Sorted longest first, so `<<=` never lexes as `<<` `=` and `<<` never
 // lexes as `<` `<`. The compound assignments are here because the
 // registry's shared header writes hashu with them, and that function is
-// the one the atlas port needs an IMUL for.
+// the one the atlas port needs an IMUL for. `++` and `--` are the for
+// loop's step, and `.` is a member.
 const PUNCT = ["<<=", ">>=", "<<", ">>", "<=", ">=", "==", "!=", "&&", "||",
-               "+=", "-=", "*=", "/=", "%=", "&=", "^=", "|=",
-               "(", ")", "{", "}", "[", "]", ",", ";", "?", ":",
+               "+=", "-=", "*=", "/=", "%=", "&=", "^=", "|=", "++", "--",
+               "(", ")", "{", "}", "[", "]", ",", ";", "?", ":", ".",
                "+", "-", "*", "/", "%", "&", "^", "|", "~", "!", "<", ">", "="]
   .sort((a, b) => b.length - a.length);
 const COMPOUND = { "+=": "+", "-=": "-", "*=": "*", "/=": "/", "%=": "%",
@@ -154,12 +190,31 @@ class Parser {
     return this.postfix();
   }
 
-  postfix() { return this.primary(); }
+  // `.x` on a vector, `[i]` on an array. No swizzles: the emitter never
+  // writes one (measured over the corpus), and a two-letter member here
+  // is refused at the typecheck rather than half-understood.
+  postfix() {
+    let e = this.primary();
+    for (;;) {
+      if (this.eat("op", ".")) { e = { n: "member", obj: e, name: this.want("id").v }; continue; }
+      if (this.eat("op", "[")) {
+        const i = this.expr();
+        this.want("op", "]");
+        e = { n: "index", obj: e, i };
+        continue;
+      }
+      return e;
+    }
+  }
 
   primary() {
     if (this.eat("op", "(")) { const e = this.expr(); this.want("op", ")"); return e; }
     const t = this.peek();
     if (t.k === "num") { this.next(); return { n: "lit", ...literal(t.v) }; }
+    if (t.k === "kw" && (t.v === "true" || t.v === "false")) {
+      this.next();
+      return { n: "lit", type: "bool", value: t.v === "true" };
+    }
     if (t.k === "id" || (t.k === "kw" && TYPES.has(t.v))) {
       this.next();
       if (this.eat("op", "(")) {
@@ -184,6 +239,57 @@ class Parser {
     return { n: "block", body };
   }
 
+  /** A declaration, when the tokens ahead are one: `precise`, or a type
+   *  name that is not the start of a constructor call. Returns null
+   *  otherwise, having consumed nothing. */
+  declaration() {
+    const save = this.i;
+    const precise = !!this.eat("kw", "precise");
+    if (precise || (this.peek().k === "kw" && TYPES.has(this.peek().v) && this.peek(1).k === "id")) {
+      const type = this.want("kw").v;
+      const decls = [];
+      do {
+        const name = this.want("id").v;
+        const init = this.eat("op", "=") ? this.expr() : null;
+        decls.push({ name, init });
+      } while (this.eat("op", ","));
+      return { n: "decl", type, precise, decls };
+    }
+    this.i = save;
+    return null;
+  }
+
+  /** An assignment, compound assignment, `x++`/`x--`, or a bare
+   *  expression - without its terminating `;`, so a for loop's step can
+   *  use it too. */
+  simple() {
+    const e = this.expr();
+    if (this.eat("op", "=")) {
+      if (e.n !== "var") throw new Error("glsl-sub: assignment to a non-variable");
+      return { n: "assign", name: e.name, value: this.expr() };
+    }
+    for (const tok of ["++", "--"]) {
+      if (this.at("op", tok)) {
+        this.next();
+        if (e.n !== "var") throw new Error(`glsl-sub: ${tok} on a non-variable`);
+        return { n: "assign", name: e.name,
+                 value: { n: "bin", op: tok[0], l: { n: "var", name: e.name },
+                          r: { n: "lit", type: "int", value: 1 } } };
+      }
+    }
+    for (const [tok, op] of Object.entries(COMPOUND)) {
+      if (this.at("op", tok)) {
+        this.next();
+        if (e.n !== "var") throw new Error("glsl-sub: compound assignment to a non-variable");
+        // desugared here rather than in every consumer: `x op= v` is
+        // `x = x op v` with one evaluation of x, and x is a bare name.
+        return { n: "assign", name: e.name,
+                 value: { n: "bin", op, l: { n: "var", name: e.name }, r: this.expr() } };
+      }
+    }
+    return { n: "expr", value: e };
+  }
+
   statement() {
     if (this.at("op", "{")) return this.block();
     if (this.eat("kw", "if")) {
@@ -199,78 +305,97 @@ class Parser {
       this.want("op", ";");
       return { n: "return", value: v };
     }
-    // a declaration begins with `precise` or a type name
-    const precise = !!this.eat("kw", "precise");
-    if (precise || (this.peek().k === "kw" && TYPES.has(this.peek().v))) {
-      const type = this.want("kw").v;
-      const decls = [];
-      do {
-        const name = this.want("id").v;
-        const init = this.eat("op", "=") ? this.expr() : null;
-        decls.push({ name, init });
-      } while (this.eat("op", ","));
+    if (this.eat("kw", "break")) { this.want("op", ";"); return { n: "break" }; }
+    // The one loop shape the emitter writes: a counter from a literal
+    // to a literal bound, stepping by one, the data-dependent exit as a
+    // `break` inside. The bound being a literal is what lets the
+    // sequencer target say REPEAT <n>; the emitter's own unroller relies
+    // on the same fact (docs/CONVERSION.md, "the bound you print").
+    if (this.eat("kw", "for")) {
+      this.want("op", "(");
+      const init = this.declaration() ?? this.simple();
       this.want("op", ";");
-      return { n: "decl", type, precise, decls };
-    }
-    // assignment (plain or compound) or a bare call
-    const e = this.expr();
-    if (this.eat("op", "=")) {
-      if (e.n !== "var") throw new Error("glsl-sub: assignment to a non-variable");
-      const v = this.expr();
+      const cond = this.expr();
       this.want("op", ";");
-      return { n: "assign", name: e.name, value: v };
+      const step = this.simple();
+      this.want("op", ")");
+      const body = this.statement();
+      return { n: "for", init, cond, step, body };
     }
-    for (const [tok, op] of Object.entries(COMPOUND)) {
-      if (this.at("op", tok)) {
-        this.next();
-        if (e.n !== "var") throw new Error("glsl-sub: compound assignment to a non-variable");
-        const v = this.expr();
-        this.want("op", ";");
-        // desugared here rather than in every consumer: `x op= v` is
-        // `x = x op v` with one evaluation of x, and x is a bare name.
-        return { n: "assign", name: e.name,
-                 value: { n: "bin", op, l: { n: "var", name: e.name }, r: v } };
-      }
-    }
+    const d = this.declaration();
+    if (d) { this.want("op", ";"); return d; }
+    const s = this.simple();
     this.want("op", ";");
-    return { n: "expr", value: e };
+    return s;
   }
 
   // ---- the unit
+  //
+  // Functions, and the unit-level declarations the shared header carries:
+  // `const float PI = ...;` and `float uT;`. A const global is a literal
+  // every consumer folds; a global with no initialiser is a UNIFORM in
+  // all but name - the clock - and is bound by the caller.
   unit() {
-    const fns = [];
+    const nodes = [];
     while (!this.at("eof")) {
-      const ret = this.want("kw").v;
+      let qual = null;
+      if (this.eat("kw", "const")) qual = "const";
+      else if (this.eat("kw", "uniform")) qual = "uniform";
+      const type = this.want("kw").v;
       const name = this.want("id").v;
+      if (!this.at("op", "(")) {
+        const init = this.eat("op", "=") ? this.expr() : null;
+        this.want("op", ";");
+        nodes.push({ n: "global", type, name, init, qual: qual ?? (init ? "const" : "uniform") });
+        continue;
+      }
       this.want("op", "(");
       const params = [];
       if (!this.at("op", ")")) {
         do {
           const out = !!this.eat("kw", "out");
-          const type = this.want("kw").v;
+          let ptype = this.want("kw").v;
           const pname = this.want("id").v;
-          params.push({ name: pname, type, out });
+          if (this.eat("op", "[")) {
+            const len = this.want("num").v;
+            this.want("op", "]");
+            ptype = `${ptype}[${Number.parseInt(len, 10)}]`;
+          }
+          params.push({ name: pname, type: ptype, out });
         } while (this.eat("op", ","));
       }
       this.want("op", ")");
       const body = this.block();
-      fns.push({ n: "fn", name, ret, params, body });
+      nodes.push({ n: "fn", name, ret: type, params, body });
     }
-    return fns;
+    return nodes;
   }
 }
 
-/** Parse a whole GLSL translation unit of the subset. */
+/** Parse a whole GLSL translation unit of the subset: functions and
+ *  unit-level declarations, in source order. */
 export function parse(src) {
   return new Parser(lex(src)).unit();
 }
 
 /** The functions of a unit, by name. */
-export function index(fns) {
+export function index(nodes) {
   const m = new Map();
-  for (const f of fns) {
+  for (const f of nodes) {
+    if (f.n !== "fn") continue;
     if (m.has(f.name)) throw new Error(`glsl-sub: ${f.name} defined twice`);
     m.set(f.name, f);
+  }
+  return m;
+}
+
+/** The unit-level declarations of a unit, by name. */
+export function globalsOf(nodes) {
+  const m = new Map();
+  for (const g of nodes) {
+    if (g.n !== "global") continue;
+    if (m.has(g.name)) throw new Error(`glsl-sub: global ${g.name} declared twice`);
+    m.set(g.name, g);
   }
   return m;
 }
@@ -279,19 +404,28 @@ export function index(fns) {
 //
 // Enough of a type system to tell an integer `-` from a float one and
 // an integer `<` from a float one, which is the whole reason it exists:
-// the ISA has two different opcodes for each.
+// the ISA has two different opcodes for each. Vectors add one rule -
+// an operation between a vector and its own scalar type, or between two
+// vectors of the same type, is that vector type - and members and
+// indices take a component's type.
 
+// `gen` builtins take and return the same scalar type (GLSL's genType /
+// genIType); the rest have one signature.
 export const BUILTIN_TYPES = {
   uintBitsToFloat: { args: ["uint"], ret: "float" },
   floatBitsToUint: { args: ["float"], ret: "uint" },
+  intBitsToFloat: { args: ["int"], ret: "float" },
+  floatBitsToInt: { args: ["float"], ret: "int" },
   findMSB: { args: ["uint"], ret: "int" },
   isnan: { args: ["float"], ret: "bool" },
   isinf: { args: ["float"], ret: "bool" },
-  abs: { args: ["float"], ret: "float" },
+  abs: { gen: 1 },
+  sign: { gen: 1 },
   floor: { args: ["float"], ret: "float" },
-  min: { args: ["float", "float"], ret: "float" },
-  max: { args: ["float", "float"], ret: "float" },
-  clamp: { args: ["float", "float", "float"], ret: "float" },
+  step: { args: ["float", "float"], ret: "float" },
+  min: { gen: 2 },
+  max: { gen: 2 },
+  clamp: { gen: 3 },
   // Present for the FUSED source only. The shipped library has no fma
   // left in it - gen-detlib rewrites all 56 - and the sequencer target
   // emits from the shipped text by default. This entry exists so the
@@ -303,21 +437,48 @@ export const CASTS = new Set(["int", "uint", "float", "bool"]);
 
 /** Annotate every expression node with `.type`. Declarations and
  *  parameters supply the environment; a call's type comes from the
- *  callee's return type. */
-export function typecheck(fns) {
-  const byName = index(fns);
+ *  callee's return type. Returns the functions by name. */
+export function typecheck(nodes) {
+  const byName = index(nodes);
+  const globals = globalsOf(nodes);
   const typeOf = (e, env) => {
     switch (e.n) {
       case "lit": return e.type;
       case "var": {
-        const t = env.get(e.name);
+        const t = env.get(e.name) ?? globals.get(e.name)?.type;
         if (!t) throw new Error(`glsl-sub: ${e.name} is not in scope`);
         return t;
       }
+      case "member": {
+        const ot = typeOf(e.obj, env);
+        const v = VEC[ot];
+        if (!v) throw new Error(`glsl-sub: .${e.name} on a ${ot}`);
+        const i = "xyzw".indexOf(e.name);
+        if (e.name.length !== 1 || i < 0 || i >= v.n)
+          throw new Error(`glsl-sub: .${e.name} on a ${ot} - no swizzles in the subset`);
+        return v.elem;
+      }
+      case "index": {
+        const ot = typeOf(e.obj, env);
+        if (!isArray(ot)) throw new Error(`glsl-sub: [] on a ${ot}`);
+        typeOf(e.i, env);
+        return arrayElem(ot);
+      }
       case "call": {
         if (CASTS.has(e.name)) { e.args.forEach(a => typeOf(a, env)); return e.name; }
+        if (VEC[e.name]) { e.args.forEach(a => typeOf(a, env)); return e.name; }
         const b = BUILTIN_TYPES[e.name];
-        if (b) { e.args.forEach(a => typeOf(a, env)); return b.ret; }
+        if (b) {
+          const ts = e.args.map(a => typeOf(a, env));
+          if (b.gen) {
+            if (ts.length !== b.gen)
+              throw new Error(`glsl-sub: ${e.name} takes ${b.gen} argument(s)`);
+            if (ts.some(t => t !== ts[0]))
+              throw new Error(`glsl-sub: ${e.name}(${ts.join(", ")}) mixes types`);
+            return ts[0];
+          }
+          return b.ret;
+        }
         const f = byName.get(e.name);
         if (!f) throw new Error(`glsl-sub: no function ${e.name}`);
         e.args.forEach(a => typeOf(a, env));
@@ -329,12 +490,22 @@ export function typecheck(fns) {
       case "bin": {
         const lt = typeOf(e.l, env), rt = typeOf(e.r, env);
         if (["==", "!=", "<", ">", "<=", ">=", "&&", "||"].includes(e.op)) {
+          if (isVec(lt) || isVec(rt))
+            throw new Error(`glsl-sub: ${lt} ${e.op} ${rt} - no vector comparisons`);
           e.operandType = lt === "float" || rt === "float" ? "float"
                         : lt === "uint" || rt === "uint" ? "uint"
                         : lt === "bool" ? "bool" : "int";
           return "bool";
         }
         if (["<<", ">>"].includes(e.op)) return lt;
+        // a vector against its own scalar, or two of the same vector
+        if (isVec(lt) || isVec(rt)) {
+          const vt = isVec(lt) ? lt : rt;
+          const other = isVec(lt) ? rt : lt;
+          if (!["+", "-", "*", "/"].includes(e.op) || (other !== vt && other !== VEC[vt].elem))
+            throw new Error(`glsl-sub: ${lt} ${e.op} ${rt} is not in the subset`);
+          return vt;
+        }
         // GLSL forbids implicit int/float mixing in these; the library
         // never does it, and a surprise here is a parse bug worth
         // hearing about rather than coercing away.
@@ -358,6 +529,8 @@ export function typecheck(fns) {
     else if (e.n === "un") f(e.a);
     else if (e.n === "bin") { f(e.l); f(e.r); }
     else if (e.n === "sel") { f(e.c); f(e.a); f(e.b); }
+    else if (e.n === "member") f(e.obj);
+    else if (e.n === "index") { f(e.obj); f(e.i); }
   };
 
   const stmt = (s, env) => {
@@ -366,15 +539,24 @@ export function typecheck(fns) {
       case "decl":
         for (const d of s.decls) { if (d.init) ann(d.init, env); env.set(d.name, s.type); }
         break;
-      case "assign": if (!env.has(s.name)) throw new Error(`glsl-sub: ${s.name} not in scope`);
+      case "assign": if (!env.has(s.name) && !globals.has(s.name))
+        throw new Error(`glsl-sub: ${s.name} not in scope`);
         ann(s.value, env); break;
       case "if": ann(s.c, env); stmt(s.then, env); if (s.els) stmt(s.els, env); break;
+      case "for": {
+        const e2 = new Map(env);
+        stmt(s.init, e2); ann(s.cond, e2); stmt(s.step, e2); stmt(s.body, e2);
+        break;
+      }
+      case "break": break;
       case "return": if (s.value) ann(s.value, env); break;
       case "expr": ann(s.value, env); break;
       default: throw new Error(`glsl-sub: cannot type statement ${s.n}`);
     }
   };
-  for (const f of fns) {
+  for (const g of globals.values()) if (g.init) ann(g.init, new Map());
+  for (const f of nodes) {
+    if (f.n !== "fn") continue;
     const env = new Map();
     for (const p of f.params) env.set(p.name, p.type);
     stmt(f.body, env);

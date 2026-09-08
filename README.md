@@ -273,18 +273,31 @@ what the two repositories are executing:
   second; `hashu`, and so every draw in every positive, needs the
   first. Both are published in the tile's capability word and are in
   the bitstreams staged for that project's card day.
-- **The emitter target - next.** `core/emit-cft.mjs` from the same
-  parse; a runner in cft-fp256 that runs the image on either backend
-  and bins the records; the golden model as an oracle that is not a
-  GPU. `hopf` and `jong` first, because the budgets are measured rather
-  than hoped: at 541 and 466 instructions of det calls they fit the
-  1,024-word image, and 28 of the 69 positives do not, before a line of
-  their own arithmetic. That number is the measured form of the two
-  asks still open on the tile's side - a wider per-sample input block,
-  and either a `CALL` or a larger image.
-- **The parity harness - after that.** A debug variant of the emitted
-  GLSL that writes `xyz`, `col` and `glow` to a buffer instead of
-  depositing, so the GPU's records and the tile's are compared per
+- **The emitter target - `hopf`, done 2026-09-08.** `docs/CFT-POSITIVE.md`
+  is the record. `core/emit-cft.mjs` lowers the pinned shape function
+  `core/emit.mjs` writes - the text itself, not the walk - through the
+  same lowering that compiled the library, into an image of 602 words
+  and 16 registers, and `tools/verify-cft-positive.mjs` holds it to the
+  text's bits three ways: 4,096 samples through libcft's own
+  `cft_program_load` and `cft_program_run`, 256 lanes through the golden
+  model the tile's RTL is held to, and zero mismatches in either. Two
+  findings on the way. The input block needs three streams and not
+  seven: every emitted plate reads `seed` and `rnd.x` in its first two
+  lines only, so those two lines run on the host - integer arithmetic,
+  no latitude - and `q.x`, `q.y` and the stream state are the inputs.
+  And a whole positive is where the register wall is: the source order
+  needs 17, kills-first list schedules 22 to 46, and a depth-first
+  order with eager completion 16, which also brings `det_pow` from 17
+  to 14, so every det function fits a lane now. Measured over the
+  corpus, sixteen positives lower today and six fit as they stand; ten
+  exceed sixteen registers (17 to 46; `throughput` 212), six exceed the
+  image, and fifty wait on the loop, which is next.
+- **The loop, then the parity harness.** Fifty of the sixty-nine
+  positives carry a `for` the emitter wrote for `s.orbit`, `sum`,
+  `s.descend` or `s.window`; its lowering is `REPEAT` with predicated
+  writes, and `jong` is its first customer. Then a debug variant of the
+  emitted GLSL that writes `xyz`, `col` and `glow` to a buffer instead
+  of depositing, so the GPU's records and the tile's are compared per
   sample and a first divergence gets named; then the records binned in
   index order, hashed, and the tile stands as one more column in the
   matrix above - with a deposition order that is a hardware guarantee
@@ -321,11 +334,14 @@ whose last step prints what a green tick does NOT cover. The rest -
 `tools/compile-pinned.py --run`, `tools/detbits.py`, the four CDP
 probes, `tools/verify-constants.py`, `tools/gen-detlib.mjs`'s byte
 comparison against the deployed library, `tools/verify-cft-detlib.mjs`
-- need a GL context, a browser, a GPU per column, the darkroom beside
-this checkout or the cft-fp256 checkout beside it, and are named there
-rather than left as a silence. The last of those refuses loudly when it
-cannot find libcft, because every arithmetic claim it makes is that
-library's and a run that could not find it has proven nothing.
+and `tools/verify-cft-positive.mjs` - need a GL context, a browser, a
+GPU per column, the darkroom beside this checkout or the cft-fp256
+checkout beside it, and are named there rather than left as a silence.
+The last two refuse loudly when they cannot find libcft, because every
+arithmetic claim they make is that library's and a run that could not
+find it has proven nothing. `node tools/emit-cft.mjs --all` is pure node
+and measures the corpus against the coprocessor's capacities without
+running anything.
 
 ### Three of the sixty-nine fail one smoke row
 
