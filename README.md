@@ -117,6 +117,15 @@ And the rest:
   but by `s.vnoise` and the rule in `CONVERSION.md` that a positive owes
   the plate its law and not its arrangement. Kept as written, with the
   non-gaps recorded so nobody re-litigates them.
+- `core/emit-cft.mjs`, `core/cft-lower.mjs`, `core/cft-isa.mjs` - the
+  second target: the emitted plate text and the det library lowered to
+  programs for cft-fp256's orbit sequencer, over `core/glsl-sub.mjs`
+  and `core/glsl-f32.mjs`, a parser and a binary32 interpreter for the
+  GLSL subset both are written in. `tools/emit-cft.mjs` writes an image
+  or measures the corpus; `tools/verify-cft-positive.mjs` and
+  `tools/verify-cft-detlib.mjs` hold the programs to the text's bits
+  through that project's libcft and golden model. `docs/CFT-DETLIB.md`
+  and `docs/CFT-POSITIVE.md` are the records, dated.
 
 ![Twenty-four independent rendering stacks converging on a single
 column digest, with the one disagreeing driver drawn apart and

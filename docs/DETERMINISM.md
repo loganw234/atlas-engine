@@ -793,3 +793,27 @@ left it a concrete starting list — six builtins the emitter can reach
 today with no deterministic form behind them (`asin`, `sinh`, `cosh`,
 `tanh`, `round`, `sign`), carried in `oracle.mjs` as `UNCOVERED` so the
 decision to grow a form or refuse them is made from data.
+
+## A sixth kind of implementation - 2026-09-08
+
+Everything above is about GPUs: an emitted plate is one text, and the
+claim is that every driver computes the same bits from it. On 2026-09-08
+the same text was lowered to a program for a machine that is not a GPU
+and has no compiler - cft-fp256's orbit sequencer, a deterministic IEEE
+754-2019 coprocessor whose contract is this document's claim 2 stated
+one level down - and `hopf` reproduces its emitted text's bits through
+that project's own program executor and its golden model, sample by
+sample. The record is `docs/CFT-POSITIVE.md`; the det library's, which
+came first, is `docs/CFT-DETLIB.md`.
+
+Two things it adds to this plan without changing it. Phase 1 wanted an
+accuracy reference per plate and found the restatement too coarse an
+instrument; the sequencer verification runs the float64 walk from the
+same stream state as the binary32 text and prints the distance per
+deposit (`hopf`: four to nine ULPs on average, and where the
+stereographic divisor is small, more). And Phase 4's matrix gains a
+column that is not a GPU, whose deposition order is a hardware
+guarantee rather than a fixed-point accumulation's indifference to it -
+once the loop is lowered, since fifty of the sixty-nine positives carry
+one, and once records are captured from a card for the per-sample
+comparison, which is the harness step still open.

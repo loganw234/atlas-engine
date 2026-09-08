@@ -9,12 +9,15 @@
 // spelled with the model's own line beside it, because a wrong opcode
 // number computes a different operation and says nothing about it.
 //
-// TWO EXTENSIONS ARE DEFINED BUT NOT ENABLED. Both come from
-// cft-fp256's docs/studies/OPT-D-contract.md, sections 1.1 and 1.2,
-// and both are being built there now; nothing this file emits under
-// the default settings depends on either.
+// TWO EXTENSIONS, DEFINED HERE BEFORE THEY EXISTED. Both come from
+// cft-fp256's docs/studies/OPT-D-contract.md, sections 1.1 and 1.2.
+// They were built there on 2026-09-07 - golden model, libcft, RTL, a
+// formal proof for the multiply - and are published in the tile's
+// capability word (CAPS[4] for kx, CAPS[28] for IMUL), so a host asks
+// rather than guesses. The node build of libcft loads and runs both,
+// measured 2026-09-08 (docs/CFT-POSITIVE.md).
 //
-//   kx   instruction bit 30, today reserved-must-be-zero. Set, the
+//   kx   instruction bit 30, reserved-must-be-zero before. Set, the
 //        three operands take 8-bit constant indices from imm[7:0],
 //        imm[15:8], imm[23:16], the 4-bit operand fields of any
 //        operand whose k bit is set must be zero, and the addressable
@@ -23,8 +26,11 @@
 //        of the two operand encodings, zero-extended to the format
 //        width.
 //
-// Emitting either without --isa-ext is a build error, so a program
-// that needs one cannot be mistaken for one that runs today.
+// The library tools still take --isa-ext to emit either, so the record
+// can be produced for a tile that predates them and a program that
+// needs one cannot be mistaken for one that runs everywhere; the plate
+// target (core/emit-cft.mjs) always enables both, because every draw
+// in every positive needs the multiply.
 
 // ---- opcodes (softfloat.py:641-670) ---------------------------------
 export const OP = {

@@ -123,7 +123,19 @@ jobs:
             tools/verify-pair.mjs           Chrome, and a PrettyCloud checkout
             tools/verify-constants.py       mpmath, and atlas-darkroom as the
                                             upstream the constants came from
+            tools/verify-cft-detlib.mjs     the cft-fp256 checkout beside this
+                                            one, for its node build of libcft;
+                                            holds the det library's sequencer
+                                            programs to the shipped bits
+            tools/verify-cft-positive.mjs   the same, plus Python for the
+                                            golden model; holds a positive's
+                                            program to its emitted text's bits
+                                            through cft_program_run
             the census                      four cards, and hours
+
+          tools/emit-cft.mjs --all is pure node and would run here; it is
+          a measurement of the corpus against the coprocessor's capacities
+          rather than a gate, and docs/CFT-POSITIVE.md carries its table.
 
           So: green means the text is what it claims to be. It does not
           mean the plates agree across vendors. That is measured by

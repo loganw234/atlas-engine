@@ -125,17 +125,21 @@ export class Machine {
       const slot = { a: null, b: null, c: null };
       reads.forEach(w => { slot[w] = pick(w, { a: 0, b: 1, c: 2 }[w]); });
       if (ins.op === OP.IMUL) {
-        // IMUL IS NOT IN libcft YET. Opcode 30 is unassigned there, and
-        // softfloat.compute answers an unassigned opcode with the
-        // canonical quiet NaN and `invalid` on purpose - measured here,
-        // hashu comes back as 0x7fc07fc0 rather than a hash. So the
-        // opcode is EMULATED, to the definition
+        // IMUL IS EMULATED ON THIS PATH, AND THE NOTE BELOW IS HISTORY.
+        // When this was written (2026-09-07) opcode 30 was unassigned in
+        // libcft, and softfloat.compute answered an unassigned opcode
+        // with the canonical quiet NaN and `invalid` on purpose -
+        // measured here, hashu came back as 0x7fc07fc0 rather than a
+        // hash. So the opcode was emulated, to the definition
         // docs/studies/OPT-D-contract.md section 1.2 gives it: the low
         // 32 bits of the product of the low 32 bits of the two operand
-        // encodings. That makes the sequence checkable now and makes
-        // exactly one thing in this run not libcft's arithmetic; every
-        // report says how many instructions were emulated so the
-        // distinction cannot be lost.
+        // encodings. libcft has carried IMUL since later that day, and
+        // the program-executor path tools/verify-cft-positive.mjs takes
+        // runs it natively - hopf's two IMULs went through
+        // cft_program_run on 2026-09-08. This instruction-by-instruction
+        // path keeps the emulation until the two are measured to agree,
+        // and every report still says how many instructions were
+        // emulated so the distinction cannot be lost.
         const a = slot.a, b = slot.b;
         regs[ins.rd] = a.map((av, i) =>
           this.fromBits(Math.imul(this.toBits(av), this.toBits(b[i])) >>> 0));
