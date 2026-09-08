@@ -40,6 +40,15 @@ The practice reads photographically, so the language does too.
   remains its per-program guarantee and is not a constraint on this
   stage (operator's ruling, 2026-08-22). The engine's own bar is
   cell-level correctness, probed and measured.
+- **To cft-fp256** (the deterministic coprocessor): the det library as
+  a workload rather than a citation. That project's contract - same
+  inputs, same op, same bits, on its tile and on its golden model - is
+  the discipline the emitter already holds, stated one level down, and
+  its orbit sequencer is a second target for the same library: the
+  shipped text compiled to instruction sequences and held to the bits
+  the cards already agree on. What the engine owes it is the library
+  and the positives in a form it can run. It does not owe it a change
+  to what a positive means, and none has been made.
 - **To the operator**: the plates' verification bar, inherited whole:
   claims measured on pixels, structural predictions landing where the
   arithmetic says, and negative controls proving the instrument can
@@ -60,6 +69,18 @@ Start here:
   It never writes an unpinned float operation - not in an expression,
   not in a call argument, and since 2026-08-23 not in a comparison
   either, which is the one place arithmetic decides control flow.
+  Since 2026-09-05 it reads as named pieces rather than one closure:
+  the emission's state is one object, every construct a walk can call
+  has a handler of its own in a name-keyed table, the binary operator's
+  four families and the statements' kinds are functions named for what
+  they decide, and the emitted text was held byte for byte through the
+  twelve commits that did it - one digest over every file in `build/`
+  before and after. The thirteenth fixed what taking it apart found:
+  `Math.constructor`, `Math.toString`, `Math.hasOwnProperty` and
+  `Math.valueOf` are `Object.prototype` seen through `Math`, and a
+  membership test written with `in` let them through. No positive ever
+  asked; the emitter now refuses them by name, and a gate holds it to
+  that.
 - `docs/CONVERSION.md` - how to write one, what the subset refuses, and
   the two loop shapes that keep a driver's unroller off a plate.
 - `docs/TEMPLATE.pos.mjs` - an annotated positive to copy. It is a real
@@ -89,6 +110,13 @@ And the rest:
   have watched it fail.
 - `docs/DETERMINISM.md`, `docs/CONSTANTS-FINDINGS.md` - the plan, and
   what the oracle found.
+- `docs/GAPS.md` - where the notation stopped at fifty-four plates:
+  three wanted randomness shared between points and one wanted to name
+  a value twice inside an orbit step. The second closed as the orbit
+  block body; the first was closed not by the `s.reseed` sketched there
+  but by `s.vnoise` and the rule in `CONVERSION.md` that a positive owes
+  the plate its law and not its arrangement. Kept as written, with the
+  non-gaps recorded so nobody re-litigates them.
 
 ![Twenty-four independent rendering stacks converging on a single
 column digest, with the one disagreeing driver drawn apart and
@@ -196,38 +224,88 @@ quote-verified against GLSL 4.60.8 / ES 3.20.8 and the floating-point
 literature; the dossiers live in the darkroom repository under
 `docs/sources/`.
 
-### A second backend for the det library
+### The next column is not a GPU
 
-`docs/CFT-DETLIB.md`, 2026-09-07. The thirteen det functions - plus the
-shared header's `hashu` and `u2f` - now have a second edition compiled
-for the deterministic FP coprocessor next door (cft-fp256's orbit
-sequencer), and every one of them reproduces the shipped library's bits
-exactly on a 4,096-argument sweep, scored through that project's libcft
-rather than through anything here.
+`cft-fp256`, the operator's other project, is a deterministic IEEE
+754-2019 coprocessor for an FPGA - fp256 at the top of a ladder that
+fractures down to eight fp32 lanes - and its contract is this engine's
+discipline stated one level down: same inputs, same op, same bits, on
+its tile and on its golden model alike. Its README names the census
+above as the proven case for its software tier, and its `docs/ATLAS.md`
+names this engine's det library as the workload the tile exists to
+serve. The two touch at one seam, the emitter. A positive parses once;
+today that parse becomes GLSL for a driver, and a second target makes it
+a program for that project's orbit sequencer - an instruction image, a
+constant bank, an input block and a deposit schema - run by its software
+backend now and by the tile when a card is in. Nothing upstream of the
+emitter moves, and a positive means what it meant.
 
-```bash
-node tools/gen-detlib.mjs --target cft --isa-ext
-CFT_ROOT=../cft-fp256 node tools/verify-cft-detlib.mjs --points 4096 --isa-ext
-```
+Where that stands, dated, because the order of work in that document is
+what the two repositories are executing:
 
-The reason it is in this README rather than only in that project's is
-what the exercise found by having to reproduce the bits rather than
-describe them. **The library ships unfused**, so a backend that maps
-`precise fma` onto a fused multiply-add computes a different function:
-measured, 3,834 one-ULP differences over the same sweeps, worst in
-`det_mod` at better than one argument in three. And GLSL's `min`/`max`
-are not IEEE `minimum`/`maximum` - the spec defines them as
-`y < x ? y : x` - which is 36 points of divergence in `det_atan` and
-eight instructions to fix. Both were named as safe mappings in the
-port's own census; neither is.
+- **The det library's second edition - done 2026-09-07, merged
+  2026-09-08.** `docs/CFT-DETLIB.md` is the record. `gen-detlib
+  --target cft` compiles the shipped library - the det functions, their
+  helpers, and the header's `hashu` and `u2f`, nineteen in all - into
+  sequencer instruction sequences, and `verify-cft-detlib` runs every
+  one instruction by instruction through that project's libcft against
+  an interpreter over the shipped text, on 4,096-argument sweeps built
+  from every literal each function contains:
+
+  ```bash
+  node tools/gen-detlib.mjs --target cft --isa-ext
+  CFT_ROOT=../cft-fp256 node tools/verify-cft-detlib.mjs --points 4096 --isa-ext
+  ```
+
+  Every function reproduces the library's bits on its stated domain.
+  Having to reproduce the bits rather than describe them corrected the
+  port's own census three times: the library ships unfused, so mapping
+  `precise fma` onto a fused multiply-add computes a different library
+  (3,834 one-ULP differences, worst in `det_mod` at better than one
+  argument in three); GLSL's `min` and `max` are the comparisons the
+  spec defines them to be, not IEEE `minimum` and `maximum` (36 points
+  of divergence in `det_atan`, eight instructions to fix); and `u2f` is
+  nine instructions, not six.
+- **The two instructions the library asked for - built 2026-09-07**, in
+  cft-fp256: an integer multiply for the draw hash, and constants
+  addressed through the immediate so a program reaches 256 of them
+  rather than sixteen. Eleven of the nineteen functions need the
+  second; `hashu`, and so every draw in every positive, needs the
+  first. Both are published in the tile's capability word and are in
+  the bitstreams staged for that project's card day.
+- **The emitter target - next.** `core/emit-cft.mjs` from the same
+  parse; a runner in cft-fp256 that runs the image on either backend
+  and bins the records; the golden model as an oracle that is not a
+  GPU. `hopf` and `jong` first, because the budgets are measured rather
+  than hoped: at 541 and 466 instructions of det calls they fit the
+  1,024-word image, and 28 of the 69 positives do not, before a line of
+  their own arithmetic. That number is the measured form of the two
+  asks still open on the tile's side - a wider per-sample input block,
+  and either a `CALL` or a larger image.
+- **The parity harness - after that.** A debug variant of the emitted
+  GLSL that writes `xyz`, `col` and `glow` to a buffer instead of
+  depositing, so the GPU's records and the tile's are compared per
+  sample and a first divergence gets named; then the records binned in
+  index order, hashed, and the tile stands as one more column in the
+  matrix above - with a deposition order that is a hardware guarantee
+  rather than a fixed-point accumulation's indifference to it.
+
+What this asks of the darkroom is nothing new, which is the answer it
+was given before: a negative built from identical records in a fixed
+order is identical, and its census hashes raw fixed-point bytes per
+supertile without asking what computed them. The tile arrives there as
+a column first and as a renderer second, not the other way round.
 
 ### Running the gates
 
 ```
-node tools/verify-pinned.mjs      no unpinned op, no unbound comparison
-node tools/compile-pinned.mjs     every positive emits, pinned and plain
-node tools/ci-smoke.mjs           all 69 walks, against a named record
-node tools/verify-orbit-block.mjs orbit block bodies
+node tools/verify-pinned.mjs       no unpinned op, no unbound comparison
+node tools/compile-pinned.mjs      every positive emits, pinned and plain
+node tools/ci-smoke.mjs            all 69 walks, against a named record
+node tools/verify-orbit-block.mjs  orbit block bodies
+node tools/verify-bitwise.mjs      bit operators mean what JavaScript means
+node tools/verify-scope.mjs        every emitted name in scope where it is used
+node tools/verify-refusals.mjs     what a walk may not call, refused by name
 ```
 
 `build/` is a product and is not tracked. `compile-pinned.mjs` fills
@@ -238,11 +316,12 @@ load. What a run proved lives under `docs/records/`, dated; the
 per-plate conversion reports `docs/CONVERSION.md` asks for live in
 `docs/reports/`.
 
-Those four are pure node and run in CI (`.github/workflows/gates.yml`),
+Those seven are pure node and run in CI (`.github/workflows/gates.yml`),
 whose last step prints what a green tick does NOT cover. The rest -
 `tools/compile-pinned.py --run`, `tools/detbits.py`, the four CDP
-probes, `tools/verify-constants.py`, `tools/verify-cft-detlib.mjs` -
-need a GL context, a browser, a GPU per column, the darkroom beside
+probes, `tools/verify-constants.py`, `tools/gen-detlib.mjs`'s byte
+comparison against the deployed library, `tools/verify-cft-detlib.mjs`
+- need a GL context, a browser, a GPU per column, the darkroom beside
 this checkout or the cft-fp256 checkout beside it, and are named there
 rather than left as a silence. The last of those refuses loudly when it
 cannot find libcft, because every arithmetic claim it makes is that
