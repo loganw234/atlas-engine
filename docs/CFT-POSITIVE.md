@@ -144,16 +144,43 @@ lowers exactly that shape, as `REPEAT N` around the body written once:
   vector carries one phi per component; the counter is carried like
   any other; a copy-back whose source is another phi goes through a
   temporary, so the order of the copies cannot decide the answer.
-- **The exit.** A body with a `break` carries a running flag as well:
-  1.0 going in, and-ed with not-the-break's-condition at the end of
-  each iteration. Every write to a carried value is selected against
-  the flag, and a `break` snapshots the carried values at its path
-  condition exactly as a `return` snapshots the function's - the
-  first exit in source order winning - so a lane that has left the
-  loop holds its values while the tile runs the remaining trips on it.
-  That is what makes the early exit invisible (docs/SEQUENCER.md P3)
-  whether or not the hardware takes it; `SETACT` is not emitted yet,
-  and would change the time and nothing else.
+- **The exit, two ways.** At the top level a `break` is `SETACT`
+  (since the third session; the second lowered every break the other
+  way). Where the break is, every carried value whose value on the
+  breaking path differs from its register is written to that register
+  by a `SELECT` on the break's path condition, the register itself as
+  the other arm - pinned to the end of the segment the `SETACT` closes,
+  so every read of a carried register in that segment precedes it -
+  and then `SETACT` on the negation of that condition. The select is
+  load-bearing, and the sweep is what said so: the first form was a
+  bare copy, on the argument that a body reads a reassigned value and
+  never the register, and `bulb` came back wrong on 435 of 512 samples
+  while libcft, the golden model and the runner agreed with each other.
+  Its `esc = true; break;` sits inside the break's own `if`, so the
+  reassignment is the breaking path's alone; the lanes that stayed had
+  their register overwritten and read it later as the value they never
+  changed. From there the hardware's mask
+  holds the lane's registers and skips its deposits; the loop's
+  copy-backs are masked for it; the `REPEAT` ends early once every
+  lane has left; and `ACTALL` after the `ENDREP`, legal only at the
+  top level, brings them back. A loop inside an `if` gets a `SETACT`
+  on the `if`'s condition before its `REPEAT`, so the lanes not on
+  its path sit it out. Nothing in the body is selected for a leaving
+  lane's sake. Inside another loop a `break` keeps the second form: a
+  running flag, 1.0 going in, and-ed with not-the-break's-condition at
+  the end of each iteration, every write to a carried value selected
+  against it, the break snapshotting the carried values at its path
+  condition exactly as a `return` snapshots the function's - because
+  `SETACT` there would leave the lane dark for the rest of the OUTER
+  body, and `ACTALL` is illegal inside a loop. Both forms leave the
+  early exit invisible (docs/SEQUENCER.md P3); the first lets the tile
+  take it. `docs/CFT-GAPS.md` measures what that is worth: a median
+  of twice fewer trips at the defaults over the corpus, ten times
+  fewer on sixteen positives, with `universal`'s 1,048,576-trip loop
+  needing 16,321 the extreme. `jong` under the first form: 737 words
+  and 22 registers where the flag had cost 749 and 24; the golden model
+  executed 3,859 instructions for eight lanes where the flag form ran
+  every trip.
 - **What stays where.** Nothing moves across a `REPEAT` or an
   `ENDREP`: the scheduler works per straight-line segment, and the
   copies into and out of a loop stay at the ends of their segments.
@@ -287,71 +314,71 @@ registers, 4,096 words, sixty-four deposits:
 |---|---|---|---|---|---|
 | `psf` | 185 | 0 | 10 | 25 | yes |
 | `chladni` | 346 | 0 | 13 | 52 | yes |
+| `buddha` | 450 | 2 | 20 | 58 | yes |
 | `swallow` | 452 | 0 | 20 | 87 | yes |
-| `buddha` | 488 | 2 | 24 | 58 | yes |
-| `bifurc` | 553 | 2 | 28 | 68 | yes |
+| `bifurc` | 532 | 2 | 24 | 68 | yes |
 | `harm` | 567 | 0 | 14 | 60 | yes |
-| `gibbs` | 582 | 1 | 22 | 57 | yes |
-| `collatz` | 614 | 2 | 30 | 60 | yes |
-| `wave` | 624 | 1 | 22 | 76 | yes |
+| `gibbs` | 571 | 1 | 21 | 57 | yes |
+| `collatz` | 574 | 2 | 27 | 60 | yes |
+| `wave` | 618 | 1 | 21 | 76 | yes |
 | `hopf` | 638 | 0 | 16 | 48 | yes |
+| `orbital` | 656 | 2 | 28 | 66 | yes |
 | `logz` | 674 | 0 | 15 | 65 | yes |
-| `orbital` | 681 | 2 | 29 | 66 | yes |
 | `nonorient` | 700 | 0 | 21 | 57 | yes |
-| `qjulia` | 735 | 1 | 22 | 87 | yes |
-| `penrose` | 740 | 1 | 26 | 64 | yes |
+| `qjulia` | 713 | 1 | 18 | 87 | yes |
+| `penrose` | 722 | 1 | 25 | 64 | yes |
+| `jong` | 737 | 1 | 22 | 65 | yes |
+| `kleinian` | 737 | 1 | 26 | 52 | yes |
+| `arnold` | 746 | 3 | 22 | 63 | yes |
+| `zeta` | 746 | 1 | 24 | 75 | yes |
 | `caustic` | 747 | 0 | 16 | 57 | yes |
-| `jong` | 749 | 1 | 24 | 65 | yes |
+| `invjulia` | 747 | 1 | 18 | 62 | yes |
 | `modmul` | 749 | 0 | 17 | 53 | yes |
-| `kleinian` | 752 | 1 | 27 | 52 | yes |
-| `zeta` | 759 | 1 | 25 | 75 | yes |
-| `invjulia` | 761 | 1 | 19 | 62 | yes |
-| `arnold` | 767 | 3 | 23 | 63 | yes |
-| `wpath` | 813 | 1 | 29 | 79 | yes |
+| `wpath` | 794 | 1 | 29 | 79 | yes |
+| `relativity` | 836 | 1 | 26 | 82 | yes |
 | `polytope` | 846 | 0 | 27 | 54 | yes |
-| `relativity` | 861 | 1 | 29 | 82 | yes |
-| `ifs` | 902 | 1 | 25 | 58 | yes |
-| `lyap` | 912 | 2 | 24 | 82 | yes |
-| `stdmap` | 928 | 1 | 24 | 67 | yes |
+| `ifs` | 885 | 1 | 24 | 58 | yes |
+| `lyap` | 900 | 2 | 23 | 82 | yes |
+| `stdmap` | 912 | 1 | 23 | 67 | yes |
 | `curves` | 934 | 0 | 21 | 73 | yes |
-| `rmt` | 966 | 1 | 26 | 73 | yes |
-| `primes` | 991 | 2 | 27 | 60 | yes |
-| `dipole` | 1,019 | 1 | 22 | 81 | yes |
-| `cursum` | 1,038 | 1 | 30 | 73 | yes |
-| `mand` | 1,127 | 1 | 18 | 81 | yes |
-| `newton` | 1,169 | 3 | 32 | 65 | yes |
-| `bulb` | 1,489 | 1 | 31 | 94 | yes |
-| `hyper` | 2,200 | 2 | 31 | 81 | yes |
+| `rmt` | 953 | 1 | 25 | 73 | yes |
+| `primes` | 969 | 2 | 26 | 60 | yes |
+| `dipole` | 1,009 | 1 | 21 | 81 | yes |
+| `cursum` | 1,016 | 1 | 27 | 73 | yes |
+| `mand` | 1,111 | 1 | 17 | 81 | yes |
+| `newton` | 1,112 | 3 | 29 | 65 | yes |
+| `bulb` | 1,470 | 1 | 29 | 94 | yes |
+| `hyper` | 2,168 | 2 | 30 | 81 | yes |
 | `halo` | 3,145 | 0 | 31 | 95 | yes |
 | `conoscope` | 2,093 | 0 | 33 | 92 | registers |
-| `dissipation` | 1,244 | 1 | 36 | 82 | registers |
-| `breakdown` | 2,621 | 2 | 37 | 116 | registers |
-| `critical` | 1,018 | 2 | 37 | 86 | registers |
-| `drainage` | 1,778 | 2 | 37 | 107 | registers |
-| `nodal` | 2,746 | 3 | 37 | 101 | registers |
-| `tangle` | 2,168 | 1 | 37 | 99 | registers |
-| `domain` | 2,598 | 1 | 38 | 105 | registers |
+| `nodal` | 2,719 | 3 | 34 | 101 | registers |
+| `critical` | 1,012 | 2 | 35 | 86 | registers |
+| `dissipation` | 1,207 | 1 | 35 | 82 | registers |
+| `breakdown` | 2,564 | 2 | 36 | 116 | registers |
+| `drainage` | 1,737 | 2 | 36 | 107 | registers |
+| `tangle` | 2,156 | 1 | 36 | 99 | registers |
+| `cascade` | 1,760 | 3 | 38 | 92 | registers |
+| `domain` | 2,596 | 1 | 38 | 105 | registers |
 | `rainbow` | 3,110 | 0 | 38 | 119 | registers |
-| `hilbert` | 3,561 | 10 | 40 | 80 | registers |
+| `hilbert` | 3,497 | 10 | 39 | 80 | registers |
+| `stoch` | 1,895 | 5 | 40 | 89 | registers |
 | `tpms` | 3,385 | 0 | 40 | 58 | registers |
-| `cascade` | 1,783 | 3 | 41 | 92 | registers |
-| `allpaths` | 1,826 | 1 | 45 | 86 | registers |
-| `e8` | 2,023 | 3 | 45 | 152 | registers |
-| `stoch` | 2,020 | 5 | 45 | 89 | registers |
-| `vortex` | 2,290 | 3 | 45 | 96 | registers |
+| `allpaths` | 1,820 | 1 | 43 | 86 | registers |
+| `ford` | 3,523 | 2 | 43 | 95 | registers |
+| `e8` | 1,983 | 3 | 44 | 152 | registers |
+| `vortex` | 2,281 | 3 | 44 | 96 | registers |
+| `mirage` | 2,539 | 3 | 46 | 120 | registers |
 | `starfield` | 5,413 | 0 | 46 | 150 | registers, words |
-| `ford` | 3,559 | 2 | 47 | 95 | registers |
-| `mirage` | 2,586 | 3 | 48 | 120 | registers |
-| `wavecat` | 4,159 | 2 | 49 | 168 | registers, words |
-| `elliptic` | 1,840 | 6 | 58 | 85 | registers |
-| `flows` | 969 | 1 | 59 | 89 | registers |
-| `billiards` | 2,845 | 1 | 64 | 111 | registers |
-| `diffract` | 4,276 | 3 | 64 | 134 | registers, words |
-| `rulespace` | 2,324 | 11 | 68 | 118 | registers |
-| `universal` | 2,876 | 8 | 95 | 138 | registers |
-| `threebody` | 1,873 | 1 | 104 | 79 | registers |
-| `rule30` | 4,221 | 9 | 133 | 126 | registers, words |
-| `vlsi` | 8,693 | 4 | 149 | 256 | registers, words, bank |
+| `wavecat` | 4,140 | 2 | 47 | 168 | registers, words |
+| `flows` | 926 | 1 | 56 | 89 | registers |
+| `elliptic` | 1,796 | 6 | 57 | 85 | registers |
+| `billiards` | 2,808 | 1 | 61 | 111 | registers |
+| `diffract` | 4,269 | 3 | 62 | 134 | registers, words |
+| `rulespace` | 2,242 | 11 | 66 | 118 | registers |
+| `universal` | 2,720 | 8 | 92 | 138 | registers |
+| `threebody` | 1,776 | 1 | 101 | 79 | registers |
+| `rule30` | 4,097 | 9 | 131 | 126 | registers, words |
+| `vlsi` | 8,611 | 4 | 149 | 256 | registers, words, bank |
 | `throughput` | 12,618 | 0 | 212 | 307 | registers, words, bank |
 
 Sixty-eight of sixty-nine lower; **38 fit the tile at revision 2**, 62 of the sixty-eight needing REGS32; 30 exceed thirty-two registers, 6 exceed 4,096 words and 2 the 256-slot bank.
@@ -395,44 +422,44 @@ What the numbers say for the coprocessor's side:
 
 | positive | words | registers | defaults | hashed levers | seconds |
 |---|---|---|---|---|---|
-| `arnold` | 767 | 23 | yes | yes | 31 |
-| `bifurc` | 553 | 28 | yes | yes | 27 |
-| `buddha` | 488 | 24 | yes | yes | 12 |
-| `bulb` | 1489 | 31 | yes | yes | 10 |
+| `arnold` | 746 | 22 | yes | yes | 18 |
+| `bifurc` | 532 | 24 | yes | yes | 15 |
+| `buddha` | 450 | 20 | yes | yes | 3 |
+| `bulb` | 1470 | 29 | yes | yes | 6 |
 | `caustic` | 747 | 16 | yes | yes | 2 |
 | `chladni` | 346 | 13 | yes | yes | 2 |
-| `collatz` | 614 | 30 | yes | yes | 15 |
-| `cursum` | 1038 | 30 | yes | yes | 46 |
-| `curves` | 934 | 21 | yes | yes | 3 |
-| `dipole` | 1019 | 22 | yes | yes | 6 |
-| `gibbs` | 582 | 22 | yes | yes | 11 |
-| `halo` | 3145 | 31 | yes | yes | 5 |
-| `harm` | 567 | 14 | yes | yes | 3 |
+| `collatz` | 574 | 27 | yes | yes | 8 |
+| `cursum` | 1016 | 27 | yes | yes | 10 |
+| `curves` | 934 | 21 | yes | yes | 2 |
+| `dipole` | 1009 | 21 | yes | yes | 3 |
+| `gibbs` | 571 | 21 | yes | yes | 4 |
+| `halo` | 3145 | 31 | yes | yes | 3 |
+| `harm` | 567 | 14 | yes | yes | 2 |
 | `hopf` | 638 | 16 | yes | yes | 3 |
-| `hyper` | 2200 | 31 | yes | yes | 12 |
-| `ifs` | 902 | 25 | yes | yes | 7 |
-| `invjulia` | 761 | 19 | yes | yes | 10 |
-| `jong` | 749 | 24 | yes | yes | 7 |
-| `kleinian` | 752 | 27 | yes | yes | 8 |
+| `hyper` | 2168 | 30 | yes | yes | 7 |
+| `ifs` | 885 | 24 | yes | yes | 4 |
+| `invjulia` | 747 | 18 | yes | yes | 5 |
+| `jong` | 737 | 22 | yes | yes | 4 |
+| `kleinian` | 737 | 26 | yes | yes | 4 |
 | `logz` | 674 | 15 | yes | yes | 2 |
-| `lyap` | 912 | 24 | yes | yes | 41 |
-| `mand` | 1127 | 18 | yes | yes | 5 |
-| `modmul` | 749 | 17 | yes | yes | 3 |
-| `newton` | 1169 | 32 | yes | yes | 24 |
+| `lyap` | 900 | 23 | yes | yes | 32 |
+| `mand` | 1111 | 17 | yes | yes | 4 |
+| `modmul` | 749 | 17 | yes | yes | 2 |
+| `newton` | 1112 | 29 | yes | yes | 9 |
 | `nonorient` | 700 | 21 | yes | yes | 2 |
-| `orbital` | 681 | 29 | yes | yes | 4 |
-| `penrose` | 740 | 26 | yes | yes | 4 |
-| `polytope` | 846 | 27 | yes | yes | 2 |
-| `primes` | 991 | 27 | yes | yes | 14 |
-| `psf` | 185 | 10 | yes | yes | 1 |
-| `qjulia` | 735 | 22 | yes | yes | 3 |
-| `relativity` | 861 | 29 | yes | yes | 64 |
-| `rmt` | 966 | 26 | yes | yes | 7 |
-| `stdmap` | 928 | 24 | yes | yes | 71 |
+| `orbital` | 656 | 28 | yes | yes | 4 |
+| `penrose` | 722 | 25 | yes | yes | 3 |
+| `polytope` | 846 | 27 | yes | yes | 3 |
+| `primes` | 969 | 26 | yes | yes | 4 |
+| `psf` | 185 | 10 | yes | yes | 2 |
+| `qjulia` | 713 | 18 | yes | yes | 3 |
+| `relativity` | 836 | 26 | yes | yes | 18 |
+| `rmt` | 953 | 25 | yes | yes | 4 |
+| `stdmap` | 912 | 23 | yes | yes | 63 |
 | `swallow` | 452 | 20 | yes | yes | 2 |
-| `wave` | 624 | 22 | yes | yes | 4 |
-| `wpath` | 813 | 29 | yes | yes | 4 |
-| `zeta` | 759 | 25 | yes | yes | 9 |
+| `wave` | 618 | 21 | yes | yes | 3 |
+| `wpath` | 794 | 29 | yes | yes | 4 |
+| `zeta` | 746 | 24 | yes | yes | 5 |
 
 **38 of 38 reproduce the emitted text's bits through every evaluation, at the defaults and off them.**
 

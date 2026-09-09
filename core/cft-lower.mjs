@@ -188,18 +188,26 @@ export const EXPANSIONS = {
          "the folder is told not to fold.",
   },
   loop: {
-    insns: "one copy in per carried value, one copy back per iteration, and the flag",
+    insns: "one copy in per carried value, one copy back per iteration; at the top " +
+           "level one SETACT per break and one ACTALL, inside another loop the flag",
     domain: "for (int V = 0; V < N; V++) with breaks; no return inside",
     how: "REPEAT N around the body written once. Every value the body assigns " +
          "that was bound before the loop is CARRIED: copied into a register " +
          "of its own before the REPEAT, read from it inside, and copied back " +
          "at the end of every iteration - the copies are IOR against zero, " +
-         "exact on every bit pattern. A body with a `break` carries a running " +
-         "flag too: 1.0 going in, and-ed with not-the-break's-condition each " +
-         "iteration, and every write in the body is selected against it, so a " +
-         "lane that has left the loop keeps its values while the tile runs the " +
-         "remaining trips on it. The counter's `< N` is the trip count; the " +
-         "emitter's data-dependent exit is a break on the lever.",
+         "exact on every bit pattern. A break at the TOP LEVEL is SETACT: the " +
+         "carried values the lane has reassigned so far go to their registers " +
+         "where the break is, its active bit follows the negation of the path " +
+         "condition that reached it, and from there the hardware's mask holds " +
+         "its registers and skips its deposits until the ACTALL after the " +
+         "ENDREP - so the loop's early exit fires when every lane has left, " +
+         "and nothing in the body is selected for the lane's sake. A break " +
+         "INSIDE ANOTHER LOOP keeps the running flag: 1.0 going in, and-ed " +
+         "with not-the-break's-condition each iteration, every write selected " +
+         "against it, because SETACT would leave the lane dark for the rest " +
+         "of the outer body and ACTALL is illegal there. The counter's `< N` " +
+         "is the trip count; the emitter's data-dependent exit is a break on " +
+         "the lever.",
   },
 };
 
@@ -322,16 +330,28 @@ class Fn {
                     tag: `phi-init ${p.name}`, phiInit: ph.ph });
     this.pendingPhis.push(ph.ph);
   }
-  phiBack(ph, src) {
+  phiBack(ph, src, tag = "phi-back") {
     const p = this.phis[ph.ph];
     this.ops.push({ op: OP.IOR, rnd: RND.RNE, a: src, b: { c: 0, type: "uint" }, type: p.type,
-                    tag: `phi-back ${p.name}`, phiBack: ph.ph });
+                    tag: `${tag} ${p.name}`, phiBack: ph.ph });
   }
-  ctrl(kind, trip) {
+  /** A copy-back that keeps the register where `cond` is false: the
+   *  break-point snapshot, which must not touch a lane that stays. One
+   *  SELECT reading the phi's own register and writing it. */
+  phiSelect(ph, src, cond, tag) {
+    const p = this.phis[ph.ph];
+    this.ops.push({ op: OP.SELECT, rnd: RND.RNE, a: src, b: { ph: ph.ph, type: p.type }, c: cond,
+                    type: p.type, tag: `${tag} ${p.name}`, phiBack: ph.ph });
+  }
+  /** A control word. REPEAT takes { trip, exit }; SETACT the value it
+   *  reads (a register: the caller materialises); ENDREP and ACTALL
+   *  take nothing. */
+  ctrl(kind, x) {
     if (kind === "repeat") {
-      this.ops.push({ ctrl: "repeat", trip, phis: this.pendingPhis });
+      this.ops.push({ ctrl: "repeat", trip: x.trip, exit: x.exit, phis: this.pendingPhis });
       this.pendingPhis = [];
-    } else this.ops.push({ ctrl: "endrep" });
+    } else if (kind === "setact") this.ops.push({ ctrl: "setact", a: x });
+    else this.ops.push({ ctrl: kind });
   }
 }
 
@@ -341,6 +361,7 @@ export function lowerFunction(lib, name, opts = {}) {
   const fuse = !!opts.fuse;
   const isaExt = !!opts.isaExt;
   const minmaxOpcode = !!opts.minmaxOpcode;
+  const setactLoops = opts.setactLoops !== false;     // --flag-loops keeps the selected form everywhere
   const F = new Fn(name);
   const decl = lib.byName.get(name);
   if (!decl) throw new Error(`cft-lower: no function ${name}`);
@@ -431,6 +452,13 @@ export function lowerFunction(lib, name, opts = {}) {
     const t = E(OP.MUL, [hi, K(f32bits(65536))], { type: "float", tag: "u2f" });
     return E(OP.ADD, [t, lo], { type: "float", tag: "u2f" });
   };
+  // A value in a register, for a control word that reads one: SETACT,
+  // like DEPOSIT, never names the bank, a tail slot or an untouched
+  // input, so those are copied by an IOR the identity folder leaves alone.
+  const toReg = (v) => (v.c !== undefined || v.t !== undefined || (v.r !== undefined && v.r < 0))
+    ? E(OP.IOR, [v, K(0, "uint")], { type: v.type, tag: "to-register", noFold: true })
+    : v;
+
   // Integer division and modulus by a constant - see EXPANSIONS.idiv.
   // The divisor is known, so its reciprocal is a bank constant and the
   // magnitude route is exact on the domain stated there; the correction
@@ -839,6 +867,26 @@ export function lowerFunction(lib, name, opts = {}) {
         return true;
       case "break":
         if (!brks) throw new Error("cft-lower: a break outside a loop");
+        if (brks.setact) {
+          // THE LANE LEAVES HERE. Every carried value whose value on this
+          // path differs from its register goes to its register now - the
+          // loop's copy-backs will be masked for the lane - and its active
+          // bit follows the negation of the path condition that reached the
+          // break. The copy SELECTS on that condition, reading the register
+          // itself for the lanes that stay: a value assigned inside the
+          // break's own `if` (bulb's `esc = true; break;`, measured
+          // 2026-09-08 - 435 of 512 samples wrong with a bare copy) is the
+          // breaking path's alone, and the lanes that stay read the
+          // register later as the value they never changed. The copies are
+          // pinned to the end of the segment the SETACT closes, so every
+          // read of a carried register in this segment precedes them.
+          const c = cond === null ? null
+                  : cond.ph !== undefined ? E(OP.IOR, [cond, K(0, "uint")], { type: "bool", tag: "phi-copy", noFold: true })
+                  : cond;
+          for (const nm of brks.carried) phiSnapVal(brks.phiOf.get(nm), env.get(nm), c);
+          F.ctrl("setact", toReg(cond === null ? K(K_ZERO, "bool") : notb(cond)));
+          return true;
+        }
         brks.push({ cond, env: new Map(env) });
         return true;
       case "if": {
@@ -875,11 +923,16 @@ export function lowerFunction(lib, name, opts = {}) {
   // name the body assigns that was bound before the loop is CARRIED: it
   // gets a register of its own (a phi), copied in before the REPEAT,
   // read inside, and copied back at the end of every iteration. A body
-  // with a break carries a running flag as well, and every write to a
-  // carried value is selected against it, so a lane that has left the
-  // loop holds its values still while the tile runs the remaining trips
-  // on it - which is what makes the early exit invisible (P3) whether
-  // or not the hardware takes it.
+  // with a break leaves it one of two ways. AT THE TOP LEVEL the break is
+  // SETACT: the lane goes inactive where it leaves, the hardware's mask
+  // holds its registers, the loop ends early once every lane has left,
+  // and ACTALL after the ENDREP brings them back - legal only at the top
+  // level. INSIDE ANOTHER LOOP the body carries a running flag and every
+  // write to a carried value is selected against it, so a lane that has
+  // left holds its values while the tile runs the remaining trips on it;
+  // SETACT there would leave the lane dark for the rest of the outer body.
+  // Either way the early exit is invisible (P3), and the measured cost of
+  // the second form is in docs/CFT-GAPS.md.
   function collectAssigned(node, into) {
     if (!node) return;
     switch (node.n) {
@@ -907,15 +960,25 @@ export function lowerFunction(lib, name, opts = {}) {
     F.phiInit(ph, cur);
     return ph;
   }
-  function phiBackVal(ph, next) {
-    if (ph.vec) { ph.vec.forEach((x, i) => phiBackVal(x, next.vec[i])); return; }
+  function phiBackVal(ph, next, tag = "phi-back") {
+    if (ph.vec) { ph.vec.forEach((x, i) => phiBackVal(x, next.vec[i], tag)); return; }
     if (sameVal(ph, next)) return;                 // unchanged on every path
     // a phi read by another phi's copy-back has to go through a
     // temporary, or the order of the copies would decide the answer
     const src = next.ph !== undefined
       ? E(OP.IOR, [next, K(0, "uint")], { type: next.type, tag: "phi-copy", noFold: true })
       : next;
-    F.phiBack(ph, src);
+    F.phiBack(ph, src, tag);
+  }
+
+  function phiSnapVal(ph, next, cond) {
+    if (ph.vec) { ph.vec.forEach((x, i) => phiSnapVal(x, next.vec[i], cond)); return; }
+    if (sameVal(ph, next)) return;                 // the register already holds it
+    const src = next.ph !== undefined
+      ? E(OP.IOR, [next, K(0, "uint")], { type: next.type, tag: "phi-copy", noFold: true })
+      : next;
+    if (cond === null) F.phiBack(ph, src, "phi-snap");       // an unconditional break
+    else F.phiSelect(ph, src, cond, "phi-snap");
   }
 
   function lowerFor(s, env, cond, rets, outNames, outerBrks) {
@@ -950,18 +1013,29 @@ export function lowerFunction(lib, name, opts = {}) {
       phiOf.set(nm, ph);
       env.set(nm, ph);
     }
+    // THE EXIT, TWO WAYS - see the comment above. SETACT at the top
+    // level, where ACTALL can follow; the flag inside another loop.
+    const setact = setactLoops && F.loopDepth === 0 && (exits || cond !== null);
     let run = null;
-    if (exits) { run = F.newPhi("__run", "bool"); F.phiInit(run, K(K_ONE, "bool")); }
-    F.ctrl("repeat", trip);
+    if (exits && !setact) { run = F.newPhi("__run", "bool"); F.phiInit(run, K(K_ONE, "bool")); }
+    if (setact && cond !== null) F.ctrl("setact", toReg(cond));   // lanes not on the loop's path sit it out
+    F.ctrl("repeat", { trip, exit: setact ? "setact" : exits ? "flag" : "none" });
     F.pushCse();
     F.loopDepth++;
 
-    const bodyCond = andb(cond, run);
+    const bodyCond = setact ? null : andb(cond, run);
     const envB = new Map(env);
     const brks = [];
+    if (setact) { brks.setact = true; brks.carried = carried; brks.phiOf = phiOf; }
     const term = lowerStmt(s.body, envB, bodyCond, rets, outNames, brks);
     if (!term) lowerStmt(s.step, envB, bodyCond, rets, outNames, brks);
 
+    if (setact) {
+      // the lanes still running copy back; the ones that left are masked,
+      // and hold what the break copied. A body that always breaks copies
+      // nothing here.
+      if (!term) for (const nm of carried) phiBackVal(phiOf.get(nm), envB.get(nm));
+    } else {
     // each carried value's next: the fall-through value, selected
     // against the body's condition, then the breaks in source order,
     // the first to fire winning
@@ -983,10 +1057,12 @@ export function lowerFunction(lib, name, opts = {}) {
       phiBackVal(run, any === null ? run : andb(run, notb(any)));
     }
     for (const nm of carried) phiBackVal(phiOf.get(nm), nextOf.get(nm));
+    }
 
     F.loopDepth--;
     F.popCse();
     F.ctrl("endrep");
+    if (setact) F.ctrl("actall");                            // every lane back, at the top level
     for (const nm of carried) env.set(nm, phiOf.get(nm));   // the registers hold the final values
     return false;
   }
@@ -1313,9 +1389,9 @@ export function profileOf(ops, args, resultIds, order, geo) {
   const defOf = (id) => pos[id];
   for (const id of order) {
     const o = ops[id];
-    if (o.ctrl) continue;
+    if (o.ctrl && !o.a) continue;
     const q = pos[id];
-    for (const w of ["a", "b", "c"]) {
+    for (const w of (o.ctrl ? ["a"] : ["a", "b", "c"])) {
       const v = o[w];
       if (!v) continue;
       if (v.v !== undefined) { const u = usePos(id, q, defOf(v.v)); if (u > last[v.v]) last[v.v] = u; }
@@ -1325,6 +1401,7 @@ export function profileOf(ops, args, resultIds, order, geo) {
         if (u > last[init]) last[init] = u;
       } else if (v.arg !== undefined) { const u = usePos(id, q, -1); if (u > argLast[v.arg]) argLast[v.arg] = u; }
     }
+    if (o.ctrl) continue;                          // a control word defines nothing
     if (o.phiBack !== undefined) {
       // the copy-back writes the phi's register at this position, and
       // the register is needed to the end of the loop whatever else
@@ -1452,9 +1529,10 @@ function allocate(ops, args, resultIds, order, geo, tailBase = 0) {
     const id = order[p];
     const o = ops[id];
     if (o.ctrl) {
+      const a = o.a ? src(o, "a") : undefined;
       for (const [kind, k] of dying[p]) free.push(kind === "arg" ? argReg[k] : regOf[k]);
       for (const [kind, k] of dying[p]) { if (kind === "arg") argReg[k] = -1; }
-      out.push({ i: id, ctrl: o.ctrl, trip: o.trip });
+      out.push({ i: id, ctrl: o.ctrl, trip: o.trip, a });
       continue;
     }
     const a = src(o, "a"), b = src(o, "b"), c = src(o, "c");
@@ -1493,7 +1571,7 @@ export function geometryOf(ops, phis) {
     if (o.ctrl === "repeat") {
       const l = loops.length;
       loops.push({ repeatOp: i, endrepOp: -1, parent: stack.length ? stack[stack.length - 1] : -1,
-                   depth: stack.length + 1, trip: o.trip });
+                   depth: stack.length + 1, trip: o.trip, exit: o.exit ?? "none" });
       for (const ph of o.phis) phiLoop[ph] = l;
       opLoop[i] = stack.length ? stack[stack.length - 1] : -1;
       stack.push(l);
@@ -1545,8 +1623,7 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     if (live.has(i)) continue;
     live.add(i);
     const o = F.ops[i];
-    if (o.ctrl) continue;
-    for (const w of ["a", "b", "c"]) {
+    for (const w of (o.ctrl ? ["a"] : ["a", "b", "c"])) {
       const v = o[w];
       if (!v) continue;
       if (v.r !== undefined && v.r >= 0) stack.push(v.r);
@@ -1564,20 +1641,25 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     if (!bankIdx.has(bits)) { bankIdx.set(bits, F.bank.length); F.bank.push(bits); }
     return bankIdx.get(bits);
   };
+  const mapV = (v) => v.c !== undefined ? { k: kslot(v.c) }
+                    : v.t !== undefined ? { t: v.t }
+                    : v.ph !== undefined ? { ph: v.ph }
+                    : v.r < 0 ? { arg: -1 - v.r }
+                    : { v: newId0.get(v.r) };
   const ops = keep.map(old => {
     const o = F.ops[old];
-    if (o.ctrl) return { ctrl: o.ctrl, trip: o.trip, phis: o.phis };
+    if (o.ctrl) {
+      const m = { ctrl: o.ctrl, trip: o.trip, exit: o.exit, phis: o.phis };
+      if (o.a) m.a = mapV(o.a);
+      return m;
+    }
     const m = { op: o.op, rnd: o.rnd, tag: o.tag, type: o.type, fn: o.fn ?? null };
     if (o.phiInit !== undefined) m.phiInit = o.phiInit;
     if (o.phiBack !== undefined) m.phiBack = o.phiBack;
     for (const w of ["a", "b", "c"]) {
       const v = o[w];
       if (v === undefined) continue;
-      if (v.c !== undefined) m[w] = { k: kslot(v.c) };
-      else if (v.t !== undefined) m[w] = { t: v.t };
-      else if (v.ph !== undefined) m[w] = { ph: v.ph };
-      else if (v.r < 0) m[w] = { arg: -1 - v.r };
-      else m[w] = { v: newId0.get(v.r) };
+      m[w] = mapV(v);
     }
     return m;
   });
@@ -1606,8 +1688,7 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     const inSeg = new Set(seg.ops);
     const out = new Set();
     ops.forEach((o, i) => {
-      if (o.ctrl) return;
-      for (const w of ["a", "b", "c"]) {
+      for (const w of (o.ctrl ? ["a"] : ["a", "b", "c"])) {
         const v = o[w];
         if (v && v.v !== undefined && inSeg.has(v.v) && (!inSeg.has(i) || o.phiInit !== undefined || o.phiBack !== undefined)) out.add(v.v);
       }
@@ -1709,7 +1790,10 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
   const final = allocate(ops, args, resultIds, order, geo, tailBase);
 
   const insns = final.alloc.map((e) => {
-    if (e.ctrl) return { ctrl: e.ctrl, trip: e.trip, tag: e.ctrl };
+    if (e.ctrl) {
+      if (e.a && e.a.k) throw new Error("cft-lower: SETACT reads a register, not the bank");
+      return { ctrl: e.ctrl, trip: e.trip, ra: e.a ? e.a.reg : undefined, tag: e.ctrl };
+    }
     const { rd, a, b, c, op, rnd, tag } = e;
     const kx = [a, b, c].some(s => s.k && s.reg >= KREG);
     if (kx) F.needs.add("kx");
@@ -1739,6 +1823,8 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
   if (encodable) {
     words = insns.map(i => (i.ctrl === "repeat" ? encode({ op: CTRL.REPEAT, ctrl: true, imm: i.trip })
                           : i.ctrl === "endrep" ? encode({ op: CTRL.ENDREP, ctrl: true })
+                          : i.ctrl === "setact" ? encode({ op: CTRL.SETACT, ctrl: true, ra: i.ra })
+                          : i.ctrl === "actall" ? encode({ op: CTRL.ACTALL, ctrl: true })
                           : encode(i)));
     for (const d of deposits) words.push(encode({ op: CTRL.DEPOSIT, ra: d.reg, ctrl: true }));
     words.push(encode({ op: CTRL.HALT, ctrl: true }));
@@ -1748,7 +1834,8 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     throw new Error(`cft-lower: ${F.name} needs IMUL - re-run with --isa-ext`);
 
   const alu = insns.filter(i => !i.ctrl).length;
-  const loopWords = insns.length - alu;
+  const loopWords = insns.length - alu;            // REPEAT, ENDREP, SETACT, ACTALL
+  const setacts = insns.filter(i => i.ctrl === "setact").length;
   return {
     name: F.name,
     fused: fuse,
@@ -1762,7 +1849,7 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     tailBase,
     tail,
     regsUsed: peak,
-    loops: geo.loops.map(l => ({ trip: l.trip, depth: l.depth })),
+    loops: geo.loops.map(l => ({ trip: l.trip, depth: l.depth, exit: l.exit })),
     phis: F.phis.length,
     schedules: tried,
     schedulePicked: picked,
@@ -1780,6 +1867,7 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     counts: {
       alu,
       loop: loopWords,
+      setact: setacts,
       control: loopWords + deposits.length + 1,
       total: insns.length + deposits.length + 1,
       consts: bank.length,

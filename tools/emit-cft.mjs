@@ -58,8 +58,9 @@ function recordOf(L) {
   const hexw = (w) => "0x" + w.toString(16).padStart(16, "0");
   const instructions = prog.insns.map((ins, pc) => {
     const w = prog.words ? prog.words[pc] : null;
-    if (ins.ctrl) return { pc, word: w === null ? null : hexw(w), ctrl: ins.ctrl, trip: ins.trip,
-                           asm: ins.ctrl === "repeat" ? `repeat ${ins.trip}` : "endrep", from: "for" };
+    if (ins.ctrl) return { pc, word: w === null ? null : hexw(w), ctrl: ins.ctrl, trip: ins.trip, ra: ins.ra,
+                           asm: ins.ctrl === "repeat" ? `repeat ${ins.trip}` : ins.ctrl === "setact" ? `setact r${ins.ra}` : ins.ctrl,
+                           from: ins.ctrl === "setact" ? "break" : "for" };
     return {
       pc, word: w === null ? null : hexw(w),
       op: OP_NAME[ins.op] ?? `op${ins.op}`, rd: ins.rd, ra: ins.ra, rb: ins.rb, rc: ins.rc,

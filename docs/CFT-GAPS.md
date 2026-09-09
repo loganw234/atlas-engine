@@ -326,7 +326,17 @@ of the work on six positives.
    plates that divide lower; `polytope` fits and is verified five ways;
    the other four are register-bound (`docs/CFT-POSITIVE.md`, "Integer
    division, by a literal").
-2. **Break as `SETACT` at the top level**, as above.
+2. **Break as `SETACT` at the top level - done the same evening.**
+   Every one of the fifty-one loop positives changed: 1,759 words left
+   the corpus and forty-eight register peaks came down (the sum is 93;
+   `newton` 32 to 29, `qjulia` 22 to 18, `buddha` 24 to 20, `stoch` 45
+   to 40), none across the thirty-two line, so the thirty-eight that
+   fit are the same thirty-eight and the tables above stand as the
+   measurement they were. The golden model's instruction counts say
+   the exit fires: `jong` 3,859 instructions for eight lanes, `stdmap`
+   94,632 where the flag form ran every one of its 400 trips. The six
+   positives with breaks in nested loops keep the flag on the inner
+   loop only.
 3. **Hoisting**: the per-run frontier into the bank, computed per run
    from the same text by the reference interpreter or by an init
    program on libcft's software backend - either way held to the other,

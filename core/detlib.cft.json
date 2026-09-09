@@ -108,9 +108,9 @@
       "how": "DEPOSIT reads a register, so a result that is a constant, an input or a per-run slot is copied into one with an IOR against zero, which moves the bits and rounds nothing. The one integer identity the folder is told not to fold."
     },
     "loop": {
-      "insns": "one copy in per carried value, one copy back per iteration, and the flag",
+      "insns": "one copy in per carried value, one copy back per iteration; at the top level one SETACT per break and one ACTALL, inside another loop the flag",
       "domain": "for (int V = 0; V < N; V++) with breaks; no return inside",
-      "how": "REPEAT N around the body written once. Every value the body assigns that was bound before the loop is CARRIED: copied into a register of its own before the REPEAT, read from it inside, and copied back at the end of every iteration - the copies are IOR against zero, exact on every bit pattern. A body with a `break` carries a running flag too: 1.0 going in, and-ed with not-the-break's-condition each iteration, and every write in the body is selected against it, so a lane that has left the loop keeps its values while the tile runs the remaining trips on it. The counter's `< N` is the trip count; the emitter's data-dependent exit is a break on the lever."
+      "how": "REPEAT N around the body written once. Every value the body assigns that was bound before the loop is CARRIED: copied into a register of its own before the REPEAT, read from it inside, and copied back at the end of every iteration - the copies are IOR against zero, exact on every bit pattern. A break at the TOP LEVEL is SETACT: the carried values the lane has reassigned so far go to their registers where the break is, its active bit follows the negation of the path condition that reached it, and from there the hardware's mask holds its registers and skips its deposits until the ACTALL after the ENDREP - so the loop's early exit fires when every lane has left, and nothing in the body is selected for the lane's sake. A break INSIDE ANOTHER LOOP keeps the running flag: 1.0 going in, and-ed with not-the-break's-condition each iteration, every write selected against it, because SETACT would leave the lane dark for the rest of the outer body and ACTALL is illegal there. The counter's `< N` is the trip count; the emitter's data-dependent exit is a break on the lever."
     }
   },
   "functions": {
@@ -193,6 +193,7 @@
       "counts": {
         "alu": 1,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 3,
         "consts": 1,
@@ -510,6 +511,7 @@
       "counts": {
         "alu": 10,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 12,
         "consts": 5,
@@ -869,6 +871,7 @@
       "counts": {
         "alu": 13,
         "loop": 0,
+        "setact": 0,
         "control": 3,
         "total": 16,
         "consts": 1,
@@ -1895,6 +1898,7 @@
       "counts": {
         "alu": 47,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 49,
         "consts": 15,
@@ -3228,6 +3232,7 @@
       "counts": {
         "alu": 64,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 66,
         "consts": 16,
@@ -4446,6 +4451,7 @@
       "counts": {
         "alu": 58,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 60,
         "consts": 15,
@@ -5521,6 +5527,7 @@
       "counts": {
         "alu": 45,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 47,
         "consts": 25,
@@ -7862,6 +7869,7 @@
       "counts": {
         "alu": 117,
         "loop": 0,
+        "setact": 0,
         "control": 3,
         "total": 120,
         "consts": 28,
@@ -10173,6 +10181,7 @@
       "counts": {
         "alu": 116,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 118,
         "consts": 28,
@@ -11380,6 +11389,7 @@
       "counts": {
         "alu": 54,
         "loop": 0,
+        "setact": 0,
         "control": 3,
         "total": 57,
         "consts": 20,
@@ -12502,6 +12512,7 @@
       "counts": {
         "alu": 50,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 52,
         "consts": 20,
@@ -13624,6 +13635,7 @@
       "counts": {
         "alu": 50,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 52,
         "consts": 20,
@@ -16006,6 +16018,7 @@
       "counts": {
         "alu": 118,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 120,
         "consts": 33,
@@ -18044,6 +18057,7 @@
       "counts": {
         "alu": 100,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 102,
         "consts": 27,
@@ -21151,6 +21165,7 @@
       "counts": {
         "alu": 161,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 163,
         "consts": 32,
@@ -22751,6 +22766,7 @@
       "counts": {
         "alu": 79,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 81,
         "consts": 17,
@@ -27450,6 +27466,7 @@
       "counts": {
         "alu": 249,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 251,
         "consts": 43,
@@ -27761,6 +27778,7 @@
       "counts": {
         "alu": 9,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 11,
         "consts": 5,
@@ -28038,6 +28056,7 @@
       "counts": {
         "alu": 8,
         "loop": 0,
+        "setact": 0,
         "control": 2,
         "total": 10,
         "consts": 4,

@@ -115,6 +115,19 @@ export class Machine {
     let emulated = 0, executed = 0;
     const stack = [];
     let pc = 0;
+    // THE ACTIVE MASK, as docs/SEQUENCER.md P3 states it: SETACT narrows
+    // it, ACTALL widens it, every register write is masked by it, and a
+    // loop ends early once no lane is active - which must change nothing
+    // but the time, and here is the check of that on a second machine.
+    // The exception flags are NOT masked on this path, and are reported
+    // as an aggregate only.
+    const active = new Uint8Array(n).fill(1);
+    let allActive = true;
+    const write = (rd, out) => {
+      if (allActive) { regs[rd] = out; return; }
+      const old = regs[rd];
+      regs[rd] = out.map((v, i) => (active[i] ? v : old[i]));
+    };
     while (pc < prog.insns.length) {
       const ins = prog.insns[pc];
       if (ins.ctrl === "repeat") {
@@ -125,8 +138,20 @@ export class Machine {
       if (ins.ctrl === "endrep") {
         const f = stack[stack.length - 1];
         if (!f) throw new Error("cft-run: ENDREP without REPEAT");
-        if (--f.left > 0) pc = f.start; else { stack.pop(); pc++; }
+        const anyActive = allActive || active.some(a => a);
+        if (--f.left > 0 && anyActive) pc = f.start; else { stack.pop(); pc++; }
         continue;
+      }
+      if (ins.ctrl === "setact") {
+        const src = regs[ins.ra];
+        for (let i = 0; i < n; i++) if (this.toBits(src[i]) === 0) active[i] = 0;
+        allActive = active.every(a => a);
+        pc++; continue;
+      }
+      if (ins.ctrl === "actall") {
+        if (stack.length) throw new Error("cft-run: ACTALL inside a loop");
+        active.fill(1); allActive = true;
+        pc++; continue;
       }
       executed++;
       const ctx = this.byRnd[ROUNDS.has(ins.op) ? ins.rnd : RND.RNE];
@@ -161,14 +186,14 @@ export class Machine {
         // and every report still says how many instructions were
         // emulated so the distinction cannot be lost.
         const a = slot.a, b = slot.b;
-        regs[ins.rd] = a.map((av, i) =>
-          this.fromBits(Math.imul(this.toBits(av), this.toBits(b[i])) >>> 0));
+        write(ins.rd, a.map((av, i) =>
+          this.fromBits(Math.imul(this.toBits(av), this.toBits(b[i])) >>> 0)));
         emulated++;
         pc++; continue;
       }
       const out = ctx.map(ins.op, slot.a, slot.b, slot.c);
       flags |= ctx.lastFlags;
-      regs[ins.rd] = out;
+      write(ins.rd, out);
       pc++;
     }
 

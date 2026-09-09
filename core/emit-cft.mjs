@@ -271,6 +271,8 @@ export function cftaText(L) {
     const ind = "  ".repeat(depth);
     if (ins.ctrl === "repeat") { L2.push(`${ind}repeat ${ins.trip}`); depth++; continue; }
     if (ins.ctrl === "endrep") { depth--; L2.push(`${"  ".repeat(depth)}endrep`); continue; }
+    if (ins.ctrl === "setact") { L2.push(`${ind}setact r${ins.ra}`.padEnd(38) + "; the lane leaves while this is zero"); continue; }
+    if (ins.ctrl === "actall") { L2.push(`${ind}actall`.padEnd(38) + "; every lane back"); continue; }
     const reads = READS[ins.op];
     const operands = reads.map(w => {
       const isK = { a: ins.ka, b: ins.kb, c: ins.kc }[w];

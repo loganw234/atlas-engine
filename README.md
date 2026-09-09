@@ -336,10 +336,14 @@ what the two repositories are executing:
   which two positives need to load at all. `CALL` is measured at
   41,435 inlined words across the corpus and not asked, since it
   decides no fit once the image is larger.
-- **What remains on this side.** `SETACT` for the top-level loops, the
-  hoisting, copy coalescing for the loops' carried registers, then the
-  spiller when the memory lands. Then the parity harness: a debug
-  variant of the emitted GLSL
+- **What remains on this side.** `SETACT` for the top-level loops
+  landed the same evening - every loop positive's `break` at the top
+  level is the lane going inactive where it leaves, `ACTALL` after the
+  `ENDREP`, so the tile's early exit fires; 1,759 words and forty-eight
+  register peaks came down with the running flags - then the hoisting,
+  copy coalescing for the loops' carried registers, and the spiller
+  when the memory lands. Then the parity harness: a debug variant of
+  the emitted GLSL
   that writes `xyz`, `col` and `glow` to a buffer instead of
   depositing, so the GPU's records and the tile's are compared per
   sample and a first divergence gets named; then the records binned in
