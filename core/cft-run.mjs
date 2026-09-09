@@ -15,13 +15,18 @@
 // Lanes are the sweep: one instruction is issued across the whole
 // argument sweep at once, which is exactly the shape cft_run wants and
 // exactly the shape the tile runs. Three input streams a, b, c load
-// r0, r1, r2; r3..r15 start at +0; deposits come out in index order.
+// r0, r1, r2; the rest start at +0; deposits come out in index order.
 //
 // The det library's sequences have no REPEAT, no SETACT and no ACTALL -
-// they are straight-line - so the active mask is all-ones throughout
-// and the early exit never fires. That is not a simplification of the
-// model, it is a property of these programs, and tools/verify-cft-
-// detlib.mjs asserts it rather than assuming it.
+// they are straight-line - and tools/verify-cft-detlib.mjs asserts it
+// rather than assuming it. A positive's program has REPEATs (since
+// 2026-09-08), and this runs them as the model does: every trip, every
+// lane, no early exit - which P3 says changes nothing but the time.
+//
+// This is the FALLBACK path. A program that fits a lane goes through
+// cft_program_load and cft_program_run, the executor that goes to a
+// card; this path scores the arithmetic of one that does not fit, on a
+// lane as wide as it asks.
 
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -86,19 +91,19 @@ export class Machine {
 
   /** Execute a lowered program over `n` lanes.
    *  `argBits` is one Uint32Array per input stream, each of length n.
-   *  Returns { deposits: [Uint32Array per deposit slot], flags, insns }. */
+   *  Returns { deposits: [Uint32Array per deposit slot], flags, insns,
+   *  executed, emulated }. */
   run(prog, argBits) {
     const n = argBits.length ? argBits[0].length : 0;
     if (argBits.some(a => a.length !== n))
       throw new Error("cft-run: the input streams differ in length");
     if (argBits.length > 3)
       throw new Error("cft-run: cft_program_run loads three streams");
-    // A lane has sixteen registers. A program whose peak exceeds that
+    // A lane has thirty-two registers. A program whose peak exceeds that
     // is not loadable, and running it here on a wider lane is a
     // deliberate, labelled exception: it scores the ARITHMETIC of a
     // sequence the ISA cannot hold, which is the only way to say
-    // "correct, and it does not fit" rather than just "it does not
-    // fit". tools/verify-cft-detlib.mjs prints both halves.
+    // "correct, and it does not fit" rather than just "it does not fit".
     const nregs = Math.max(NREG, prog.regsUsed);
     const regs = new Array(nregs).fill(null);
     const zero = new Array(n).fill(this.fromBits(0));
@@ -107,8 +112,23 @@ export class Machine {
     const bank = this._bank(prog.consts, n);
 
     let flags = 0;
-    let emulated = 0;
-    for (const ins of prog.insns) {
+    let emulated = 0, executed = 0;
+    const stack = [];
+    let pc = 0;
+    while (pc < prog.insns.length) {
+      const ins = prog.insns[pc];
+      if (ins.ctrl === "repeat") {
+        if (ins.trip <= 0) throw new Error("cft-run: REPEAT 0");
+        stack.push({ start: pc + 1, left: ins.trip });
+        pc++; continue;
+      }
+      if (ins.ctrl === "endrep") {
+        const f = stack[stack.length - 1];
+        if (!f) throw new Error("cft-run: ENDREP without REPEAT");
+        if (--f.left > 0) pc = f.start; else { stack.pop(); pc++; }
+        continue;
+      }
+      executed++;
       const ctx = this.byRnd[ROUNDS.has(ins.op) ? ins.rnd : RND.RNE];
       const idx = ins.kx ? [ins.imm & 0xff, (ins.imm >> 8) & 0xff, (ins.imm >> 16) & 0xff]
                          : [ins.ra, ins.rb, ins.rc];
@@ -144,15 +164,16 @@ export class Machine {
         regs[ins.rd] = a.map((av, i) =>
           this.fromBits(Math.imul(this.toBits(av), this.toBits(b[i])) >>> 0));
         emulated++;
-        continue;
+        pc++; continue;
       }
       const out = ctx.map(ins.op, slot.a, slot.b, slot.c);
       flags |= ctx.lastFlags;
       regs[ins.rd] = out;
+      pc++;
     }
 
     const deposits = prog.results.map(d => Uint32Array.from(regs[d.reg], f => this.toBits(f)));
-    return { deposits, flags, insns: prog.insns.length, emulated };
+    return { deposits, flags, insns: prog.insns.length, executed, emulated };
   }
 }
 
@@ -168,8 +189,9 @@ export function controlTail(prog) {
  *  nothing to be invisible about in these programs. Asserted rather
  *  than assumed. */
 export function isStraightLine(prog) {
+  if (prog.insns.some(i => i.ctrl)) return false;
   const tail = controlTail(prog);
-  if (!tail) return prog.insns.every(i => true);   // unencodable: body is ALU by construction
+  if (!tail) return true;   // unencodable: body is ALU by construction
   const okTail = tail.every((d, i) =>
     d.ctrl && (i < tail.length - 1 ? d.op === CTRL.DEPOSIT : d.op === CTRL.HALT));
   const noCtrlInBody = prog.words.slice(0, prog.insns.length)

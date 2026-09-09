@@ -4,27 +4,35 @@
 //   node tools/verify-cft-positive.mjs [positives/hopf.pos.mjs]
 //        [--points 4096] [--golden 256] [--uT 0]
 //
-// Three evaluations of one positive are compared, sample by sample,
+// Several evaluations of one positive are compared, sample by sample,
 // deposit by deposit:
 //
 //   THE REFERENCE. core/glsl-f32.mjs interprets the pinned shape
 //   function core/emit.mjs writes - with the shipped det library, the
 //   unfused prelude and the shared header beneath it - at binary32,
-//   one rounding per operation, real branches. Under the pinned
-//   discipline that text is what a conforming driver computes, which
-//   is the argument docs/CFT-DETLIB.md made for the library and makes
-//   again one level up.
+//   one rounding per operation, real branches and real loops. Under
+//   the pinned discipline that text is what a conforming driver
+//   computes, which is the argument docs/CFT-DETLIB.md made for the
+//   library and makes again one level up.
 //
-//   libcft. core/emit-cft.mjs lowers the same text to a program image
-//   and cft_program_load / cft_program_run execute it - the coprocessor
-//   project's own executor, reached through its node build. This is
-//   the run that would go to a card unchanged.
+//   libcft. core/emit-cft.mjs lowers the same text to a BANK_EXT image
+//   and its bank; cft_program_load and cft_program_run_bank execute it
+//   - the coprocessor project's own executor, reached through its node
+//   build - and cft_program_digest names what ran. This is the run that
+//   goes to a card unchanged.
 //
 //   THE GOLDEN MODEL. python/cft_golden/seq.py, "the definition of
-//   correct for programs" in that project, runs the same image bytes
+//   correct for programs" in that project, runs the same image and bank
 //   over a subset of the lanes (it is pure Python). The RTL is held to
 //   it bit for bit, so agreement here is agreement with the tile's
 //   specification rather than with one implementation of it.
+//
+//   THE ASSEMBLER and THE RUNNER, when the checkout has them. The
+//   program's .cfta text goes through python/cft_golden/asm.py and the
+//   bytes must equal this emitter's image, so two encoders written from
+//   the spec are held to each other; and host/positive-run runs the
+//   image from files exactly as it would on a card, printing the digest
+//   and the deposit buffer's SHA-256, which are compared with ours.
 //
 // The samples are a frame's own points: q, rnd.x and seed derived from
 // the sample index exactly as the atlas header derives them, half
@@ -37,56 +45,70 @@
 // Beside the bit comparison, an ACCURACY column that is not a parity
 // claim: the CPU evaluator (core/measure.mjs, float64) runs the same
 // walk from the same stream state, and the distance between it and the
-// binary32 reference is reported in ULPs of the reference. It says how
-// far float32 is from the walk's meaning; it cannot say which
-// implementation is right, and is not asked to.
+// binary32 reference is reported. It says how far float32 is from the
+// walk's meaning; it cannot say which implementation is right, and is
+// not asked to.
 //
 // CFT_ROOT points at the cft-fp256 checkout; the sibling is the
 // default. Without it there is no libcft and no golden model, and the
 // run says so rather than passing.
 
-import { writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
-import { lowerPositive, hostPrologue } from "../core/emit-cft.mjs";
+import { createHash } from "node:crypto";
+import { lowerPositive, hostPrologue, hashedLevers } from "../core/emit-cft.mjs";
 import { bits as f32bits, asF32 } from "../core/glsl-f32.mjs";
 import { libcftEntry, Machine } from "../core/cft-run.mjs";
 import { hashu, u2f, Stream, Vec2, leverDefaults } from "../core/measure.mjs";
-import { NREG, IMEM_D } from "../core/cft-isa.mjs";
+import { NREG, NREG_REV1, IMEM_D } from "../core/cft-isa.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 const OUT = join(ROOT, "build", "cft");
 mkdirSync(OUT, { recursive: true });
+const CFT_ROOT = process.env.CFT_ROOT || join(ROOT, "..", "cft-fp256");
 
 const argv = process.argv.slice(2);
 const opt = (n, d) => { const i = argv.indexOf(n); return i < 0 ? d : argv[i + 1]; };
-const target = argv.find((a, i) => !a.startsWith("--") && !["--points", "--golden", "--uT"].includes(argv[i - 1]))
+const target = argv.find((a, i) => !a.startsWith("--") && !["--points", "--golden", "--uT", "--levers"].includes(argv[i - 1]))
              || join(ROOT, "positives", "hopf.pos.mjs");
 const POINTS = Number(opt("--points", "4096"));
 const GOLDEN = Number(opt("--golden", "256"));
 const UT = Math.fround(Number(opt("--uT", "0")));
+// --levers <seed>: a hashed setting on every lever's own grid instead of
+// the defaults, so the integer levers and the branches they gate are
+// exercised off the values the author happened to choose
+const LEVER_SEED = opt("--levers", null);
 
 const hex = (u) => "0x" + (u >>> 0).toString(16).padStart(8, "0");
 const isNaNbits = (u) => ((u & 0x7f800000) === 0x7f800000) && (u & 0x007fffff) !== 0;
 const fr = Math.fround;
+const u8 = (arr) => new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
 
 // ---- the positive, lowered
 const pos = (await import(pathToFileURL(resolve(target)).href)).default;
 const id = pos.id.replace(/_pos$/, "");
-const L = lowerPositive(pos, { uT: UT });
+const Pset = LEVER_SEED === null ? null : hashedLevers(pos, Number.parseInt(LEVER_SEED, 10) >>> 0);
+const L = lowerPositive(pos, { uT: UT, P: Pset });
 const { prog } = L;
-console.log(`${id} -> cft-fp256 sequencer program`);
+console.log(`${id} -> cft-fp256 sequencer program (revision 2)`);
 console.log(`  words      : ${prog.counts.total} of ${IMEM_D} (${prog.counts.alu} ALU, ` +
-            `${prog.counts.control} control)`);
-console.log(`  registers  : ${prog.regsUsed} of ${NREG}${prog.encodable ? "" : "   DOES NOT FIT"}`);
+            `${prog.counts.loop} loop, ${prog.counts.control - prog.counts.loop} deposit/halt)`);
+console.log(`  loops      : ${prog.loops.length ? prog.loops.map(l => `repeat ${l.trip} at depth ${l.depth}`).join(", ") : "none"}` +
+            `; ${prog.phis} carried value(s)`);
+console.log(`  registers  : ${prog.regsUsed} of ${NREG}${prog.encodable ? "" : "   DOES NOT FIT"}` +
+            (prog.regsUsed > NREG_REV1 ? "   (needs REGS32)" : ""));
 console.log(`  constants  : ${prog.counts.fixedConsts} program + ${prog.tail} per-run tail ` +
-            `(P[0..7], uT) = ${prog.counts.consts}`);
-console.log(`  needs      : ${prog.needs.join(", ") || "nothing beyond the ISA"}`);
+            `(P[0..7], uT) = ${prog.counts.consts}, all in the bank; needs ${prog.needs.join(", ") || "nothing beyond the ISA"}`);
 console.log(`  inputs     : ${prog.args.map(a => `${a.stream}=${a.name}`).join("  ")}`);
 console.log(`  deposits   : ${prog.results.map((d, i) => `${i}:${d.name}`).join("  ")}`);
 console.log(`  prologue   : on the host, salt ${L.prologue.salt}u; uT = ${UT}`);
+console.log(`  levers     : ${LEVER_SEED === null ? "the defaults" : `hashed from seed ${LEVER_SEED}`} - ` +
+            pos.leverNames.map(n => `${n}=${L.P[n]}`).join(" "));
+console.log(`  schedule   : ${prog.schedulePicked}   ${prog.schedules.map(t => `${t.policy}=${t.peak}`).join(" ")}`);
+
 // A program that needs more registers than the lane has cannot be
 // loaded, and there is no image for it. Its ARITHMETIC can still be
 // scored: core/cft-run.mjs issues the lowered instructions one at a
@@ -116,7 +138,7 @@ for (let i = 0; i < n; i++) {
 }
 
 // ---- the reference
-const Pd = leverDefaults(pos);
+const Pd = L.P;
 const P8 = new Array(8).fill(0);
 pos.leverNames.forEach((nm, i) => { P8[i] = fr(Pd[nm]); });
 L.ref.setGlobal("uT", UT);
@@ -136,22 +158,28 @@ for (let i = 0; i < n; i++) {
 }
 const tRef = Date.now() - t0;
 
-// ---- libcft: the image through cft_program_load / cft_program_run,
-// or the instructions one by one through cft_run when there is no image
-const u8 = (arr) => new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
+// ---- libcft: the image and its bank through cft_program_load and
+// cft_program_run_bank, or the instructions one by one through cft_run
+// when there is no image
 const D = prog.results.length;
 const got = prog.results.map(() => new Uint32Array(n));
-let run, tLib, countsOk;
+let run, tLib, countsOk, digestOk = null, libDigest = null;
 if (!WIDE) {
   const { Context } = await import(libcftEntry());
   const ctx = await Context.open("fp32");
+  const feats = ctx.seqFeatureNames ? ctx.seqFeatureNames : [];
+  console.log(`  device     : ${ctx.backend ?? "software"}, ABI ${ctx.abiVersion ?? "?"}, features ${feats.join(" ") || "-"}, ` +
+              `maxInsns ${ctx.maxInsns}, maxConsts ${ctx.maxConsts}`);
   const t1 = Date.now();
   const loaded = ctx.loadProgram(L.image);
-  run = loaded.run(u8(qx), u8(qy), u8(ptc));
+  if (!loaded.bankExternal) throw new Error("the image did not load as BANK_EXT");
+  run = loaded.runBank(L.bank, u8(qx), u8(qy), u8(ptc));
   tLib = Date.now() - t1;
   for (let i = 0; i < n; i++)
     for (let k = 0; k < D; k++) got[k][i] = Number(run.deposits[i * D + k].bits) >>> 0;
   countsOk = Array.from(run.counts).every(c => c === D);
+  libDigest = Buffer.from(loaded.digest(L.bank)).toString("hex");
+  digestOk = libDigest === L.digest;
   loaded.free();
 } else {
   const M = await Machine.open();
@@ -159,7 +187,7 @@ if (!WIDE) {
   const r = M.run(prog, [qx, qy, ptc]);
   tLib = Date.now() - t1;
   for (let k = 0; k < D; k++) got[k].set(r.deposits[k]);
-  run = { flags: r.flags, status: `wide lane, ${r.emulated} emulated` };
+  run = { flags: r.flags, status: `wide lane, ${r.executed} instructions executed, ${r.emulated} emulated` };
   countsOk = true;
   M.close();
 }
@@ -180,29 +208,79 @@ for (let k = 0; k < D; k++) {
   if (bad) failed++;
   rows.push({ slot: k, name: prog.results[k].name, mismatch: bad, nanPayloadOnly: nanOnly, first });
 }
+if (digestOk === false) failed++;
+
+// ---- the assembler: the .cfta text through asm.py must give these bytes
+let asmCheck = null;
+if (!WIDE) {
+  const cftaPath = join(OUT, `${id}.cfta`), imgPath = join(OUT, `${id}.cftp`);
+  writeFileSync(cftaPath, L.cfta);
+  writeFileSync(imgPath, L.image);
+  try {
+    const log = execFileSync("python", [join(HERE, "cft-asm-check.py"), cftaPath, imgPath, "--cft-root", CFT_ROOT],
+                             { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    asmCheck = { identical: true, log: log.trim() };
+  } catch (e) {
+    asmCheck = { identical: false, log: String(e.stdout || "").trim() + " " + String(e.stderr || e.message).trim().split("\n").slice(-2).join(" | ") };
+    failed++;
+  }
+}
+
+// ---- the runner: host/positive-run over the same files, when built
+let runner = null;
+if (!WIDE) {
+  const exe = join(CFT_ROOT, "host", "positive-run.exe");
+  const exe2 = join(CFT_ROOT, "host", "positive-run");
+  const bin = existsSync(exe) ? exe : existsSync(exe2) ? exe2 : null;
+  if (bin) {
+    const aPath = join(OUT, `${id}.a.bin`), bPath = join(OUT, `${id}.b.bin`), cPath = join(OUT, `${id}.c.bin`);
+    const bankPath = join(OUT, `${id}.default.bank`), depPath = join(OUT, `${id}.runner.deposits.bin`);
+    writeFileSync(aPath, u8(qx)); writeFileSync(bPath, u8(qy)); writeFileSync(cPath, u8(ptc));
+    writeFileSync(bankPath, L.bank);
+    try {
+      const out = execFileSync(bin, [join(OUT, `${id}.cftp`), "--a", aPath, "--b", bPath, "--c", cPath,
+                                     "--bank", bankPath, "--out", depPath],
+                               { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      const dep = new Uint32Array(readFileSync(depPath).buffer.slice(0));
+      let diff = 0;
+      for (let i = 0; i < n; i++) for (let k = 0; k < D; k++) if (dep[i * D + k] !== got[k][i]) diff++;
+      const ours = createHash("sha256").update(u8(dep.length ? Uint32Array.from({ length: n * D }, (_, j) => got[j % D][Math.floor(j / D)]) : new Uint32Array(0))).digest("hex");
+      const lines = out.trim().split(/\r?\n/);
+      const printed = lines.slice(-3).join(" | ");
+      runner = { bin, deposits: dep.length, differFromLibcft: diff, printed,
+                 depositSha256Ours: ours, lines: lines.length };
+      // the last line is the deposit buffer's SHA-256 by the tool's contract
+      const lastHex = (lines[lines.length - 1].match(/[0-9a-f]{64}/) || [])[0];
+      runner.depositShaMatches = lastHex ? lastHex === ours : null;
+      if (diff) failed++;
+    } catch (e) {
+      runner = { bin, error: String(e.stderr || e.stdout || e.message).trim().split(/\r?\n/).slice(-3).join(" | ") };
+    }
+  }
+}
 
 // ---- the golden model, on a subset
 let golden = null;
 if (GOLDEN > 0 && !WIDE) {
   const m = Math.min(GOLDEN, n);
   const inPath = join(OUT, `${id}.golden-in.json`), outPath = join(OUT, `${id}.golden-out.json`);
-  const imgPath = join(OUT, `${id}.cftp`);
+  const imgPath = join(OUT, `${id}.cftp`), bankPath = join(OUT, `${id}.default.bank`);
   writeFileSync(imgPath, L.image);
+  writeFileSync(bankPath, L.bank);
   writeFileSync(inPath, JSON.stringify({
     a: Array.from(qx.slice(0, m), hex), b: Array.from(qy.slice(0, m), hex), c: Array.from(ptc.slice(0, m), hex),
   }));
-  const cftRoot = process.env.CFT_ROOT || join(ROOT, "..", "cft-fp256");
-  const t2 = Date.now();
   let log;
   try {
     log = execFileSync("python", [join(HERE, "cft-golden-run.py"), imgPath, inPath, outPath,
-                                  "--cft-root", cftRoot], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+                                  "--bank", bankPath, "--cft-root", CFT_ROOT],
+                       { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   } catch (e) {
     log = null;
-    golden = { lanes: m, error: String(e.stderr || e.message).trim().split("\n").slice(-3).join(" | ") };
+    golden = { lanes: m, error: String(e.stderr || e.message).trim().split(/\r?\n/).slice(-3).join(" | ") };
   }
   if (log) {
-    const res = JSON.parse((await import("node:fs")).readFileSync(outPath, "utf8"));
+    const res = JSON.parse(readFileSync(outPath, "utf8"));
     let vsLib = 0, vsRef = 0, nanOnly = 0, first = null;
     for (let i = 0; i < m; i++)
       for (let k = 0; k < D; k++) {
@@ -264,12 +342,23 @@ console.log(`\n  samples    : ${n} (half sequential from ia = 0, half spread by 
             (declined ? `; ${declined} declined` : ""));
 console.log(`  reference  : ${tRef} ms interpreting the text;  libcft: ${tLib} ms ` +
             (WIDE ? `instruction by instruction through cft_run on a ${prog.regsUsed}-register lane`
-                  : `for cft_program_load and cft_program_run`) +
+                  : `for cft_program_load and cft_program_run_bank`) +
             `;  flags ${run.flags}, status ${run.status}, counts ${countsOk ? "all " + D : "NOT all " + D}`);
+if (!WIDE)
+  console.log(`  digest     : ${digestOk ? "cft_program_digest agrees with SHA-256(image ++ bank)" : "MISMATCH"} ${L.digest}` +
+              (digestOk ? "" : ` vs ${libDigest}`));
 console.log(`\n  ${pad("deposit", 10)} ${num("mismatch", 9)} ${num("NaN-only", 9)}  first`);
 for (const r of rows)
   console.log(`  ${pad(r.name, 10)} ${num(r.mismatch, 9)} ${num(r.nanPayloadOnly, 9)}  ` +
               (r.first ? `#${r.first.index} ia=${r.first.ia} q=${r.first.q} pt=${r.first.pt}: want ${r.first.want}, got ${r.first.got}` : "-"));
+if (asmCheck)
+  console.log(`\n  assembler  : ${asmCheck.identical ? "asm.py assembles the .cfta to the SAME bytes" : "asm.py DIFFERS from this encoder"} - ${asmCheck.log}`);
+if (runner) {
+  if (runner.error) console.log(`\n  positive-run: NOT RUN - ${runner.error}`);
+  else console.log(`\n  positive-run: ${runner.deposits} deposits from the runner, ${runner.differFromLibcft} differ from libcft's` +
+                   (runner.depositShaMatches === null ? "" : runner.depositShaMatches ? "; its deposit SHA-256 matches ours" : "; its deposit SHA-256 DOES NOT match ours") +
+                   `\n               ${runner.printed}`);
+}
 if (golden) {
   if (golden.error) console.log(`\n  golden model: NOT RUN - ${golden.error}`);
   else console.log(`\n  golden model (seq.py) on ${golden.lanes} lanes, ${golden.seconds} s, ` +
@@ -290,21 +379,26 @@ for (const a of acc)
               `over ${a.nUlp} of ${a.n}` +
               (a.atMax ? `; at max: f32 ${a.atMax.f32.toPrecision(7)} f64 ${a.atMax.f64.toPrecision(9)}` : ""));
 
-writeFileSync(join(OUT, `${id}.verify.json`), JSON.stringify({
+writeFileSync(join(OUT, `${id}${LEVER_SEED === null ? "" : `.levers-${LEVER_SEED}`}.verify.json`), JSON.stringify({
   generated: new Date().toISOString().slice(0, 10), positive: pos.id, points: n, uT: UT,
-  program: { words: prog.counts.total, alu: prog.counts.alu, registers: prog.regsUsed,
+  levers: { setting: LEVER_SEED === null ? "defaults" : `hashed ${LEVER_SEED}`, values: L.P },
+  program: { words: prog.counts.total, alu: prog.counts.alu, loop: prog.counts.loop, registers: prog.regsUsed,
              constants: prog.counts.consts, fixedConstants: prog.counts.fixedConsts, tail: prog.tail,
-             needs: prog.needs, gaps: prog.gaps, schedule: prog.schedulePicked },
-  libcft: { flags: run.flags, status: run.status, countsOk, ms: tLib }, deposits: rows, golden,
+             loops: prog.loops, carried: prog.phis, needs: prog.needs, gaps: prog.gaps, schedule: prog.schedulePicked,
+             tried: prog.schedules },
+  image: L.image ? { bytes: L.image.length, digest: L.digest } : null,
+  libcft: { flags: run.flags, status: run.status, countsOk, ms: tLib, digestOk, digest: libDigest }, deposits: rows,
+  assembler: asmCheck, runner, golden,
   accuracy: acc.map(a => ({ name: a.name, maxAbs: a.maxAbs, meanAbs: a.n ? a.sumAbs / a.n : 0, n: a.n,
                             maxUlpAway: a.maxUlp, meanUlpAway: a.nUlp ? a.sumUlp / a.nUlp : 0, nAway: a.nUlp,
                             atMax: a.atMax })),
   identical: failed === 0,
 }, null, 2) + "\n");
 console.log(`\n  wrote build/cft/${id}.verify.json`);
-console.log(failed ? `\n  ${failed} deposit slot(s) or oracle(s) did not reproduce the text's bits`
+console.log(failed ? `\n  ${failed} check(s) did not reproduce the text's bits`
                    : WIDE ? `\n  every deposit reproduces the emitted text's bits - on a widened lane, ` +
                             `instruction by instruction; the program does not load as it stands`
                           : `\n  every deposit reproduces the emitted text's bits, through libcft's ` +
-                            `program executor` + (golden && !golden.error ? " and the golden model" : ""));
+                            `program executor` + (golden && !golden.error ? ", the golden model" : "") +
+                            (asmCheck && asmCheck.identical ? ", and the assembler's bytes agree" : ""));
 process.exit(failed ? 1 : WIDE ? 2 : 0);

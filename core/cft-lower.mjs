@@ -1,9 +1,11 @@
-// The det library as sequencer instruction sequences.
+// The det library, and the emitted plates, as sequencer programs.
 //
-// One det_* function becomes one straight-line program: no branches,
-// because the ISA has none outside REPEAT/ENDREP; every conditional
-// evaluated on both sides and resolved by SELECT; every call inlined,
-// because there is no CALL. What comes out is a list of instructions in
+// One GLSL function becomes one program: every conditional evaluated
+// on both sides and resolved by SELECT; every call inlined, because
+// there is no CALL; every loop a REPEAT whose body is written once,
+// with the values it carries pinned to registers across the back edge
+// and every write inside it predicated on a running flag that a
+// `break` clears. What comes out is a list of instructions in
 // docs/SEQUENCER.md's encoding, a constant bank, a register map and a
 // deposit schema.
 //
@@ -11,36 +13,36 @@
 // float operation in the sequence is the operation the shipped GLSL
 // performs, in the order the shipped GLSL performs it, under
 // round-to-nearest-even - which is what makes the verification in
-// tools/verify-cft-detlib.mjs mean something. The transformations here
-// are all of one kind: control flow becomes selection, and an operation
-// the ISA lacks becomes a documented expansion of operations it has.
-// Each expansion is derived below, with the domain it is valid on,
-// because a bit trick nobody can check is a constant nobody can check.
+// tools/verify-cft-detlib.mjs and tools/verify-cft-positive.mjs mean
+// something. The transformations here are all of one kind: control
+// flow becomes selection, and an operation the ISA lacks becomes a
+// documented expansion of operations it has. Each expansion is derived
+// below, with the domain it is valid on, because a bit trick nobody can
+// check is a constant nobody can check.
 //
 // THE ONE THING THAT IS NOT ARITHMETIC-NEUTRAL, and it is the finding
 // this whole file exists to make concrete: the library SHIPS UNFUSED.
 // tools/gen-detlib.mjs rewrites all 56 fma() calls to a multiply and an
 // add before the byte comparison against the darkroom's deployed
 // detlib.glsl, so the bits four GPU vendors agree on are the bits of
-// two roundings, not one. cft-fp256's docs/ATLAS.md maps `precise fma`
-// onto the tile's FMA opcode; doing that would compute a DIFFERENT
+// two roundings, not one. cft-fp256's docs/ATLAS.md mapped `precise
+// fma` onto the tile's FMA opcode; doing that would compute a DIFFERENT
 // function, more accurate and wrong. The default here is `fuse: false`
 // - a MUL and an ADD per rewritten fma - and `fuse: true` exists only
 // so the verification can measure how far apart the two are.
 //
 // SINCE 2026-09-08 THE SAME LOWERING TAKES A PLATE. core/emit-cft.mjs
-// hands it the shape function core/emit.mjs wrote, and three things
-// were added for that and nothing else: vectors, scalarised at the parse
-// so a vec3 is three of the values already here; BINDINGS, so a
-// parameter may come from a named stream, from several, or from the
-// constant bank; and a PER-RUN TAIL of the bank - the eight levers and
-// the clock - laid out after the program's own constants in a fixed
-// order, so the day the coprocessor takes a bank per run (its
-// OPT-D-contract.md item 5) the split is a boundary and not a re-emit.
-// A `t` value is a slot of that tail: never folded, since its value is
-// not known here.
+// hands it the shape function core/emit.mjs wrote, and four things were
+// added for that and nothing else: vectors, scalarised at the parse so
+// a vec3 is three of the values already here; BINDINGS, so a parameter
+// may come from a named stream, from several, or from the constant
+// bank; a PER-RUN TAIL of the bank - the eight levers and the clock -
+// laid out after the program's own constants in a fixed order, which
+// the coprocessor's per-run bank (its revision 2, the same day) now
+// takes as data; and LOOPS, below. A `t` value is a slot of that tail:
+// never folded, since its value is not known here.
 
-import { OP, RND, CTRL, READS, ROUNDS, encode, NREG, KREG } from "./cft-isa.mjs";
+import { OP, RND, CTRL, READS, ROUNDS, encode, NREG, KREG, MAX_LOOP_DEPTH } from "./cft-isa.mjs";
 import { CASTS, BUILTIN_TYPES, VEC, isArray, arrayLen } from "./glsl-sub.mjs";
 
 const _b = new DataView(new ArrayBuffer(4));
@@ -75,12 +77,19 @@ export const EXPANSIONS = {
          "ever handed a subnormal's mantissa.",
   },
   f2i: {
-    insns: 2,
-    domain: "k an exact integer, |k| < 2^22",
-    how: "k + 1.5*2^23 lands in [2^23, 2^24) where the spacing is 1, so its " +
-         "encoding is 0x4B400000 + k in two's complement; one ISUB of " +
-         "0x4B400000 is int(k). This is the same magic constant the library " +
-         "already uses to round, so no new number enters the bank.",
+    insns: 6,
+    domain: "any finite x with |x| < 2^23; truncation toward zero, as GLSL 5.4.1 says",
+    how: "|x| + 2^23 under roundTowardNegative lands in [2^23, 2^24) where the " +
+         "spacing is 1, so its encoding is 0x4B000000 + floor(|x|) exactly; one " +
+         "ISUB of 0x4B000000 is floor(|x|) as an integer, and a select on the " +
+         "sign of x negates it - which is trunc(x), since floor of the magnitude " +
+         "is truncation. This replaced a two-instruction form that assumed x " +
+         "was already an integer (the library's int(k) after the shift trick " +
+         "always is): a plate's int(P[k] + 0.5) and int(u2f(pt) * n) are not, " +
+         "and the old form rounded them to nearest - measured 2026-09-08 on " +
+         "det_fract inside a loop, wave and stdmap wrong on every sample, and on " +
+         "half the corpus's integer levers, right only when the default happened " +
+         "to be even.",
   },
   i2f: {
     insns: 2,
@@ -154,6 +163,20 @@ export const EXPANSIONS = {
          "which moves the bits and rounds nothing. The one integer identity " +
          "the folder is told not to fold.",
   },
+  loop: {
+    insns: "one copy in per carried value, one copy back per iteration, and the flag",
+    domain: "for (int V = 0; V < N; V++) with breaks; no return inside",
+    how: "REPEAT N around the body written once. Every value the body assigns " +
+         "that was bound before the loop is CARRIED: copied into a register " +
+         "of its own before the REPEAT, read from it inside, and copied back " +
+         "at the end of every iteration - the copies are IOR against zero, " +
+         "exact on every bit pattern. A body with a `break` carries a running " +
+         "flag too: 1.0 going in, and-ed with not-the-break's-condition each " +
+         "iteration, and every write in the body is selected against it, so a " +
+         "lane that has left the loop keeps its values while the tile runs the " +
+         "remaining trips on it. The counter's `< N` is the trip count; the " +
+         "emitter's data-dependent exit is a break on the lever.",
+  },
 };
 
 /** Integer identities, and only integer ones.
@@ -189,22 +212,50 @@ function identityOf(op, a, b) {
   }
 }
 
+/** The name of an operand for a CSE key: an op, a constant, a tail
+ *  slot, a phi, or an input. */
+const operandKey = (v) =>
+  v === undefined ? "-"
+  : v.c !== undefined ? `c${v.c}`
+  : v.t !== undefined ? `t${v.t}`
+  : v.ph !== undefined ? `p${v.ph}`
+  : `r${v.r}`;
+
 class Fn {
   constructor(name) {
     this.name = name;
-    this.ops = [];             // {op, rnd, a, b, c, tag}
-    this.cse = new Map();
+    this.ops = [];             // {op, rnd, a, b, c, type, tag} | {ctrl, trip, phis}
+    this.cse = [new Map()];    // one scope per open loop body, the outermost first
     this.folds = { int: 0, float: 0, identity: 0 };
-    this.needs = new Set();    // "imul", "kx"
+    this.needs = new Set();    // "imul", "kx", "regs32", "registers"
     this.gaps = new Map();     // expansion name -> count
+    this.phis = [];            // {id, name, type, initOp}
+    this.loopDepth = 0;
+    this.pendingPhis = [];     // phis created for the loop about to open
   }
 
   gap(k) { this.gaps.set(k, (this.gaps.get(k) || 0) + 1); }
 
+  cseGet(key) {
+    for (let i = this.cse.length - 1; i >= 0; i--) {
+      const hit = this.cse[i].get(key);
+      if (hit !== undefined) return hit;
+    }
+    return undefined;
+  }
+  pushCse() { this.cse.push(new Map()); }
+  popCse() { this.cse.pop(); }
+
   /** Emit one instruction, or reuse an identical earlier one. Every op
    *  here is a pure function of its operands, so common-subexpression
    *  elimination cannot change a result - and it is worth doing because
-   *  the inliner produces the same guard twice in several functions. */
+   *  the inliner produces the same guard twice in several functions.
+   *
+   *  CSE IS SCOPED TO THE LOOP BODY. A body op may reuse an outer op
+   *  (its operands are fixed for the loop's duration), but an op after
+   *  the loop may not reuse a body op, whose value is one iteration's -
+   *  and the key names a carried value by its phi, so no op reading the
+   *  value before the loop can match one reading it inside. */
   emit(op, args, { rnd = RND.RNE, type = "float", tag = "", noFold = false } = {}) {
     const reads = READS[op];
     if (!reads) throw new Error(`cft-lower: opcode ${op} has no operand map`);
@@ -217,17 +268,43 @@ class Fn {
     if (same) { this.folds.identity++; return { ...same, type }; }
     if (op === OP.IMUL) this.needs.add("imul");
     const key = [op, ROUNDS.has(op) ? rnd : 0,
-                 ...["a", "b", "c"].map(w => {
-                   const v = slot[w];
-                   return v === undefined ? "-" : v.c !== undefined ? `c${v.c}`
-                        : v.t !== undefined ? `t${v.t}` : `r${v.r}`;
-                 })].join("|");
-    const hit = this.cse.get(key);
-    if (hit !== undefined) return { r: hit, type };
+                 ...["a", "b", "c"].map(w => operandKey(slot[w]))].join("|");
+    if (!noFold) {
+      const hit = this.cseGet(key);
+      if (hit !== undefined) return { r: hit, type };
+    }
     const id = this.ops.length;
     this.ops.push({ op, rnd: ROUNDS.has(op) ? rnd : RND.RNE, ...slot, type, tag });
-    this.cse.set(key, id);
+    if (!noFold) this.cse[this.cse.length - 1].set(key, id);
     return { r: id, type };
+  }
+
+  /** A loop-carried value: a register of its own for the loop's
+   *  duration. Created before the REPEAT with a copy of the value it
+   *  starts from; read inside as {ph}; written back at the end of every
+   *  iteration; read after the loop as the final value. */
+  newPhi(name, type) {
+    const id = this.phis.length;
+    this.phis.push({ id, name, type, initOp: -1 });
+    return { ph: id, type };
+  }
+  phiInit(ph, src) {
+    const p = this.phis[ph.ph];
+    p.initOp = this.ops.length;
+    this.ops.push({ op: OP.IOR, rnd: RND.RNE, a: src, b: { c: 0, type: "uint" }, type: p.type,
+                    tag: `phi-init ${p.name}`, phiInit: ph.ph });
+    this.pendingPhis.push(ph.ph);
+  }
+  phiBack(ph, src) {
+    const p = this.phis[ph.ph];
+    this.ops.push({ op: OP.IOR, rnd: RND.RNE, a: src, b: { c: 0, type: "uint" }, type: p.type,
+                    tag: `phi-back ${p.name}`, phiBack: ph.ph });
+  }
+  ctrl(kind, trip) {
+    if (kind === "repeat") {
+      this.ops.push({ ctrl: "repeat", trip, phis: this.pendingPhis });
+      this.pendingPhis = [];
+    } else this.ops.push({ ctrl: "endrep" });
   }
 }
 
@@ -246,8 +323,8 @@ export function lowerFunction(lib, name, opts = {}) {
 
   // ---- values in the shape of their type
   //
-  // A scalar is {r}, {c}, {t} or an input; a vector is {vec: [...]} of
-  // scalars; an array is {arr: [...]}. Zero, selection and equality
+  // A scalar is {r}, {c}, {t}, {ph} or an input; a vector is {vec: [...]}
+  // of scalars; an array is {arr: [...]}. Zero, selection and equality
   // follow the shape, so the statement lowering below never has to ask.
   const zeroOf = (type) =>
     VEC[type] ? { vec: new Array(VEC[type].n).fill(0).map(() => K(K_ZERO, VEC[type].elem)), type }
@@ -259,7 +336,7 @@ export function lowerFunction(lib, name, opts = {}) {
     if (a.vec && b.vec) return a.vec.length === b.vec.length && a.vec.every((x, i) => sameVal(x, b.vec[i]));
     if (a.arr && b.arr) return a.arr.length === b.arr.length && a.arr.every((x, i) => sameVal(x, b.arr[i]));
     if (a.vec || b.vec || a.arr || b.arr) return false;
-    return a.r === b.r && a.c === b.c && a.t === b.t && a.arg === b.arg;
+    return a.r === b.r && a.c === b.c && a.t === b.t && a.ph === b.ph && a.arg === b.arg;
   };
   const selVal = (a, b, c, type, tag = "?:") => {
     if (a.vec || b.vec) {
@@ -274,7 +351,7 @@ export function lowerFunction(lib, name, opts = {}) {
   // ---- the ISA-gap expansions, each used by lowerExpr below
   const E = (op, args, o) => F.emit(op, args, o);
   const notb = (v) => E(OP.SUB, [K(K_ONE), v], { type: "bool", tag: "!" });
-  const andb = (p, q) => (p === null ? q : E(OP.MUL, [p, q], { type: "bool", tag: "&&" }));
+  const andb = (p, q) => (p === null ? q : q === null ? p : E(OP.MUL, [p, q], { type: "bool", tag: "&&" }));
   const orb = (p, q) => E(OP.MAX, [p, q], { type: "bool", tag: "||" });
 
   const uEq = (a, b) => {                                  // exact integer equality
@@ -296,10 +373,19 @@ export function lowerFunction(lib, name, opts = {}) {
     const e = E(OP.ISHR, [f, K(23, "uint")], { type: "uint", tag: "findMSB" });
     return E(OP.ISUB, [e, K(127, "int")], { type: "int", tag: "findMSB" });
   };
-  const f2i = (k) => {
+  // int(x): TRUNCATION toward zero of an arbitrary float, GLSL 5.4.1.
+  // floor of the magnitude through the 2^23 trick under roundTowardNegative
+  // - whose bit pattern IS 0x4B000000 + floor(|x|) - then the sign put
+  // back on the integer. Exact for |x| < 2^23; GLSL defines the cast to
+  // 2^31 and this does not reach it, which the domain says.
+  const f2i = (x) => {
     F.gap("f2i");
-    const t = E(OP.ADD, [k, K(K_MAGIC)], { type: "float", tag: "f2i" });
-    return E(OP.ISUB, [t, K(K_MAGIC, "uint")], { type: "int", tag: "f2i" });
+    const ax = E(OP.ABS, [x], { tag: "f2i" });
+    const p = E(OP.ADD, [ax, K(K_2P23)], { rnd: RND.RDN, type: "float", tag: "f2i" });
+    const na = E(OP.ISUB, [p, K(K_2P23, "uint")], { type: "int", tag: "f2i" });
+    const nn = E(OP.ISUB, [K(0, "int"), na], { type: "int", tag: "f2i" });
+    const neg = E(OP.CMPLT, [x, K(K_ZERO)], { type: "bool", tag: "f2i" });
+    return E(OP.SELECT, [nn, na, neg], { type: "int", tag: "f2i" });
   };
   const i2f = (n) => {
     F.gap("i2f");
@@ -332,6 +418,7 @@ export function lowerFunction(lib, name, opts = {}) {
   // `--minmax-opcode` puts the opcodes back so the divergence can be
   // measured rather than asserted; docs/CFT-DETLIB.md carries the
   // number. This corrects docs/ATLAS.md's census row for min/max.
+  //
   // The integer forms are the same comparisons over the integer
   // less-than, which the ISA has only unsigned; sLt biases for a signed
   // one. GLSL's min/max on ints have no NaN question, so the opcodes
@@ -623,11 +710,13 @@ export function lowerFunction(lib, name, opts = {}) {
   // where two paths rejoin; a `return` is recorded with the condition
   // that reaches it and the sequence keeps going. The returns are then
   // folded in source order, so the FIRST return whose condition holds
-  // is the one whose value survives - which is what a branch does.
+  // is the one whose value survives - which is what a branch does. A
+  // `break` inside a loop is recorded the same way, in `brks`, and the
+  // loop folds its carried values from those records.
   function lowerBody(f, env) {
     const rets = [];
     const outNames = f.params.filter(p => p.out).map(p => p.name);
-    const term = lowerStmt(f.body, env, null, rets, outNames);
+    const term = lowerStmt(f.body, env, null, rets, outNames, null);
     if (!term) rets.push({ cond: null, value: undefined,
                            outs: Object.fromEntries(outNames.map(n => [n, env.get(n)])) });
     if (!rets.length) throw new Error(`cft-lower: ${f.name} has no return path`);
@@ -649,10 +738,10 @@ export function lowerFunction(lib, name, opts = {}) {
     return { value, outs };
   }
 
-  function lowerStmt(s, env, cond, rets, outNames) {
+  function lowerStmt(s, env, cond, rets, outNames, brks) {
     switch (s.n) {
       case "block": {
-        for (const x of s.body) if (lowerStmt(x, env, cond, rets, outNames)) return true;
+        for (const x of s.body) if (lowerStmt(x, env, cond, rets, outNames, brks)) return true;
         return false;
       }
       case "decl":
@@ -662,15 +751,23 @@ export function lowerFunction(lib, name, opts = {}) {
       case "assign": env.set(s.name, lowerExpr(s.value, env)); return false;
       case "expr": lowerExpr(s.value, env); return false;
       case "return":
+        if (brks)
+          throw new Error("cft-lower: a return inside a loop is not lowered yet - none of " +
+                          "the sixty-nine positives writes one, and it would carry the value " +
+                          "out as the flag and the values are carried");
         rets.push({ cond, value: s.value ? lowerExpr(s.value, env) : undefined,
                     outs: Object.fromEntries(outNames.map(n => [n, env.get(n)])) });
+        return true;
+      case "break":
+        if (!brks) throw new Error("cft-lower: a break outside a loop");
+        brks.push({ cond, env: new Map(env) });
         return true;
       case "if": {
         const c = lowerExpr(s.c, env);
         const envT = new Map(env), envE = new Map(env);
-        const termT = lowerStmt(s.then, envT, andb(cond, c), rets, outNames);
+        const termT = lowerStmt(s.then, envT, andb(cond, c), rets, outNames, brks);
         const nc = notb(c);
-        const termE = s.els ? lowerStmt(s.els, envE, andb(cond, nc), rets, outNames) : false;
+        const termE = s.els ? lowerStmt(s.els, envE, andb(cond, nc), rets, outNames, brks) : false;
         if (termT && termE) return true;
         for (const k of new Set([...envT.keys(), ...envE.keys()])) {
           const vT = envT.get(k), vE = envE.get(k);
@@ -685,18 +782,134 @@ export function lowerFunction(lib, name, opts = {}) {
         }
         return false;
       }
-      // The loop is the one construct this pass does not hold yet: a
-      // REPEAT with the body's writes predicated on a running flag and
-      // the loop-carried values pinned to their registers across the
-      // back-edge. It is the next step, and a positive that carries one
-      // is refused by name here so tools/emit-cft.mjs --all can count
-      // them rather than guess.
-      case "for":
-      case "break":
-        throw new Error("cft-lower: a for loop is not lowered yet - REPEAT lowering " +
-                        "with predicated writes is the next step");
+      case "for": return lowerFor(s, env, cond, rets, outNames, brks);
       default: throw new Error(`cft-lower: statement ${s.n}`);
     }
+  }
+
+  // ---- the loop
+  //
+  // The emitter writes one loop shape - `for (int V = 0; V < N; V++)`
+  // with a data-dependent `break` inside - for s.orbit, sum, s.descend
+  // and s.window, and this lowers exactly that shape: the counter's
+  // bound is the REPEAT's trip count, and the break is the exit. Every
+  // name the body assigns that was bound before the loop is CARRIED: it
+  // gets a register of its own (a phi), copied in before the REPEAT,
+  // read inside, and copied back at the end of every iteration. A body
+  // with a break carries a running flag as well, and every write to a
+  // carried value is selected against it, so a lane that has left the
+  // loop holds its values still while the tile runs the remaining trips
+  // on it - which is what makes the early exit invisible (P3) whether
+  // or not the hardware takes it.
+  function collectAssigned(node, into) {
+    if (!node) return;
+    switch (node.n) {
+      case "assign": into.add(node.name); return;
+      case "block": node.body.forEach(x => collectAssigned(x, into)); return;
+      case "if": collectAssigned(node.then, into); collectAssigned(node.els, into); return;
+      case "for": collectAssigned(node.body, into); collectAssigned(node.step, into); return;
+      default: return;
+    }
+  }
+  function hasExit(node) {
+    if (!node) return false;
+    switch (node.n) {
+      case "break": return true;
+      case "block": return node.body.some(hasExit);
+      case "if": return hasExit(node.then) || hasExit(node.els);
+      case "for": return false;                  // a nested loop's break is its own
+      default: return false;
+    }
+  }
+  function makePhi(nm, cur) {
+    if (cur.vec) return { vec: cur.vec.map((x, i) => makePhi(`${nm}.${"xyzw"[i]}`, x)), type: cur.type };
+    if (cur.arr) throw new Error(`cft-lower: ${nm} is an array assigned inside a loop - not lowered`);
+    const ph = F.newPhi(nm, cur.type);
+    F.phiInit(ph, cur);
+    return ph;
+  }
+  function phiBackVal(ph, next) {
+    if (ph.vec) { ph.vec.forEach((x, i) => phiBackVal(x, next.vec[i])); return; }
+    if (sameVal(ph, next)) return;                 // unchanged on every path
+    // a phi read by another phi's copy-back has to go through a
+    // temporary, or the order of the copies would decide the answer
+    const src = next.ph !== undefined
+      ? E(OP.IOR, [next, K(0, "uint")], { type: next.type, tag: "phi-copy", noFold: true })
+      : next;
+    F.phiBack(ph, src);
+  }
+
+  function lowerFor(s, env, cond, rets, outNames, outerBrks) {
+    const bad = (why) => new Error(`cft-lower: a for loop that is not the emitter's shape (${why})`);
+    const init = s.init;
+    if (!init || init.n !== "decl" || init.type !== "int" || init.decls.length !== 1 ||
+        !init.decls[0].init || init.decls[0].init.n !== "lit") throw bad("its initialiser");
+    const V = init.decls[0].name, start = init.decls[0].init.value | 0;
+    const c = s.cond;
+    if (!c || c.n !== "bin" || c.op !== "<" || c.l.n !== "var" || c.l.name !== V || c.r.n !== "lit")
+      throw bad("its condition");
+    const bound = c.r.value | 0;
+    const st = s.step;
+    const inc = st && st.n === "assign" && st.name === V && st.value.n === "bin" && st.value.op === "+" &&
+                st.value.l.n === "var" && st.value.l.name === V && st.value.r.n === "lit" && st.value.r.value === 1;
+    if (!inc) throw bad("its step");
+    const trip = bound - start;
+    if (trip <= 0) throw bad(`a trip count of ${trip}`);
+    if (F.loopDepth >= MAX_LOOP_DEPTH)
+      throw new Error(`cft-lower: loops nest deeper than ${MAX_LOOP_DEPTH}, which the sequencer refuses`);
+
+    // the counter enters the environment before the loop, as GLSL scopes it
+    lowerStmt(init, env, cond, rets, outNames, outerBrks);
+    const assigned = new Set([V]);
+    collectAssigned(s.body, assigned);
+    const carried = [...assigned].filter(nm => env.has(nm));
+    const exits = hasExit(s.body);
+
+    const phiOf = new Map();
+    for (const nm of carried) {
+      const ph = makePhi(nm, env.get(nm));
+      phiOf.set(nm, ph);
+      env.set(nm, ph);
+    }
+    let run = null;
+    if (exits) { run = F.newPhi("__run", "bool"); F.phiInit(run, K(K_ONE, "bool")); }
+    F.ctrl("repeat", trip);
+    F.pushCse();
+    F.loopDepth++;
+
+    const bodyCond = andb(cond, run);
+    const envB = new Map(env);
+    const brks = [];
+    const term = lowerStmt(s.body, envB, bodyCond, rets, outNames, brks);
+    if (!term) lowerStmt(s.step, envB, bodyCond, rets, outNames, brks);
+
+    // each carried value's next: the fall-through value, selected
+    // against the body's condition, then the breaks in source order,
+    // the first to fire winning
+    const nextOf = new Map();
+    for (const nm of carried) {
+      const ph = phiOf.get(nm);
+      let value = term ? null
+                : bodyCond === null ? envB.get(nm) : selVal(envB.get(nm), ph, bodyCond, ph.type, "loop");
+      for (let i = brks.length - 1; i >= 0; i--) {
+        const sv = brks[i].env.get(nm);
+        value = value === null ? sv : selVal(sv, value, brks[i].cond, ph.type, "break");
+      }
+      if (value === null) throw new Error(`cft-lower: ${nm} has no value after the loop body`);
+      nextOf.set(nm, value);
+    }
+    if (run) {
+      let any = null;
+      for (const b of brks) any = any === null ? b.cond : orb(any, b.cond);
+      phiBackVal(run, any === null ? run : andb(run, notb(any)));
+    }
+    for (const nm of carried) phiBackVal(phiOf.get(nm), nextOf.get(nm));
+
+    F.loopDepth--;
+    F.popCse();
+    F.ctrl("endrep");
+    for (const nm of carried) env.set(nm, phiOf.get(nm));   // the registers hold the final values
+    return false;
   }
 
   // ---- run it
@@ -781,9 +994,9 @@ export function lowerFunction(lib, name, opts = {}) {
   // input is copied into one first, by an integer OR with zero, which
   // moves the bits and rounds nothing - and which the identity folder
   // is told to leave alone, since folding it is exactly what would undo
-  // the copy.
+  // the copy. A phi holds its register already.
   const materialise = (v) =>
-    (v.c !== undefined || v.t !== undefined || v.r < 0)
+    (v.c !== undefined || v.t !== undefined || (v.r !== undefined && v.r < 0))
       ? E(OP.IOR, [v, K(0, "uint")], { type: v.type, tag: "materialise", noFold: true })
       : v;
   const scalarsOf = (label, v) =>
@@ -802,19 +1015,22 @@ export function lowerFunction(lib, name, opts = {}) {
 
 // ------------------------------------------------- scheduling and regs
 //
-// Sixteen registers per lane is the binding constraint on this library,
-// and the order an expression walk happens to produce is not the order
-// that fits in them. The instructions form a DAG of pure operations, so
-// any topological order computes the same values and only the peak
-// number of live registers changes.
+// Sixteen registers per lane was the binding constraint on the library,
+// thirty-two is the one on the positives, and the order an expression
+// walk happens to produce is not the order that fits in them. Within a
+// straight-line SEGMENT - the instructions between one control word and
+// the next - the instructions form a DAG of pure operations, so any
+// topological order computes the same values and only the peak number
+// of live registers changes. Nothing moves across a REPEAT or an
+// ENDREP, and the copies into and out of a loop's carried registers
+// stay at the end of their segments where the loop needs them.
 //
-// Four schedules are built and the one with the lowest peak is kept.
-// Each is a greedy list schedule over the ready set - the instructions
-// whose operands are all computed - and they differ only in how they
-// break ties, which is where a greedy scheduler's whole behaviour
-// lives. Trying several and measuring is cheaper than arguing for one,
-// and `walk` is in the list so the doc can say what the reordering
-// bought. The winner is recorded per function in core/detlib.cft.json.
+// Several schedules are built per segment and the one with the lowest
+// peak over the whole program is kept: three kills-first list schedules,
+// two recency-first ones, the source order, and three depth-first
+// (Sethi-Ullman) orders that differ in how the results are ordered.
+// Then local moves improve the winner. The findings that shaped the
+// list are in docs/CFT-POSITIVE.md; the winner is recorded per program.
 
 const POLICIES = [
   // kills first, then the node furthest from a result: keep long
@@ -832,9 +1048,7 @@ const POLICIES = [
   // last temporary, and their intermediates pile up together. What a
   // wide straight-line program wants is depth first - consume what was
   // just computed, so a chain finishes and its operands die before the
-  // next one begins - which is also how the source order got its 17,
-  // and this policy improves on it where the source computes several
-  // things before using any of them.
+  // next one begins.
   { name: "recent", key: (s) => [-s.newest, 1 - s.kills, s.i] },
   { name: "recent-kills", key: (s) => [1 - s.kills, -s.newest, s.i] },
   // the order the expression walk produced, for comparison
@@ -849,30 +1063,26 @@ function lessKey(a, b) {
   return false;
 }
 
-/** One greedy list schedule. Returns the new order as indices into
- *  `ops`. */
-function listSchedule(ops, args, resultIds, policy) {
+/** The operands of an op that name other ops, as a list of op ids. */
+function predsOf(o) {
+  const s = [];
+  for (const w of ["a", "b", "c"]) { const v = o[w]; if (v && v.v !== undefined && !s.includes(v.v)) s.push(v.v); }
+  return s;
+}
+
+/** One greedy list schedule over a straight-line set of ops. Returns
+ *  the new order as indices into `ops`. `ops` here is segment-local:
+ *  {v} names an op of the segment, and anything else is external. */
+function listSchedule(ops, resultIds, policy) {
   const N = ops.length;
-  const preds = ops.map(o => {
-    const s = new Set();
-    for (const w of ["a", "b", "c"]) if (o[w] && o[w].v !== undefined) s.add(o[w].v);
-    return s;
-  });
+  const preds = ops.map(o => new Set(predsOf(o)));
   const uses = ops.map(() => []);
   preds.forEach((s, i) => { for (const p of s) uses[p].push(i); });
   const height = new Array(N).fill(0);
   for (let i = N - 1; i >= 0; i--)
     for (const u of uses[i]) height[i] = Math.max(height[i], height[u] + 1);
   const remaining = uses.map(u => u.length);
-  for (const id of resultIds) remaining[id]++;            // the deposit is a use
-  const argRemaining = args.map(() => 0);
-  for (const o of ops) {
-    const seen = new Set();
-    for (const w of ["a", "b", "c"]) {
-      const v = o[w];
-      if (v && v.arg !== undefined && !seen.has(v.arg)) { seen.add(v.arg); argRemaining[v.arg]++; }
-    }
-  }
+  for (const id of resultIds) remaining[id]++;            // a use outside the segment
   const unmet = preds.map(s => s.size);
   const ready = new Set();
   for (let i = 0; i < N; i++) if (unmet[i] === 0) ready.add(i);
@@ -886,14 +1096,6 @@ function listSchedule(ops, args, resultIds, policy) {
         if (remaining[p] === 1) kills++;
         if (posOf[p] > newest) newest = posOf[p];
       }
-      const seen = new Set();
-      for (const w of ["a", "b", "c"]) {
-        const v = ops[i][w];
-        if (v && v.arg !== undefined && !seen.has(v.arg)) {
-          seen.add(v.arg);
-          if (argRemaining[v.arg] === 1) kills++;
-        }
-      }
       const k = policy.key({ kills, height: height[i], fanout: remaining[i], i, newest });
       if (best < 0 || lessKey(k, bestKey)) { best = i; bestKey = k; }
     }
@@ -902,51 +1104,9 @@ function listSchedule(ops, args, resultIds, policy) {
     posOf[best] = order.length;
     order.push(best);
     for (const p of preds[best]) remaining[p]--;
-    const seen = new Set();
-    for (const w of ["a", "b", "c"]) {
-      const v = ops[best][w];
-      if (v && v.arg !== undefined && !seen.has(v.arg)) { seen.add(v.arg); argRemaining[v.arg]--; }
-    }
     for (const u of uses[best]) if (--unmet[u] === 0) ready.add(u);
   }
   return order;
-}
-
-/** The register profile of an order, without allocating: how many
- *  values are live INTO each instruction - defined before it, last read
- *  after it - plus the one it defines. Its peak is exactly the count
- *  the lowest-free-register scan below will use, so orders can be
- *  compared cheaply. Results stay live to the end, where the deposits
- *  are. */
-function pressureOf(ops, args, resultIds, order) {
-  const N = order.length;
-  const pos = new Array(ops.length).fill(-1);
-  order.forEach((id, p) => { pos[id] = p; });
-  const last = new Array(ops.length).fill(-1);
-  const argLast = new Array(args.length).fill(-1);
-  for (const id of order) {
-    const o = ops[id];
-    for (const w of ["a", "b", "c"]) {
-      const v = o[w];
-      if (!v) continue;
-      if (v.v !== undefined && pos[id] > last[v.v]) last[v.v] = pos[id];
-      if (v.arg !== undefined && pos[id] > argLast[v.arg]) argLast[v.arg] = pos[id];
-    }
-  }
-  for (const id of resultIds.ops) last[id] = N;
-  for (const a of resultIds.args) argLast[a] = N;
-  const diff = new Int32Array(N + 2);
-  const span = (def, l) => { const s = def + 1, e = Math.min(l, N); if (e > s) { diff[s]++; diff[e]--; } };
-  for (const id of order) if (last[id] >= 0) span(pos[id], last[id]);
-  args.forEach((_, k) => { if (argLast[k] >= 0) span(-1, argLast[k]); });
-  let live = 0, peak = 0, sum = 0;
-  for (let p = 0; p < N; p++) {
-    live += diff[p];
-    const need = live + 1;
-    if (need > peak) peak = need;
-    sum += need;
-  }
-  return { peak, sum, pos };
 }
 
 /** Sethi and Ullman's register need, per instruction: the registers it
@@ -959,9 +1119,7 @@ function pressureOf(ops, args, resultIds, order) {
 function suNeed(ops) {
   const need = new Array(ops.length).fill(1);
   ops.forEach((o, i) => {
-    const ch = [];
-    for (const w of ["a", "b", "c"]) { const v = o[w]; if (v && v.v !== undefined && !ch.includes(v.v)) ch.push(v.v); }
-    const ns = ch.map(c => need[c]).sort((x, y) => y - x);
+    const ns = predsOf(o).map(c => need[c]).sort((x, y) => y - x);
     let n = 1;
     ns.forEach((c, j) => { if (c + j > n) n = c + j; });
     need[i] = n;
@@ -982,14 +1140,10 @@ function suNeed(ops) {
  *  four of them before the second one starts. */
 function suOrder(ops, need, resultOrder, resultSet) {
   const N = ops.length;
-  const preds = ops.map(o => {
-    const ch = [];
-    for (const w of ["a", "b", "c"]) { const v = o[w]; if (v && v.v !== undefined && !ch.includes(v.v)) ch.push(v.v); }
-    return ch;
-  });
+  const preds = ops.map(predsOf);
   const consumers = ops.map(() => []);
   preds.forEach((ps, i) => { for (const p of ps) consumers[p].push(i); });
-  // readers still to come, per value; the deposit is a reader
+  // readers still to come, per value; a use outside the segment is a reader
   const remaining = consumers.map(c => c.length);
   for (const r of resultSet) remaining[r]++;
   const unmet = preds.map(p => p.length);
@@ -1043,25 +1197,103 @@ function suOrder(ops, need, resultOrder, resultSet) {
   return order;
 }
 
+/** The register profile of a whole program in a given order, without
+ *  allocating: for every value, the position it is defined at and the
+ *  position it is last needed at, and from those how many are live
+ *  into each instruction. Its peak is exactly the count the
+ *  lowest-free-register scan below will use, so orders can be compared
+ *  cheaply.
+ *
+ *  THE LOOP RULE. A value defined outside a loop and read inside it is
+ *  needed on every trip, so its last use is the loop's ENDREP - the
+ *  outermost loop that contains the read and not the definition. A
+ *  carried value (a phi) is needed from its copy-in to its loop's
+ *  ENDREP at least, and to its last read after the loop. A value
+ *  defined inside a body dies inside the body, which is what makes the
+ *  body's registers reusable across trips; a body value read after the
+ *  loop would be one trip's, and there is none by construction. */
+function profileOf(ops, args, resultIds, order, geo) {
+  const N = order.length;
+  const pos = new Int32Array(ops.length).fill(-1);
+  order.forEach((id, p) => { pos[id] = p; });
+  // where every loop starts and ends in this order
+  const lStart = geo.loops.map(l => pos[l.repeatOp]);
+  const lEnd = geo.loops.map(l => pos[l.endrepOp]);
+  const inside = (l, p) => p > lStart[l] && p < lEnd[l];
+  // the position a read at `q` (by op `reader`) counts as, given the
+  // definition's position `d`: the outermost loop around the reader
+  // that does not contain the definition ends the value's life
+  const usePos = (reader, q, d) => {
+    let u = q;
+    for (let l = geo.opLoop[reader]; l >= 0; l = geo.loops[l].parent)
+      if (!inside(l, d)) u = lEnd[l];
+    return u;
+  };
+  const last = new Int32Array(ops.length).fill(-1);
+  const argLast = new Int32Array(args.length).fill(-1);
+  const defOf = (id) => pos[id];
+  for (const id of order) {
+    const o = ops[id];
+    if (o.ctrl) continue;
+    const q = pos[id];
+    for (const w of ["a", "b", "c"]) {
+      const v = o[w];
+      if (!v) continue;
+      if (v.v !== undefined) { const u = usePos(id, q, defOf(v.v)); if (u > last[v.v]) last[v.v] = u; }
+      else if (v.ph !== undefined) {
+        const init = geo.phiInit[v.ph];
+        const u = usePos(id, q, defOf(init));
+        if (u > last[init]) last[init] = u;
+      } else if (v.arg !== undefined) { const u = usePos(id, q, -1); if (u > argLast[v.arg]) argLast[v.arg] = u; }
+    }
+    if (o.phiBack !== undefined) {
+      // the copy-back writes the phi's register at this position, and
+      // the register is needed to the end of the loop whatever else
+      const init = geo.phiInit[o.phiBack];
+      const lend = lEnd[geo.phiLoop[o.phiBack]];
+      if (q > last[init]) last[init] = q;
+      if (lend > last[init]) last[init] = lend;
+    }
+    if (o.phiInit !== undefined) {
+      const lend = lEnd[geo.phiLoop[o.phiInit]];
+      if (lend > last[id]) last[id] = lend;
+    }
+  }
+  for (const id of resultIds.ops) last[id] = N;
+  for (const a of resultIds.args) argLast[a] = N;
+  // live into position p: defined before p, last needed after p
+  const diff = new Int32Array(N + 2);
+  const span = (def, l) => { const s = def + 1, e = Math.min(l, N); if (e > s) { diff[s]++; diff[e]--; } };
+  for (const id of order) if (!ops[id].ctrl && ops[id].phiBack === undefined && last[id] >= 0) span(pos[id], last[id]);
+  args.forEach((_, k) => { if (argLast[k] >= 0) span(-1, argLast[k]); });
+  let live = 0, peak = args.length, sum = 0;
+  for (let p = 0; p < N; p++) {
+    live += diff[p];
+    const o = ops[order[p]];
+    const defines = !o.ctrl && o.phiBack === undefined;
+    const need = live + (defines ? 1 : 0);
+    if (need > peak) peak = need;
+    sum += need;
+  }
+  return { peak, sum, pos, last, argLast };
+}
+
 /** Local moves on a topological order, accepted when they lower the
  *  peak or, at equal peak, the sum of live registers over the program.
  *
  *  Each instruction is tried at the two ends of its legal window - just
- *  after its last producer, and just before its first consumer - which
- *  are where a value's lifetime is shortest at one end or the other.
+ *  after its last producer, and just before its first consumer, within
+ *  its own segment and short of the segment's pinned tail - which are
+ *  where a value's lifetime is shortest at one end or the other.
  *  Sinking a producer toward its consumer is what a list scheduler
  *  cannot do, because it decides an instruction's place when the
  *  instruction becomes ready rather than when it is needed. The passes
  *  stop when a sweep changes nothing. Deterministic: same order in,
  *  same order out. */
-function improveOrder(ops, args, resultIds, order0) {
+function improveOrder(ops, args, resultIds, order0, geo) {
   let order = order0.slice();
-  let best = pressureOf(ops, args, resultIds, order);
-  const preds = ops.map(o => {
-    const s = [];
-    for (const w of ["a", "b", "c"]) { const v = o[w]; if (v && v.v !== undefined) s.push(v.v); }
-    return s;
-  });
+  let best = profileOf(ops, args, resultIds, order, geo);
+  const preds = ops.map(o => (o.ctrl ? [] : predsOf(o)));
   const consumers = ops.map(() => []);
   ops.forEach((o, id) => { for (const p of preds[id]) consumers[p].push(id); });
   const N = order.length;
@@ -1070,17 +1302,19 @@ function improveOrder(ops, args, resultIds, order0) {
     let improved = false;
     for (let p = 0; p < N; p++) {
       const id = order[p];
+      const o = ops[id];
+      if (o.ctrl || o.phiInit !== undefined || o.phiBack !== undefined) continue;   // pinned
+      const seg = geo.segOf[id];
       const pos = best.pos;
-      let lo = 0;
+      let lo = geo.segFrom(seg, pos), hi = geo.segTo(seg, pos);
       for (const q of preds[id]) if (pos[q] + 1 > lo) lo = pos[q] + 1;
-      let hi = N - 1;
       for (const c of consumers[id]) if (pos[c] - 1 < hi) hi = pos[c] - 1;
       for (const target of [hi, lo]) {
-        if (target === p) continue;
+        if (target === p || target < 0 || target >= N) continue;
         const cand = order.slice();
         cand.splice(p, 1);
         cand.splice(target, 0, id);
-        const sc = pressureOf(ops, args, resultIds, cand);
+        const sc = profileOf(ops, args, resultIds, cand, geo);
         if (sc.peak < best.peak || (sc.peak === best.peak && sc.sum < best.sum)) {
           order = cand; best = sc; improved = true; break;
         }
@@ -1091,81 +1325,153 @@ function improveOrder(ops, args, resultIds, order0) {
   return { order, peak: best.peak, passes };
 }
 
-/** Registers, by linear scan over a given order.
- *
- *  THE POOL IS UNBOUNDED ON PURPOSE. A function that needs more than
- *  sixteen registers is a fact worth reporting with a number rather
- *  than an exception - docs/ATLAS.md item 4 argues for CALL from
- *  instruction count alone, and register pressure turns out to be the
- *  sharper constraint. An operand's register returns to the free list
- *  at the instruction that last reads it, AFTER that instruction's own
- *  reads, so a destination may legally reuse a source's register: the
- *  lane reads a, b and c, then writes rd. */
-function allocate(ops, args, resultIdSet, tailBase = 0) {
-  const N = ops.length;
-  const lastUse = new Array(N).fill(-1);
-  const argLast = new Array(args.length).fill(-1);
-  ops.forEach((o, i) => {
-    for (const w of ["a", "b", "c"]) {
-      const v = o[w];
-      if (!v) continue;
-      if (v.v !== undefined) lastUse[v.v] = i;
-      if (v.arg !== undefined) argLast[v.arg] = i;
-    }
-  });
-  for (const id of resultIdSet.ops) lastUse[id] = N;      // live through the deposits
-  for (const a of resultIdSet.args) argLast[a] = N;
-
+/** Registers, by linear scan over the final order, with the profile's
+ *  intervals. A value's register returns to the free list at the
+ *  position it is last needed - AFTER that instruction's own reads, so
+ *  a destination may legally reuse a source's register: the lane reads
+ *  a, b and c, then writes rd. A carried value keeps one register from
+ *  its copy-in through its loop; its copy-backs write that register and
+ *  allocate nothing. THE POOL IS UNBOUNDED ON PURPOSE: a program that
+ *  needs more than the lane has is a fact worth reporting with a number
+ *  rather than an exception. */
+function allocate(ops, args, resultIds, order, geo, tailBase = 0) {
+  const prof = profileOf(ops, args, resultIds, order, geo);
+  const N = order.length;
   const free = [];
   for (let r = 256 * NREG - 1; r >= args.length; r--) free.push(r);
-  const regOf = new Array(N).fill(-1);
+  const regOf = new Int32Array(ops.length).fill(-1);
+  const phiReg = new Int32Array(geo.phiInit.length).fill(-1);
   const argReg = args.map((_, i) => i);
-  const dead = new Set();
   let peak = args.length;
   const out = [];
-  for (let i = 0; i < N; i++) {
-    const dying = [];
-    args.forEach((_, k) => { if (argLast[k] === i && argReg[k] >= 0) dying.push(["arg", k]); });
-    for (let j = 0; j < i; j++) if (lastUse[j] === i && !dead.has(j)) dying.push(["op", j]);
-    for (const [kind, k] of dying) free.push(kind === "arg" ? argReg[k] : regOf[k]);
-    if (!free.length) throw new Error("cft-lower: the register pool ran dry");
-    free.sort((a, b) => a - b);
-    const rd = free.shift();
-    peak = Math.max(peak, rd + 1);
-    const o = ops[i];
-    const src = (w) => {
-      const v = o[w];
-      if (!v) return { reg: 0, k: false };
-      if (v.k !== undefined) return { reg: v.k, k: true };
-      if (v.t !== undefined) return { reg: tailBase + v.t, k: true };   // the per-run tail
-      if (v.arg !== undefined) return { reg: argReg[v.arg], k: false };
-      const r = regOf[v.v];
-      if (r < 0) throw new Error("cft-lower: an operand has no register");
-      return { reg: r, k: false };
-    };
-    const a = src("a"), b = src("b"), c = src("c");
-    regOf[i] = rd;
-    for (const [kind, k] of dying) { if (kind === "arg") argReg[k] = -1; else dead.add(k); }
-    out.push({ i, rd, a, b, c, op: o.op, rnd: o.rnd, tag: o.tag });
+  // who dies at each position
+  const dying = new Array(N + 1).fill(null).map(() => []);
+  for (const id of order) {
+    const o = ops[id];
+    if (o.ctrl || o.phiBack !== undefined) continue;
+    if (prof.last[id] >= 0 && prof.last[id] < N) dying[prof.last[id]].push(["op", id]);
   }
-  return { alloc: out, regOf, argReg, peak };
+  args.forEach((_, k) => { if (prof.argLast[k] >= 0 && prof.argLast[k] < N) dying[prof.argLast[k]].push(["arg", k]); });
+  const src = (o, w) => {
+    const v = o[w];
+    if (!v) return { reg: 0, k: false };
+    if (v.k !== undefined) return { reg: v.k, k: true };
+    if (v.t !== undefined) return { reg: tailBase + v.t, k: true };   // the per-run tail
+    if (v.arg !== undefined) {
+      if (argReg[v.arg] < 0) throw new Error(`cft-lower: input ${args[v.arg].name} read after its register was freed`);
+      return { reg: argReg[v.arg], k: false };
+    }
+    if (v.ph !== undefined) {
+      if (phiReg[v.ph] < 0) throw new Error("cft-lower: a carried value read before its copy-in");
+      return { reg: phiReg[v.ph], k: false };
+    }
+    const r = regOf[v.v];
+    if (r < 0) throw new Error("cft-lower: an operand has no register");
+    return { reg: r, k: false };
+  };
+  for (let p = 0; p < N; p++) {
+    const id = order[p];
+    const o = ops[id];
+    if (o.ctrl) {
+      for (const [kind, k] of dying[p]) free.push(kind === "arg" ? argReg[k] : regOf[k]);
+      for (const [kind, k] of dying[p]) { if (kind === "arg") argReg[k] = -1; }
+      out.push({ i: id, ctrl: o.ctrl, trip: o.trip });
+      continue;
+    }
+    const a = src(o, "a"), b = src(o, "b"), c = src(o, "c");
+    for (const [kind, k] of dying[p]) free.push(kind === "arg" ? argReg[k] : regOf[k]);
+    for (const [kind, k] of dying[p]) { if (kind === "arg") argReg[k] = -1; }
+    let rd;
+    if (o.phiBack !== undefined) {
+      rd = phiReg[o.phiBack];
+      if (rd < 0) throw new Error("cft-lower: a copy-back before its copy-in");
+    } else {
+      if (!free.length) throw new Error("cft-lower: the register pool ran dry");
+      free.sort((x, y) => x - y);
+      rd = free.shift();
+      if (rd + 1 > peak) peak = rd + 1;
+      regOf[id] = rd;
+      if (o.phiInit !== undefined) phiReg[o.phiInit] = rd;
+    }
+    out.push({ i: id, rd, a, b, c, op: o.op, rnd: o.rnd, tag: o.tag });
+  }
+  return { alloc: out, regOf, argReg, phiReg, peak };
+}
+
+/** The geometry of a program's op list: its loops, which loop each op
+ *  is in, its straight-line segments, and where each phi's copy-in and
+ *  loop are. Independent of the order within segments. */
+function geometryOf(ops, phis) {
+  const loops = [];
+  const stack = [];
+  const opLoop = new Int32Array(ops.length).fill(-1);
+  const phiLoop = new Int32Array(phis.length).fill(-1);
+  const phiInit = new Int32Array(phis.length).fill(-1);
+  ops.forEach((o, i) => {
+    if (o.phiInit !== undefined) phiInit[o.phiInit] = i;
+  });
+  ops.forEach((o, i) => {
+    if (o.ctrl === "repeat") {
+      const l = loops.length;
+      loops.push({ repeatOp: i, endrepOp: -1, parent: stack.length ? stack[stack.length - 1] : -1,
+                   depth: stack.length + 1, trip: o.trip });
+      for (const ph of o.phis) phiLoop[ph] = l;
+      opLoop[i] = stack.length ? stack[stack.length - 1] : -1;
+      stack.push(l);
+      return;
+    }
+    if (o.ctrl === "endrep") {
+      const l = stack.pop();
+      if (l === undefined) throw new Error("cft-lower: an ENDREP without its REPEAT");
+      loops[l].endrepOp = i;
+      opLoop[i] = stack.length ? stack[stack.length - 1] : -1;
+      return;
+    }
+    opLoop[i] = stack.length ? stack[stack.length - 1] : -1;
+  });
+  if (stack.length) throw new Error("cft-lower: a REPEAT without its ENDREP");
+  // segments: maximal runs of ALU ops between control ops
+  const segOf = new Int32Array(ops.length).fill(-1);
+  const segs = [];
+  let cur = null;
+  ops.forEach((o, i) => {
+    if (o.ctrl) { cur = null; return; }
+    if (!cur) { cur = { ops: [], pinned: [] }; segs.push(cur); }
+    segOf[i] = segs.length - 1;
+    if (o.phiInit !== undefined || o.phiBack !== undefined) cur.pinned.push(i); else cur.ops.push(i);
+  });
+  const geo = { loops, opLoop, phiLoop, phiInit, segOf, segs };
+  // the reorderable window of a segment in a given order: from its first
+  // free op to just before its first pinned op (or its last free op)
+  geo.segFrom = (s, pos) => Math.min(...segs[s].ops.map(i => pos[i]));
+  geo.segTo = (s, pos) => {
+    const lastFree = Math.max(...segs[s].ops.map(i => pos[i]));
+    const firstPinned = segs[s].pinned.length ? Math.min(...segs[s].pinned.map(i => pos[i])) : Infinity;
+    return Math.min(lastFree, firstPinned - 1);
+  };
+  return geo;
 }
 
 function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = true, tailValues = [] }) {
-  // ---- dead code elimination, from the results back. The predication
-  // above evaluates paths that a branch would have skipped, and CSE
-  // then leaves whole subtrees with no consumer; this is what removes
-  // them.
+  // ---- dead code elimination, from the results and the loops' copies
+  // back. The predication above evaluates paths that a branch would
+  // have skipped, and CSE then leaves whole subtrees with no consumer;
+  // this is what removes them. Control words and phi copies always stay.
   const live = new Set();
-  const stack = results.map(r => r.value).filter(v => v.r !== undefined && v.r >= 0)
-                       .map(v => v.r);
+  const stack = results.map(r => r.value).filter(v => v.r !== undefined && v.r >= 0).map(v => v.r);
+  results.forEach(r => { if (r.value.ph !== undefined) stack.push(F.phis[r.value.ph].initOp); });
+  F.ops.forEach((o, i) => { if (o.ctrl || o.phiInit !== undefined || o.phiBack !== undefined) stack.push(i); });
   while (stack.length) {
     const i = stack.pop();
     if (live.has(i)) continue;
     live.add(i);
+    const o = F.ops[i];
+    if (o.ctrl) continue;
     for (const w of ["a", "b", "c"]) {
-      const v = F.ops[i][w];
-      if (v && v.r !== undefined && v.r >= 0) stack.push(v.r);
+      const v = o[w];
+      if (!v) continue;
+      if (v.r !== undefined && v.r >= 0) stack.push(v.r);
+      if (v.ph !== undefined) stack.push(F.phis[v.ph].initOp);
     }
   }
   const keep = [...live].sort((a, b) => a - b);
@@ -1181,100 +1487,151 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
   };
   const ops = keep.map(old => {
     const o = F.ops[old];
+    if (o.ctrl) return { ctrl: o.ctrl, trip: o.trip, phis: o.phis };
     const m = { op: o.op, rnd: o.rnd, tag: o.tag, type: o.type };
+    if (o.phiInit !== undefined) m.phiInit = o.phiInit;
+    if (o.phiBack !== undefined) m.phiBack = o.phiBack;
     for (const w of ["a", "b", "c"]) {
       const v = o[w];
       if (v === undefined) continue;
       if (v.c !== undefined) m[w] = { k: kslot(v.c) };
       else if (v.t !== undefined) m[w] = { t: v.t };
+      else if (v.ph !== undefined) m[w] = { ph: v.ph };
       else if (v.r < 0) m[w] = { arg: -1 - v.r };
       else m[w] = { v: newId0.get(v.r) };
     }
     return m;
   });
+  const geo = geometryOf(ops, F.phis);
+  if (geo.loops.some(l => l.depth > MAX_LOOP_DEPTH))
+    throw new Error(`cft-lower: loops nest deeper than ${MAX_LOOP_DEPTH}`);
 
   const resultOpIds = new Set();
   const resultArgIds = new Set();
   for (const r of results) {
-    if (r.value.c !== undefined || r.value.t !== undefined)
+    const v = r.value;
+    if (v.c !== undefined || v.t !== undefined)
       throw new Error("cft-lower: an unmaterialised constant result");
-    if (r.value.r < 0) resultArgIds.add(-1 - r.value.r);
-    else resultOpIds.add(newId0.get(r.value.r));
+    if (v.ph !== undefined) resultOpIds.add(newId0.get(F.phis[v.ph].initOp));
+    else if (v.r < 0) resultArgIds.add(-1 - v.r);
+    else resultOpIds.add(newId0.get(v.r));
   }
+  const resultIds = { ops: resultOpIds, args: resultArgIds };
+
+  // ---- per-segment orders under one policy, concatenated in program
+  // order with the control words and the pinned copies in place
+  const readOutside = (segIdx) => {
+    // which of the segment's free ops are read outside it (or by its
+    // pinned ops, or are results): live to the segment's end
+    const seg = geo.segs[segIdx];
+    const inSeg = new Set(seg.ops);
+    const out = new Set();
+    ops.forEach((o, i) => {
+      if (o.ctrl) return;
+      for (const w of ["a", "b", "c"]) {
+        const v = o[w];
+        if (v && v.v !== undefined && inSeg.has(v.v) && (!inSeg.has(i) || o.phiInit !== undefined || o.phiBack !== undefined)) out.add(v.v);
+      }
+    });
+    for (const r of resultOpIds) if (inSeg.has(r)) out.add(r);
+    return out;
+  };
+  const segLocal = geo.segs.map((seg, s) => {
+    const idx = new Map(seg.ops.map((id, i) => [id, i]));
+    const local = seg.ops.map(id => {
+      const o = ops[id];
+      const m = { op: o.op, tag: o.tag };
+      for (const w of ["a", "b", "c"]) {
+        const v = o[w];
+        if (v && v.v !== undefined && idx.has(v.v)) m[w] = { v: idx.get(v.v) };
+      }
+      return m;
+    });
+    const outside = readOutside(s);
+    const localResults = new Set([...outside].map(id => idx.get(id)));
+    return { local, idx, localResults, need: suNeed(local) };
+  });
+  const orderUnder = (policy, suMode = null) => {
+    const order = [];
+    let s = 0;
+    // walk the ops in program order, emitting each segment's schedule
+    // where the segment begins and control words where they are
+    let i = 0;
+    while (i < ops.length) {
+      const o = ops[i];
+      if (o.ctrl) { order.push(i); i++; continue; }
+      const seg = geo.segs[s], L = segLocal[s];
+      let localOrder;
+      if (suMode === null) localOrder = listSchedule(L.local, [...L.localResults], policy);
+      else {
+        const rs = [...L.localResults].sort((a, b) => a - b);
+        const rOrder = suMode === "su" ? rs : suMode === "su-rev" ? rs.slice().reverse()
+                     : rs.slice().sort((a, b) => L.need[b] - L.need[a] || a - b);
+        localOrder = suOrder(L.local, L.need, rOrder, L.localResults);
+      }
+      for (const li of localOrder) order.push(seg.ops[li]);
+      for (const pid of seg.pinned) order.push(pid);
+      i += seg.ops.length + seg.pinned.length;
+      s++;
+    }
+    return order;
+  };
 
   // pick the schedule with the lowest register peak, deterministically
   const tried = [];
   let best = null;
-  const resultIds = { ops: resultOpIds, args: resultArgIds };
-  for (const policy of (doSchedule ? POLICIES : [POLICIES[POLICIES.length - 1]])) {
-    const order = listSchedule(ops, args, [...resultOpIds], policy);
-    const peak = pressureOf(ops, args, resultIds, order).peak;
-    tried.push({ policy: policy.name, peak });
-    if (!best || peak < best.peak) best = { policy, order, peak };
-  }
-  // Sethi-Ullman orders, depth first from the results - see suOrder.
-  // Three ways of ordering the results themselves, since the DAG's
-  // shared values make that choice matter and no rule settles it.
-  if (doSchedule) {
-    const rs = [...resultOpIds];
-    const need = suNeed(ops);
-    for (const [name, rOrder] of [
-      ["su", rs],
-      ["su-rev", rs.slice().reverse()],
-      ["su-need", rs.slice().sort((a, b) => need[b] - need[a] || a - b)],
-    ]) {
-      const order = suOrder(ops, need, rOrder, resultOpIds);
-      const peak = pressureOf(ops, args, resultIds, order).peak;
-      tried.push({ policy: name, peak });
-      if (peak < best.peak) best = { policy: { name }, order, peak };
-    }
-  }
+  const consider = (name, order) => {
+    const peak = profileOf(ops, args, resultIds, order, geo).peak;
+    tried.push({ policy: name, peak });
+    if (!best || peak < best.peak) best = { name, order, peak };
+  };
+  const policies = doSchedule ? POLICIES : [POLICIES[POLICIES.length - 1]];
+  for (const policy of policies) consider(policy.name, orderUnder(policy));
+  if (doSchedule) for (const mode of ["su", "su-rev", "su-need"]) consider(mode, orderUnder(null, mode));
   // then improve the winner by local moves - see improveOrder. Skipped
   // on the largest programs, where its quadratic sweep costs more than
   // the register it might save is worth measuring today.
-  let picked = best.policy.name;
+  let picked = best.name;
   if (doSchedule && ops.length <= 3000) {
-    const better = improveOrder(ops, args, resultIds, best.order);
-    tried.push({ policy: `${best.policy.name}+local`, peak: better.peak, passes: better.passes });
-    if (better.peak < best.peak) { best = { ...best, order: better.order, peak: better.peak }; picked = `${best.policy.name}+local`; }
+    const better = improveOrder(ops, args, resultIds, best.order, geo);
+    tried.push({ policy: `${best.name}+local`, peak: better.peak, passes: better.passes });
+    if (better.peak < best.peak) { best = { ...best, order: better.order, peak: better.peak }; picked = `${best.name}+local`; }
   }
-  const pos = new Map(best.order.map((old, i) => [old, i]));
-  const reordered = best.order.map(old => {
-    const o = { ...ops[old] };
-    for (const w of ["a", "b", "c"]) if (o[w] && o[w].v !== undefined) o[w] = { v: pos.get(o[w].v) };
-    return o;
-  });
-  const rIds = { ops: new Set([...resultOpIds].map(i => pos.get(i))), args: resultArgIds };
+  const order = best.order;
 
   // The constant bank was filled in walk order; re-lay it in the
-  // scheduled order, so the first sixteen slots - the ones an
-  // unextended tile can address - are the sixteen the program reaches
-  // first, and the listing reads in the order it executes.
+  // scheduled order, so the first sixteen slots - the ones the operand
+  // field can address - are the sixteen the program reaches first, and
+  // the listing reads in the order it executes.
   const bank = [];
   const remap = new Map();
-  for (const o of reordered)
+  for (const id of order) {
+    const o = ops[id];
+    if (o.ctrl) continue;
     for (const w of ["a", "b", "c"]) {
       const v = o[w];
       if (!v || v.k === undefined) continue;
       if (!remap.has(v.k)) { remap.set(v.k, bank.length); bank.push(F.bank[v.k]); }
       o[w] = { k: remap.get(v.k) };
     }
+  }
   // THE PER-RUN TAIL comes after the program's own constants, in the
   // order it was declared and whether or not each slot is read, so the
   // layout is a property of the emitter and not of one positive. The
   // values written here are the ones the program was emitted for - the
-  // lever defaults and the clock - and are what a bank-per-run would
-  // replace.
+  // lever defaults and the clock - and are what a bank-per-run
+  // replaces.
   const tailBase = bank.length;
   const tail = F.tail ?? 0;
   if (tailValues.length !== tail)
     throw new Error(`cft-lower: ${tail} tail slots declared, ${tailValues.length} values given`);
   for (let i = 0; i < tail; i++) bank.push(tailValues[i] >>> 0);
-  // allocate again over the remapped constants so the encoded operands
-  // carry the new indices
-  const final = allocate(reordered, args, rIds, tailBase);
 
-  const insns = final.alloc.map(({ rd, a, b, c, op, rnd, tag }) => {
+  const final = allocate(ops, args, resultIds, order, geo, tailBase);
+
+  const insns = final.alloc.map((e) => {
+    if (e.ctrl) return { ctrl: e.ctrl, trip: e.trip, tag: e.ctrl };
+    const { rd, a, b, c, op, rnd, tag } = e;
     const kx = [a, b, c].some(s => s.k && s.reg >= KREG);
     if (kx) F.needs.add("kx");
     return {
@@ -1288,17 +1645,22 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
 
   const deposits = results.map(r => {
     const v = r.value;
-    const reg = v.r < 0 ? final.argReg[-1 - v.r] : final.regOf[pos.get(newId0.get(v.r))];
-    if (reg < 0) throw new Error(`cft-lower: ${F.name}'s result ${r.name} has no register`);
+    const reg = v.ph !== undefined ? final.phiReg[v.ph]
+              : v.r < 0 ? final.argReg[-1 - v.r]
+              : final.regOf[newId0.get(v.r)];
+    if (reg === undefined || reg < 0) throw new Error(`cft-lower: ${F.name}'s result ${r.name} has no register`);
     return { name: r.name, reg };
   });
 
   const peak = final.peak;
   const encodable = peak <= NREG;
   if (!encodable) F.needs.add("registers");
+  if (peak > 16) F.needs.add("regs32");
   let words = null;
   if (encodable) {
-    words = insns.map(i => encode(i));
+    words = insns.map(i => (i.ctrl === "repeat" ? encode({ op: CTRL.REPEAT, ctrl: true, imm: i.trip })
+                          : i.ctrl === "endrep" ? encode({ op: CTRL.ENDREP, ctrl: true })
+                          : encode(i)));
     for (const d of deposits) words.push(encode({ op: CTRL.DEPOSIT, ra: d.reg, ctrl: true }));
     words.push(encode({ op: CTRL.HALT, ctrl: true }));
   }
@@ -1306,6 +1668,8 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
   if (F.needs.has("imul") && !isaExt)
     throw new Error(`cft-lower: ${F.name} needs IMUL - re-run with --isa-ext`);
 
+  const alu = insns.filter(i => !i.ctrl).length;
+  const loopWords = insns.length - alu;
   return {
     name: F.name,
     fused: fuse,
@@ -1319,14 +1683,17 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     tailBase,
     tail,
     regsUsed: peak,
+    loops: geo.loops.map(l => ({ trip: l.trip, depth: l.depth })),
+    phis: F.phis.length,
     schedules: tried,
     schedulePicked: picked,
     needs: [...F.needs].sort(),
     gaps: Object.fromEntries([...F.gaps].sort()),
     folds: F.folds,
     counts: {
-      alu: insns.length,
-      control: deposits.length + 1,
+      alu,
+      loop: loopWords,
+      control: loopWords + deposits.length + 1,
       total: insns.length + deposits.length + 1,
       consts: bank.length,
       fixedConsts: tailBase,

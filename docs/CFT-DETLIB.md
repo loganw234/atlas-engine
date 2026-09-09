@@ -450,3 +450,48 @@ exits 0 on all nineteen, same sweeps, same domains - which is what a
 scheduler is allowed to change and nothing else. The verification table
 and the register discipline above are kept as written, as the record of
 2026-09-07; `core/detlib.cft.json` carries today's schedules.
+
+## 2026-09-08, later - revision 2, and a cast the library never needed
+
+Two more changes to the record the same day, both from outside the
+library.
+
+**Revision 2 of the sequencer** (cft-fp256 docs/SEQUENCER.md, its
+closing section): thirty-two registers a lane behind CAPS[5], a
+4,096-word image, and a constant bank that arrives with the run behind
+CAPS[6]. `core/cft-isa.mjs` encodes five-bit register fields with the
+fifth bit in `imm[27:24]` and writes the `BANK_EXT` header. Nothing in
+the library's nineteen programs uses a register above fifteen, so their
+words are unchanged by R1; `gen-detlib --target cft` still writes them
+self-contained, with the bank in the image, because a library function
+has no per-run data.
+
+**`int(x)` truncates.** The two-instruction `f2i` above - add
+1.5·2^23, subtract the magic's bits - assumed its argument was already
+an integer, which the library's every `int(k)` is (k comes off the
+shift trick or the exponent field). A plate's `int(P[k] + 0.5)`,
+`int(u2f(pt) * n)` and `det_fract`'s `float(int(x))` are not, and GLSL
+5.4.1 says the cast truncates toward zero. The old form rounded them to
+nearest: measured 2026-09-08 on `wave` and `stdmap`, wrong on every
+sample, and on the corpus's integer levers, right exactly when the
+default happened to be even. `f2i` is now six instructions - floor of
+the magnitude through the 2^23 trick under roundTowardNegative, whose
+bit pattern IS `0x4B000000 + floor(|x|)`, then the sign put back on the
+integer - and exact for every finite `|x| < 2^23`. The library pays
+four instructions at each of its seven `int()` sites and computes the
+same bits:
+
+| function | ALU was | ALU is | registers |
+|---|---|---|---|
+| `det_exp2` | 41 | 45 | 6 |
+| `det_sincos` | 50 | 54 | 8 |
+| `det_sin` | 46 | 50 | 8 (was 7) |
+| `det_cos` | 46 | 50 | 7 (was 6) |
+| `det_tan` | 114 | 118 | 8 |
+| `det_pow` | 241 | 249 | 14 |
+| all nineteen | 1,362 | 1,390 | |
+
+`node tools/verify-cft-detlib.mjs --points 4096 --isa-ext` exits 0 on
+all nineteen under the new form, same sweeps, same domains. The
+verification table above is kept as the record of 2026-09-07;
+`core/detlib.cft.json` carries today's programs.

@@ -2,22 +2,27 @@
 """Run a sequencer program image through cft-fp256's golden model.
 
     python tools/cft-golden-run.py <image.cftp> <inputs.json> <out.json>
-                                   [--cft-root ../cft-fp256]
+                                   [--bank bank.bin] [--cft-root ../cft-fp256]
 
 python/cft_golden/seq.py is "the definition of correct for programs"
 in that project - the executable form of docs/SEQUENCER.md that its RTL
-is held to bit for bit. Running an image here is therefore the second
-oracle for the emitted program: libcft's program executor (reached from
-Node through the wasm build) and this model must agree on every deposit,
-and both must agree with the binary32 interpretation of the shipped
-GLSL. Three implementations, sharing nothing but the image bytes and the
+is held to bit for bit, at revision 2 since 2026-09-08: thirty-two
+registers, and a BANK_EXT image whose constants arrive with the run.
+Running an image here is therefore the second oracle for the emitted
+program: libcft's program executor (reached from Node through the wasm
+build) and this model must agree on every deposit, and both must agree
+with the binary32 interpretation of the shipped GLSL. Three
+implementations, sharing nothing but the image bytes, the bank and the
 text they came from.
 
 inputs.json holds the three streams as lists of 32-bit encodings
 (integers or "0x..." strings): {"a": [...], "b": [...], "c": [...]}.
-out.json receives the deposits as encodings in lane-major order
-(lane i, slot d at i * max_deposits + d), the per-lane counts, the
-flags and STATUS words, and the instruction count executed.
+--bank is the bank file for a BANK_EXT image: n_consts format-width
+values, dense, little-endian - the file tools/emit-cft.mjs writes as
+<id>.default.bank and positive-run takes with --bank. out.json receives
+the deposits as encodings in lane-major order (lane i, slot d at
+i * max_deposits + d), the per-lane counts, the flags and STATUS words,
+and the instruction count executed.
 
 The model is pure Python and this is slow - about a millisecond per
 instruction per lane - so callers hand it a subset of the lanes they
@@ -41,6 +46,7 @@ def main():
     ap.add_argument("image")
     ap.add_argument("inputs")
     ap.add_argument("out")
+    ap.add_argument("--bank", default=None)
     ap.add_argument("--cft-root", default=None)
     args = ap.parse_args()
 
@@ -59,8 +65,17 @@ def main():
     b = [u32(x) for x in inp.get("b", [0] * len(a))]
     c = [u32(x) for x in inp.get("c", [0] * len(a))]
 
+    bank = None
+    if args.bank:
+        raw = pathlib.Path(args.bank).read_bytes()
+        esz = prog.fmt.width // 8
+        if len(raw) % esz:
+            sys.exit(f"cft-golden-run: {args.bank} is {len(raw)} bytes, not a whole number of "
+                     f"{esz}-byte constants")
+        bank = [int.from_bytes(raw[i:i + esz], "little") for i in range(0, len(raw), esz)]
+
     t0 = time.time()
-    res = seq.run(prog, a, b, c)
+    res = seq.run(prog, a, b, c, bank=bank)
     dt = time.time() - t0
 
     out = {
@@ -68,7 +83,8 @@ def main():
         "lanes": len(a),
         "max_deposits": prog.max_deposits,
         "n_insns": len(prog.insns),
-        "n_consts": len(prog.consts),
+        "n_consts": prog.n_consts,
+        "bank_external": bool(prog.flags & seq.FLAG_BANK_EXT),
         "format": prog.fmt.name,
         "deposits": [f"0x{d:08x}" for d in res.deposits],
         "counts": list(res.counts),

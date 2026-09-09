@@ -280,33 +280,51 @@ what the two repositories are executing:
   addressed through the immediate so a program reaches 256 of them
   rather than sixteen. Eleven of the nineteen functions need the
   second; `hashu`, and so every draw in every positive, needs the
-  first. Both are published in the tile's capability word and are in
-  the bitstreams staged for that project's card day.
-- **The emitter target - `hopf`, done 2026-09-08.** `docs/CFT-POSITIVE.md`
-  is the record. `core/emit-cft.mjs` lowers the pinned shape function
-  `core/emit.mjs` writes - the text itself, not the walk - through the
-  same lowering that compiled the library, into an image of 602 words
-  and 16 registers, and `tools/verify-cft-positive.mjs` holds it to the
-  text's bits three ways: 4,096 samples through libcft's own
-  `cft_program_load` and `cft_program_run`, 256 lanes through the golden
-  model the tile's RTL is held to, and zero mismatches in either. Two
-  findings on the way. The input block needs three streams and not
-  seven: every emitted plate reads `seed` and `rnd.x` in its first two
-  lines only, so those two lines run on the host - integer arithmetic,
-  no latitude - and `q.x`, `q.y` and the stream state are the inputs.
-  And a whole positive is where the register wall is: the source order
-  needs 17, kills-first list schedules 22 to 46, and a depth-first
-  order with eager completion 16, which also brings `det_pow` from 17
-  to 14, so every det function fits a lane now. Measured over the
-  corpus, sixteen positives lower today and six fit as they stand; ten
-  exceed sixteen registers (17 to 46; `throughput` 212), six exceed the
-  image, and fifty wait on the loop, which is next.
-- **The loop, then the parity harness.** Fifty of the sixty-nine
-  positives carry a `for` the emitter wrote for `s.orbit`, `sum`,
-  `s.descend` or `s.window`; its lowering is `REPEAT` with predicated
-  writes, and `jong` is its first customer. Then a debug variant of the
-  emitted GLSL that writes `xyz`, `col` and `glow` to a buffer instead
-  of depositing, so the GPU's records and the tile's are compared per
+  first. Both are published in the tile's capability word and were in
+  the bitstreams of that project's card day, 2026-09-08, which saw
+  first light.
+- **The three the positives asked for - built 2026-09-08**, as
+  revision 2 of the sequencer: thirty-two registers a lane behind a
+  capability bit, a 4,096-word image, and the constant bank as run
+  data - an image that carries no constants, a bank that arrives with
+  every run, and one SHA-256 over the two together as the name of what
+  ran. The measured cost of the doubled register file, out of context
+  at the card's clock, was nothing.
+- **The emitter target - done 2026-09-08, loops included.**
+  `docs/CFT-POSITIVE.md` is the record. `core/emit-cft.mjs` lowers the
+  pinned shape function `core/emit.mjs` writes - the text itself, not
+  the walk - through the same lowering that compiled the library, into
+  an image, a bank and a `.cfta` text, and `tools/verify-cft-positive.mjs`
+  holds the program to the text's bits five ways: through libcft's own
+  `cft_program_run_bank` and `cft_program_digest`, through the golden
+  model the tile's RTL is held to, through that project's assembler
+  reproducing the image byte for byte from the text, and through the
+  runner that goes to the card. The loop the emitter writes for
+  `s.orbit`, `sum`, `s.descend` and `s.window` is a `REPEAT` with its
+  carried values pinned to registers and every write predicated on a
+  running flag a `break` clears. Measured over the corpus at revision
+  2: sixty-three positives lower, thirty-seven fit the tile as it
+  stands, and all thirty-seven reproduce the emitted text's bits through
+  every evaluation at their lever defaults and at a hashed setting off
+  them. Three findings on the way. The input block needs three
+  streams and not seven: every emitted plate reads `seed` and `rnd.x`
+  in its first two lines only, so those two lines run on the host -
+  integer arithmetic, no latitude - and `q.x`, `q.y` and the stream
+  state are the inputs. A whole positive is where the register wall
+  was: kills-first list schedules put `hopf` at 22 to 46 registers and
+  a depth-first order with eager completion at 16, which also brought
+  `det_pow` from 17 to 14. And one cast was wrong all along: `int(x)`
+  had the library's two-instruction form, exact only for an argument
+  already integral, where a plate's `int(P[k] + 0.5)` and
+  `det_fract`'s `float(int(x))` are not - right at the defaults exactly
+  when the default was even, wrong one notch over, and caught by
+  verifying off the defaults, which the verifier now does.
+- **What remains on this side.** Twenty-six positives exceed thirty-two
+  registers as scheduled (33 to 212) and six exceed the image; five
+  wait on an integer division sequence and one on a run-time-indexed
+  array. Then the parity harness: a debug variant of the emitted GLSL
+  that writes `xyz`, `col` and `glow` to a buffer instead of
+  depositing, so the GPU's records and the tile's are compared per
   sample and a first divergence gets named; then the records binned in
   index order, hashed, and the tile stands as one more column in the
   matrix above - with a deposition order that is a hardware guarantee

@@ -33,30 +33,38 @@
 // interpreter that scores the program. Integer arithmetic has no
 // latitude, so the partition costs the parity claim nothing: the tile
 // computes what the card computes from pt onward, and pt is the same
-// bits by definition. The day a fourth input arrives (the init block,
-// cft-fp256's OPT-D-contract.md item 6) the two lines move back into
-// the program and this file stops rewriting anything.
+// bits by definition.
 //
-// THE PER-RUN TAIL. P[0..7] and uT are constants to the program and
-// data to the darkroom: they change per lever setting, per frame, per
-// pass. They occupy the LAST nine slots of the bank in a fixed order -
-// P[0] through P[7], then uT - so one image serves a positive and a
-// bank-per-run (OPT-D item 5) is a boundary rather than a re-emit. The
-// image written here carries the lever defaults and uT = 0, which is
-// what tools/verify-cft-positive.mjs scores against.
+// THE IMAGE CARRIES NO CONSTANTS. Since the coprocessor's revision 2
+// (2026-09-08) an image may set BANK_EXT and take its whole constant
+// bank per run; this target always does, because the last nine slots of
+// that bank - P[0] through P[7], then uT - are the darkroom's data,
+// changing per lever setting, per frame, per pass. The program's own
+// constants come first in the bank, in first-use order; the tail comes
+// last in a fixed order whatever the plate reads. One image per
+// positive, loaded once; a run brings the bank; the digest libcft
+// computes is SHA-256 over image then bank, and this file computes the
+// same bytes so the two can be held to each other.
+//
+// The same program is also written as `.cfta` text, the coprocessor's
+// own assembly form, so its assembler can build the image again and the
+// two encoders are held byte for byte - the check that makes the
+// encoding a fact rather than a reading of the spec.
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
 import { emitWalk } from "./emit.mjs";
 import { shippedText } from "./detlib-text.mjs";
 import { HEADER_SRC } from "./glsl-header.mjs";
-import { substitute } from "./oracle.mjs";
+import { substitute, names as constNames, record } from "./oracle.mjs";
 import { unfuse, noFmaLeft } from "./unfuse.mjs";
 import { DetLib, bits as f32bits } from "./glsl-f32.mjs";
 import { lowerFunction } from "./cft-lower.mjs";
-import { imageBytes, NREG, IMEM_D, MAXD } from "./cft-isa.mjs";
-import { leverDefaults } from "./measure.mjs";
+import { imageBytes, bankBytes, OP_NAME, RND_NAME, READS, ROUNDS, RND,
+         NREG, NREG_REV1, IMEM_D, MAXD, KREG } from "./cft-isa.mjs";
+import { leverDefaults, hashu } from "./measure.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -109,6 +117,13 @@ export function unitTextFor(shapeGlsl) {
   };
 }
 
+const walkNames = (e, into) => {
+  if (!e || typeof e !== "object") return;
+  if (e.n === "var") into.add(e.name);
+  for (const k of ["a", "b", "c", "l", "r", "obj", "i", "value", "init", "cond", "step", "then", "els"]) if (e[k]) walkNames(e[k], into);
+  for (const k of ["args", "body", "decls"]) if (Array.isArray(e[k])) e[k].forEach(x => walkNames(x, into));
+};
+
 /** The shape function's two-line prologue, checked and taken out.
  *
  *  Asserts the registry signature, that the first two statements are
@@ -126,22 +141,10 @@ export function prologueOf(fn) {
     throw bad("the first statement is not `uint pt = ...`");
   if (!s1 || s1.n !== "assign" || s1.name !== "pt") throw bad("the second statement is not `pt = ...`");
   const names = new Set();
-  const walk = (e) => {
-    if (!e || typeof e !== "object") return;
-    if (e.n === "var") names.add(e.name);
-    for (const k of ["a", "b", "c", "l", "r", "obj", "i", "value", "init", "cond", "step", "then", "els"]) if (e[k]) walk(e[k]);
-    for (const k of ["args", "body", "decls"]) if (Array.isArray(e[k])) e[k].forEach(walk);
-  };
-  walk(s0.decls[0].init); walk(s1.value);
+  walkNames(s0.decls[0].init, names); walkNames(s1.value, names);
   for (const n of ["seed", "q", "rnd"]) if (!names.has(n)) throw bad(`it does not read ${n}`);
   const after = new Set();
-  const walkAfter = (e) => {
-    if (!e || typeof e !== "object") return;
-    if (e.n === "var") after.add(e.name);
-    for (const k of ["a", "b", "c", "l", "r", "obj", "i", "value", "init", "cond", "step", "then", "els"]) if (e[k]) walkAfter(e[k]);
-    for (const k of ["args", "body", "decls"]) if (Array.isArray(e[k])) e[k].forEach(walkAfter);
-  };
-  fn.body.body.slice(2).forEach(walkAfter);
+  fn.body.body.slice(2).forEach(s => walkNames(s, after));
   for (const n of ["seed", "rnd"])
     if (after.has(n)) throw new Error(`emit-cft: ${fn.name} reads ${n} after the prologue - the ` +
                                       `three-stream input block does not hold it`);
@@ -184,21 +187,111 @@ export function hostPrologue(lib, prologue, { qx, qy, rndx, seed }) {
   return env.get("pt") >>> 0;
 }
 
-/** The lever defaults and the clock as the tail's bit patterns. */
-export function tailValuesFor(pos, uT = 0) {
-  const P = leverDefaults(pos);
+/** The levers and the clock as the tail's bit patterns: the defaults
+ *  unless a setting is given by lever name. */
+export function tailValuesFor(pos, uT = 0, P = null) {
+  const Pv = P ?? leverDefaults(pos);
   const bits = new Array(TAIL.size).fill(0);
-  pos.leverNames.forEach((n, i) => { bits[TAIL.P[i]] = f32bits(Math.fround(P[n])) >>> 0; });
+  pos.leverNames.forEach((n, i) => { bits[TAIL.P[i]] = f32bits(Math.fround(Pv[n])) >>> 0; });
   bits[TAIL.uT] = f32bits(Math.fround(uT)) >>> 0;
   return bits;
 }
 
-/** Lower one positive. Returns the program, the image (null when it
- *  does not fit a lane), and the two libraries: `ref` reads the
- *  untouched text and is the oracle; `low` is the rewritten copy the
- *  program came from. */
+/** A lever setting drawn on each lever's own grid - min to max in its
+ *  step - from a seed, the way tools/smoke-pos.mjs draws its hashed
+ *  rows: a positive that is right at its defaults and wrong one notch
+ *  over is a positive whose integer levers were never exercised, which
+ *  is exactly what int(P[k] + 0.5) under a wrong cast looked like on
+ *  2026-09-08 - right whenever the default was even. */
+export function hashedLevers(pos, seedU32) {
+  const P = {};
+  pos.leverNames.forEach((n, i) => {
+    const lv = pos.levers[i];
+    const h = hashu((hashu((seedU32 >>> 0) ^ (i + 1) * 0x9E3779B9) ^ 0x51ED) >>> 0);
+    const u = (h >>> 8) / 16777216;
+    const steps = Math.max(0, Math.round((lv.max - lv.min) / lv.step));
+    const k = Math.min(steps, Math.floor(u * (steps + 1)));
+    P[n] = Math.fround(lv.min + k * lv.step);
+  });
+  return P;
+}
+
+/** The names the record gives the bank's slots: the oracle's for a bit
+ *  pattern it knows, the lever's for a tail slot. */
+export function constantNames(pos, prog) {
+  const known = new Map();
+  for (const n of constNames()) known.set(Number.parseInt(record(n).bits, 16) >>> 0, n);
+  const tailNames = {};
+  pos.leverNames.forEach((n, i) => { tailNames[TAIL.P[i]] = `P[${i}] ${n}`; });
+  for (let i = pos.leverNames.length; i < 8; i++) tailNames[TAIL.P[i]] = `P[${i}] (unused lever slot)`;
+  tailNames[TAIL.uT] = "uT";
+  return prog.consts.map((bits, i) =>
+    i >= prog.tailBase ? tailNames[i - prog.tailBase] : (known.get(bits >>> 0) ?? null));
+}
+
+/** SHA-256 over the image then the bank - what cft_program_digest
+ *  computes, so the two can be compared. */
+export function digestOf(image, bank) {
+  return createHash("sha256").update(image).update(bank).digest("hex");
+}
+
+/** The program as `.cfta` text: the coprocessor's assembly form
+ *  (cft-fp256 docs/PROGRAMS.md). Constants are declared by name only,
+ *  since the bank is external; an operand names a constant as k<slot>;
+ *  the assembler chooses the kx form exactly when this encoder does -
+ *  when any constant index in the instruction is sixteen or more. */
+export function cftaText(L) {
+  const { pos, prog } = L;
+  const knames = constantNames(pos, prog);
+  const L2 = [];
+  L2.push(`; ${pos.id} as a cft-fp256 sequencer program, emitted by atlas-engine`);
+  L2.push(`; from positives/${pos.id.replace(/_pos$/, "")}.pos.mjs through the pinned GLSL core/emit.mjs writes,`);
+  L2.push(`; lowered by core/cft-lower.mjs; docs/CFT-POSITIVE.md is the record.`);
+  L2.push(`;   inputs   ${prog.args.map(a => `${a.stream} = ${a.name}`).join(", ")}`);
+  L2.push(`;   deposits ${prog.results.map((d, i) => `${i}:${d.name}`).join(" ")}`);
+  L2.push(`;   the bank: ${prog.tailBase} program constants, then the per-run tail P[0..7], uT`);
+  L2.push(`;   ${prog.counts.total} words, ${prog.regsUsed} registers, ${prog.loops.length} loop(s)`);
+  L2.push("");
+  L2.push(".format   fp32");
+  L2.push(`.deposits ${prog.results.length}`);
+  L2.push(".bank     external");
+  prog.consts.forEach((bits, i) => {
+    const tail = i >= prog.tailBase ? "   [tail]" : "";
+    L2.push(`.const    k${i}`.padEnd(22) + `; 0x${(bits >>> 0).toString(16).toUpperCase().padStart(8, "0")}` +
+            (knames[i] ? ` ${knames[i]}` : "") + tail);
+  });
+  L2.push("");
+  const kIndex = (ins, w) => {
+    const field = { a: ins.ra, b: ins.rb, c: ins.rc }[w];
+    if (!ins.kx) return field;
+    return { a: ins.imm & 0xff, b: (ins.imm >> 8) & 0xff, c: (ins.imm >> 16) & 0xff }[w];
+  };
+  let depth = 0;
+  for (const ins of prog.insns) {
+    const ind = "  ".repeat(depth);
+    if (ins.ctrl === "repeat") { L2.push(`${ind}repeat ${ins.trip}`); depth++; continue; }
+    if (ins.ctrl === "endrep") { depth--; L2.push(`${"  ".repeat(depth)}endrep`); continue; }
+    const reads = READS[ins.op];
+    const operands = reads.map(w => {
+      const isK = { a: ins.ka, b: ins.kb, c: ins.kc }[w];
+      return isK ? `k${kIndex(ins, w)}` : `r${{ a: ins.ra, b: ins.rb, c: ins.rc }[w]}`;
+    });
+    const rnd = ROUNDS.has(ins.op) && ins.rnd !== RND.RNE ? `.${RND_NAME[ins.rnd]}` : "";
+    const line = `${ind}${OP_NAME[ins.op]}${rnd} r${ins.rd}, ${operands.join(", ")}`;
+    L2.push(line.padEnd(38) + `; ${ins.tag}`);
+  }
+  for (const d of prog.results) L2.push(`deposit r${d.reg}`);
+  L2.push("halt");
+  return L2.join("\n") + "\n";
+}
+
+/** Lower one positive. Returns the program, the BANK_EXT image with its
+ *  bank and digest (null when the program does not fit a lane), the
+ *  `.cfta` text, and the two libraries: `ref` reads the untouched text
+ *  and is the oracle; `low` is the rewritten copy the program came from. */
 export function lowerPositive(pos, opts = {}) {
   const uT = opts.uT ?? 0;
+  const P = opts.P ?? null;             // a lever setting by name, or the defaults
   const glsl = emitWalk(pos, { pin: true });
   const unit = unitTextFor(glsl);
   const ref = new DetLib(unit.text);
@@ -206,7 +299,7 @@ export function lowerPositive(pos, opts = {}) {
   const name = `shape_${pos.id}`;
   if (!low.byName.has(name)) throw new Error(`emit-cft: the emitted text has no ${name}`);
   const prologue = rewriteForStreams(low.byName.get(name));
-  const tailValues = tailValuesFor(pos, uT);
+  const tailValues = tailValuesFor(pos, uT, P);
   const prog = lowerFunction(low, name, {
     isaExt: true,
     bind: {
@@ -217,13 +310,20 @@ export function lowerPositive(pos, opts = {}) {
   });
   const fitsImage = prog.counts.total <= IMEM_D;
   const image = prog.words
-    ? imageBytes({ insns: prog.words, consts: prog.consts,
-                   maxDeposits: prog.results.length, precisionCode: 0 })
+    ? imageBytes({ insns: prog.words, consts: prog.consts, nConsts: prog.consts.length,
+                   maxDeposits: prog.results.length, precisionCode: 0, bankExt: true })
     : null;
-  return {
-    pos, name, glsl, unit, ref, low, prologue, prog, image, tailValues, uT,
+  const bank = bankBytes(prog.consts);
+  const L = {
+    pos, name, glsl, unit, ref, low, prologue, prog, image, bank, tailValues, uT,
+    P: P ?? leverDefaults(pos),
+    digest: image ? digestOf(image, bank) : null,
     fits: { registers: prog.encodable, image: fitsImage, deposits: prog.results.length <= MAXD,
             all: prog.encodable && fitsImage && prog.results.length <= MAXD },
+    needsCaps: {
+      kx: prog.needs.includes("kx"), imul: prog.needs.includes("imul"),
+      regs32: prog.regsUsed > NREG_REV1, bankPtr: true,
+    },
     inputs: [
       { stream: "a", holds: "q.x", type: "float" },
       { stream: "b", holds: "q.y", type: "float" },
@@ -231,6 +331,8 @@ export function lowerPositive(pos, opts = {}) {
         from: "the two prologue statements, run on the host from (q, rnd.x, seed)" },
     ],
   };
+  L.cfta = prog.words ? cftaText(L) : null;
+  return L;
 }
 
-export { NREG, IMEM_D, MAXD };
+export { NREG, NREG_REV1, IMEM_D, MAXD, KREG };
