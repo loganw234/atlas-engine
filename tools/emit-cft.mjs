@@ -190,7 +190,7 @@ if (all) {
   console.log(`${pad("positive", 12)} ${num("words", 6)} ${num("alu", 5)} ${num("loops", 5)} ${num("regs", 4)} ` +
               `${num("k", 4)} ${pad("fits", 5)} ${pad("needs / refusal", 40)}`);
   console.log("-".repeat(96));
-  let lowered = 0, fitsAll = 0, overRegs = 0, overImage = 0, over16 = 0;
+  let lowered = 0, fitsAll = 0, overRegs = 0, overImage = 0, over16 = 0, overBank = 0;
   const refusals = new Map();
   for (const r of rows) {
     if (r.refused) {
@@ -205,13 +205,15 @@ if (all) {
     if (!r.fits.registers) overRegs++;
     if (r.regs > NREG_REV1) over16++;
     if (!r.fits.image) overImage++;
+    if (!r.fits.bank) overBank++;
     console.log(`${pad(r.id, 12)} ${num(r.words, 6)} ${num(r.alu, 5)} ${num(r.loops, 5)} ${num(r.regs, 4)} ` +
                 `${num(r.consts, 4)} ${pad(r.fits.all ? "yes" : "NO", 5)} ` +
                 `${r.needs.join(", ")}${!r.fits.registers ? "; over " + NREG + " registers" : ""}` +
-                `${!r.fits.image ? `; over ${IMEM_D} words` : ""}`);
+                `${!r.fits.image ? `; over ${IMEM_D} words` : ""}${!r.fits.bank ? `; over the ${KMEM_D}-slot bank` : ""}`);
   }
   console.log(`\n${rows.length} positives: ${lowered} lowered, ${fitsAll} fit the tile at revision 2, ` +
               `${over16} need REGS32, ${overRegs} over ${NREG} registers, ${overImage} over ${IMEM_D} words, ` +
+              `${overBank} over the ${KMEM_D}-slot bank, ` +
               `${rows.length - lowered} refused by a construct not lowered yet:`);
   for (const [k, n] of [...refusals].sort((a, b) => b[1] - a[1]))
     console.log(`  ${String(n).padStart(3)}  ${k}`);

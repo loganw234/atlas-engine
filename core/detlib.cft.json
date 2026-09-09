@@ -62,6 +62,16 @@
       "domain": "all x",
       "how": "GLSL 8.3 defines clamp(x, a, b) as min(max(x, a), b), and 8.1 defines those two as comparisons rather than as 754 minimum and maximum - so it is two CMPLTs and two SELECTs, not a MIN and a MAX. See the min/max note above gmin/gmax."
     },
+    "idiv": {
+      "insns": 20,
+      "domain": "a constant divisor d != 0; int: |a| < 2^22; uint: a < (2^23 - 1) * d. 7 instructions when |d| is a power of two, 2 when it is one",
+      "how": "GLSL 5.9: integer division truncates toward zero. The divisor is a literal in every plate that divides (2, 4, 5, 8, 16, 32 across domain, e8, elliptic, hilbert, polytope), so its reciprocal is a constant. |a| goes to float exactly (i2f, or u2f for a uint), one multiply by float(1/|d|) lands within a quarter of the true quotient on the domain, the 2^23 trick under roundTowardNegative truncates it, and the remainder |a| - q*|d| says which way it missed: negative means one too many, at least |d| means one too few, and one select each puts it right. The sign of a comes back on the quotient, and the divisor's with it. A power of two is a shift on the magnitude."
+    },
+    "imod": {
+      "insns": 22,
+      "domain": "as idiv; 7 instructions when |d| is a power of two",
+      "how": "a - (a / d) * d over the sequence above, so it is the remainder of the truncating division with the dividend's sign, which is what GLSL defines for non-negative operands and what the reference interpreter's JavaScript % computes for all of them. A power of two is a mask on the magnitude, then the sign."
+    },
     "isnan": {
       "insns": 2,
       "domain": "all x",

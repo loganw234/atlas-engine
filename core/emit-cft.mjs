@@ -63,7 +63,7 @@ import { unfuse, noFmaLeft } from "./unfuse.mjs";
 import { DetLib, bits as f32bits } from "./glsl-f32.mjs";
 import { lowerFunction } from "./cft-lower.mjs";
 import { imageBytes, bankBytes, OP_NAME, RND_NAME, READS, ROUNDS, RND,
-         NREG, NREG_REV1, IMEM_D, MAXD, KREG } from "./cft-isa.mjs";
+         NREG, NREG_REV1, IMEM_D, MAXD, KREG, KMEM_D } from "./cft-isa.mjs";
 import { leverDefaults, hashu } from "./measure.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -318,8 +318,14 @@ export function lowerPositive(pos, opts = {}) {
     pos, name, glsl, unit, ref, low, prologue, prog, image, bank, tailValues, uT,
     P: P ?? leverDefaults(pos),
     digest: image ? digestOf(image, bank) : null,
+    // THE BANK IS A CAPACITY TOO. kx addresses 256 constants and the tile
+    // stores KMEM_D of them; a program whose bank - its own constants and
+    // the nine-slot tail - is longer does not load, whatever its registers
+    // and words say. Measured 2026-09-08: throughput's 307 is the one
+    // positive over it as emitted, and vlsi sits exactly on it.
     fits: { registers: prog.encodable, image: fitsImage, deposits: prog.results.length <= MAXD,
-            all: prog.encodable && fitsImage && prog.results.length <= MAXD },
+            bank: prog.consts.length <= KMEM_D,
+            all: prog.encodable && fitsImage && prog.results.length <= MAXD && prog.consts.length <= KMEM_D },
     needsCaps: {
       kx: prog.needs.includes("kx"), imul: prog.needs.includes("imul"),
       regs32: prog.regsUsed > NREG_REV1, bankPtr: true,
@@ -335,4 +341,4 @@ export function lowerPositive(pos, opts = {}) {
   return L;
 }
 
-export { NREG, NREG_REV1, IMEM_D, MAXD, KREG };
+export { NREG, NREG_REV1, IMEM_D, MAXD, KREG, KMEM_D };

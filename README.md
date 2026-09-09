@@ -303,10 +303,12 @@ what the two repositories are executing:
   `s.orbit`, `sum`, `s.descend` and `s.window` is a `REPEAT` with its
   carried values pinned to registers and every write predicated on a
   running flag a `break` clears. Measured over the corpus at revision
-  2: sixty-three positives lower, thirty-seven fit the tile as it
-  stands, and all thirty-seven reproduce the emitted text's bits through
-  every evaluation at their lever defaults and at a hashed setting off
-  them. Three findings on the way. The input block needs three
+  2: sixty-eight positives lower - the five that divide joined them
+  once integer division by a literal had its twenty-instruction
+  expansion - thirty-eight fit the tile as it stands, and all
+  thirty-eight reproduce the emitted text's bits through every
+  evaluation at their lever defaults and at a hashed setting off them.
+  Three findings on the way. The input block needs three
   streams and not seven: every emitted plate reads `seed` and `rnd.x`
   in its first two lines only, so those two lines run on the host -
   integer arithmetic, no latitude - and `q.x`, `q.y` and the stream
@@ -319,10 +321,25 @@ what the two repositories are executing:
   `det_fract`'s `float(int(x))` are not - right at the defaults exactly
   when the default was even, wrong one notch over, and caught by
   verifying off the defaults, which the verifier now does.
-- **What remains on this side.** Twenty-six positives exceed thirty-two
-  registers as scheduled (33 to 212) and six exceed the image; five
-  wait on an integer division sequence and one on a run-time-indexed
-  array. Then the parity harness: a debug variant of the emitted GLSL
+- **The second round of asks - measured 2026-09-08**, in
+  `docs/CFT-GAPS.md`. Thirty positives exceed thirty-two registers as
+  scheduled, six exceed the image, two the constant bank, and one waits
+  on a run-time-indexed array. `tools/measure-cft-gaps.mjs` says how
+  much of that the engine removes on its own - every per-run value
+  moved into the bank takes the thirty to twenty-three and 23,661 words
+  out of the programs; a `break` lowered as `SETACT` gives the loops
+  their early exit, a median of twice fewer trips at the defaults and
+  ten times fewer on sixteen positives - and what it cannot: a per-lane
+  spill memory, load and store by slot, which closes the register wall
+  for all twenty-three and the indexed array with it; the image to
+  16,384 words; and a ninth constant-index bit for a 512-slot bank,
+  which two positives need to load at all. `CALL` is measured at
+  41,435 inlined words across the corpus and not asked, since it
+  decides no fit once the image is larger.
+- **What remains on this side.** `SETACT` for the top-level loops, the
+  hoisting, copy coalescing for the loops' carried registers, then the
+  spiller when the memory lands. Then the parity harness: a debug
+  variant of the emitted GLSL
   that writes `xyz`, `col` and `glow` to a buffer instead of
   depositing, so the GPU's records and the tile's are compared per
   sample and a first divergence gets named; then the records binned in

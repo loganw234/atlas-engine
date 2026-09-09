@@ -9,15 +9,19 @@ assembler byte for byte, and through the runner that goes to the card.
 Software only; no change to `core/emit.mjs`, no change to what a
 positive means.
 
-Two sessions on 2026-09-08, and this file is the record of both. The
+Three sessions on 2026-09-08, and this file is the record of all three. The
 first landed `hopf` at revision 1 of the sequencer - sixteen registers,
 a 1,024-word image, constants inside the image - and measured the
 corpus against it. The same day the coprocessor moved to revision 2 -
 thirty-two registers, 4,096 words, the constant bank as run data - and
 the second session moved this target to it, lowered the loop the
 emitter writes for `s.orbit`, `sum`, `s.descend` and `s.window`, and
-found the one cast that had been wrong all along. Every number below
-came out of a run, and the command that produced it is named.
+found the one cast that had been wrong all along. The third lowered
+integer division by a literal, which is what the five plates that
+divide were waiting on, and measured what would close the gaps that
+remain - `docs/CFT-GAPS.md` is that record and the three asks it
+produced. Every number below came out of a run, and the command that
+produced it is named.
 
 ```bash
 node tools/emit-cft.mjs positives/hopf.pos.mjs        # the image, its bank, its .cfta, its record
@@ -202,6 +206,39 @@ defaults and off them. A positive that is right at its defaults and
 wrong one notch over is a positive whose integer levers were never
 exercised.
 
+## Integer division, by a literal
+
+GLSL 5.9 truncates integer division toward zero and defines `%` for
+non-negative operands as the remainder of that division; the ISA has
+no divider, integer or float. Five plates divide, every one by a
+literal - `/ 2`, `/ 4`, `/ 8`, `/ 16`, `/ 32` and `% 2` in `e8`, `/ 5`
+and `% 5` in `domain`, `/ 2` in `elliptic`, `% 4` in `polytope`, `%`
+in `hilbert` - so the divisor's reciprocal is a constant, and
+`core/cft-lower.mjs` lowers `a / d` as: the magnitude of `a` to float
+exactly (`i2f`, or `u2f` for a uint), one multiply by `float(1/|d|)`,
+the `2^23` trick under roundTowardNegative to truncate, then the
+remainder `|a| - q*|d|` says which way the estimate missed - negative
+is one too many, at least `|d|` is one too few - and one select each
+puts it right; the signs of `a` and `d` come back on the quotient.
+Twenty instructions, seven when `|d|` is a power of two (a shift on
+the magnitude), two when it is one. `a % d` is `a - (a / d) * d`
+over the same sequence, twenty-two, or a mask on the magnitude and the
+sign for a power of two. Exact for `|a| < 2^22` (the `i2f` domain) at
+any literal `d != 0`, and for a uint `a < (2^23 - 1) * d`: on that
+domain the float estimate is within a quarter of the true quotient,
+so one correction is always enough. `EXPANSIONS.idiv` and `.imod`
+carry the derivation; the record's `gaps` count the sites.
+
+Verified 2026-09-08 by `tools/verify-cft-positive.mjs`, 512 samples,
+16 golden lanes, at the defaults and under `--levers 7`: `polytope`
+(846 words, 27 registers) bit-identical through libcft, the golden
+model, the assembler's bytes and the runner; `domain` (38 registers),
+`e8` (45), `elliptic` (58) and `hilbert` (40) bit-identical on the
+widened lane, since they do not load as they stand. A divisor that is
+not a literal stays refused by name - `nested`'s `% wd_15_p` is one,
+a per-run integer from a lever, which the hoisting `docs/CFT-GAPS.md`
+measures would make a constant too.
+
 ## The scheduler, and what a whole positive taught it
 
 The library's functions fit sixteen registers under a kills-first list
@@ -271,6 +308,7 @@ registers, 4,096 words, sixty-four deposits:
 | `invjulia` | 761 | 1 | 19 | 62 | yes |
 | `arnold` | 767 | 3 | 23 | 63 | yes |
 | `wpath` | 813 | 1 | 29 | 79 | yes |
+| `polytope` | 846 | 0 | 27 | 54 | yes |
 | `relativity` | 861 | 1 | 29 | 82 | yes |
 | `ifs` | 902 | 1 | 25 | 58 | yes |
 | `lyap` | 912 | 2 | 24 | 82 | yes |
@@ -292,16 +330,20 @@ registers, 4,096 words, sixty-four deposits:
 | `drainage` | 1,778 | 2 | 37 | 107 | registers |
 | `nodal` | 2,746 | 3 | 37 | 101 | registers |
 | `tangle` | 2,168 | 1 | 37 | 99 | registers |
+| `domain` | 2,598 | 1 | 38 | 105 | registers |
 | `rainbow` | 3,110 | 0 | 38 | 119 | registers |
+| `hilbert` | 3,561 | 10 | 40 | 80 | registers |
 | `tpms` | 3,385 | 0 | 40 | 58 | registers |
 | `cascade` | 1,783 | 3 | 41 | 92 | registers |
 | `allpaths` | 1,826 | 1 | 45 | 86 | registers |
+| `e8` | 2,023 | 3 | 45 | 152 | registers |
 | `stoch` | 2,020 | 5 | 45 | 89 | registers |
 | `vortex` | 2,290 | 3 | 45 | 96 | registers |
 | `starfield` | 5,413 | 0 | 46 | 150 | registers, words |
 | `ford` | 3,559 | 2 | 47 | 95 | registers |
 | `mirage` | 2,586 | 3 | 48 | 120 | registers |
 | `wavecat` | 4,159 | 2 | 49 | 168 | registers, words |
+| `elliptic` | 1,840 | 6 | 58 | 85 | registers |
 | `flows` | 969 | 1 | 59 | 89 | registers |
 | `billiards` | 2,845 | 1 | 64 | 111 | registers |
 | `diffract` | 4,276 | 3 | 64 | 134 | registers, words |
@@ -309,32 +351,40 @@ registers, 4,096 words, sixty-four deposits:
 | `universal` | 2,876 | 8 | 95 | 138 | registers |
 | `threebody` | 1,873 | 1 | 104 | 79 | registers |
 | `rule30` | 4,221 | 9 | 133 | 126 | registers, words |
-| `vlsi` | 8,693 | 4 | 149 | 256 | registers, words |
-| `throughput` | 12,618 | 0 | 212 | 307 | registers, words |
+| `vlsi` | 8,693 | 4 | 149 | 256 | registers, words, bank |
+| `throughput` | 12,618 | 0 | 212 | 307 | registers, words, bank |
 
-Sixty-three of sixty-nine lower; **37 fit the tile at revision 2**, 57 of the sixty-three needing REGS32; 26 exceed thirty-two registers and 6 exceed 4,096 words.
+Sixty-eight of sixty-nine lower; **38 fit the tile at revision 2**, 62 of the sixty-eight needing REGS32; 30 exceed thirty-two registers, 6 exceed 4,096 words and 2 the 256-slot bank.
 
-Six are refused by name:
-
-| refusal | positives |
-|---|---|
-| integer `/` (`domain`, `e8`, `elliptic`) or `%` (`hilbert`, `polytope`) - the ISA has no divider; the exact sequence is a reciprocal through `det_recip`, a truncation and two corrections | 5 |
-| an array local indexed at run time - `precise float wts[28]`, written and read under loop counters (`nested`) - the ISA has no indexed access to a lane's registers | 1 |
+One is refused by name: an array local indexed at run time -
+`precise float wts[28]`, written and read under loop counters
+(`nested`) - because the ISA has no indexed access to a lane's
+registers. The five that divide - `domain`, `e8`, `elliptic` by `/`,
+`hilbert`, `polytope` by `%` - were refused until the third session
+gave integer division by a literal its expansion (below). `polytope`
+fits and is in the sweep; the other four exceed thirty-two registers
+(38 to 58) and reproduce the text's bits on the widened lane.
 
 What the numbers say for the coprocessor's side:
 
 - **Thirty-two registers took the corpus from six fitting to
-  thirty-seven**, and the image from 1,024 to 4,096 words from six
-  over to six over: the loop body is written once under `REPEAT`, so
+  thirty-seven**, the division expansion to thirty-eight, and the image
+  from 1,024 to 4,096 words from six over to six over: the loop body is written once under `REPEAT`, so
   the programs that exceed the image are the straight-line giants
   (`throughput`, `starfield`, `vlsi`) and the deepest nests (`rule30`,
   `diffract`, `wavecat`).
-- **Twenty-six positives still exceed thirty-two registers** as
-  scheduled, from 33 to 212. They are the plates that hold several
-  vectors and a stream across nested descents; the init block of
-  docs/ATLAS.md - a positive run as two programs with its live set
-  carried through deposits - is what would reach them, and their
-  peaks are its measured shape.
+- **Thirty positives exceed thirty-two registers** as scheduled,
+  from 33 to 212 - twenty-six before the dividing plates lowered, and
+  four of those five joined them. They are the plates that hold
+  several vectors and a stream across nested descents. What reaches
+  them is measured in `docs/CFT-GAPS.md`: the per-run values moved
+  into the bank take some of them under the line, and a per-lane spill
+  memory - the first of the three asks there - the rest.
+- **Two exceed the constant bank** - `throughput` at 307 program
+  constants and `vlsi` at 256, each plus the nine-slot tail - which the
+  fit check did not know until this session: kx addresses 256 constants
+  and the tile stores 256, so a longer bank does not load whatever the
+  registers and words say. `fits.bank` says so now.
 - **The bank as run data changed nothing measured and everything
   operational**: every image carries no constants, and a run brings
   its bank.
@@ -372,6 +422,7 @@ What the numbers say for the coprocessor's side:
 | `nonorient` | 700 | 21 | yes | yes | 2 |
 | `orbital` | 681 | 29 | yes | yes | 4 |
 | `penrose` | 740 | 26 | yes | yes | 4 |
+| `polytope` | 846 | 27 | yes | yes | 2 |
 | `primes` | 991 | 27 | yes | yes | 14 |
 | `psf` | 185 | 10 | yes | yes | 1 |
 | `qjulia` | 735 | 22 | yes | yes | 3 |
@@ -383,7 +434,7 @@ What the numbers say for the coprocessor's side:
 | `wpath` | 813 | 29 | yes | yes | 4 |
 | `zeta` | 759 | 25 | yes | yes | 9 |
 
-**37 of 37 reproduce the emitted text's bits through every evaluation, at the defaults and off them.**
+**38 of 38 reproduce the emitted text's bits through every evaluation, at the defaults and off them.**
 
 ## The accuracy column
 

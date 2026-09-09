@@ -124,6 +124,30 @@ export const EXPANSIONS = {
          "maximum - so it is two CMPLTs and two SELECTs, not a MIN and a " +
          "MAX. See the min/max note above gmin/gmax.",
   },
+  idiv: {
+    insns: 20,
+    domain: "a constant divisor d != 0; int: |a| < 2^22; uint: a < (2^23 - 1) * d. " +
+            "7 instructions when |d| is a power of two, 2 when it is one",
+    how: "GLSL 5.9: integer division truncates toward zero. The divisor is a " +
+         "literal in every plate that divides (2, 4, 5, 8, 16, 32 across " +
+         "domain, e8, elliptic, hilbert, polytope), so its reciprocal is a " +
+         "constant. |a| goes to float exactly (i2f, or u2f for a uint), one " +
+         "multiply by float(1/|d|) lands within a quarter of the true quotient " +
+         "on the domain, the 2^23 trick under roundTowardNegative truncates " +
+         "it, and the remainder |a| - q*|d| says which way it missed: negative " +
+         "means one too many, at least |d| means one too few, and one select " +
+         "each puts it right. The sign of a comes back on the quotient, and " +
+         "the divisor's with it. A power of two is a shift on the magnitude.",
+  },
+  imod: {
+    insns: 22,
+    domain: "as idiv; 7 instructions when |d| is a power of two",
+    how: "a - (a / d) * d over the sequence above, so it is the remainder of " +
+         "the truncating division with the dividend's sign, which is what " +
+         "GLSL defines for non-negative operands and what the reference " +
+         "interpreter's JavaScript % computes for all of them. A power of " +
+         "two is a mask on the magnitude, then the sign.",
+  },
   isnan: { insns: 2, domain: "all x", how: "1 - CMPEQ(x, x); a quiet compare is false on a NaN." },
   isinf: { insns: 2, domain: "all x", how: "CMPEQ(ABS(x), +inf)." },
   ilt_signed: {
@@ -232,6 +256,8 @@ class Fn {
     this.phis = [];            // {id, name, type, initOp}
     this.loopDepth = 0;
     this.pendingPhis = [];     // phis created for the loop about to open
+    this.fnStack = [];         // the det function being inlined, innermost last
+    this.callSites = new Map(); // det function -> how many times it was inlined
   }
 
   gap(k) { this.gaps.set(k, (this.gaps.get(k) || 0) + 1); }
@@ -274,7 +300,8 @@ class Fn {
       if (hit !== undefined) return { r: hit, type };
     }
     const id = this.ops.length;
-    this.ops.push({ op, rnd: ROUNDS.has(op) ? rnd : RND.RNE, ...slot, type, tag });
+    this.ops.push({ op, rnd: ROUNDS.has(op) ? rnd : RND.RNE, ...slot, type, tag,
+                    fn: this.fnStack.length ? this.fnStack[this.fnStack.length - 1] : null });
     if (!noFold) this.cse[this.cse.length - 1].set(key, id);
     return { r: id, type };
   }
@@ -404,6 +431,51 @@ export function lowerFunction(lib, name, opts = {}) {
     const t = E(OP.MUL, [hi, K(f32bits(65536))], { type: "float", tag: "u2f" });
     return E(OP.ADD, [t, lo], { type: "float", tag: "u2f" });
   };
+  // Integer division and modulus by a constant - see EXPANSIONS.idiv.
+  // The divisor is known, so its reciprocal is a bank constant and the
+  // magnitude route is exact on the domain stated there; the correction
+  // step is what makes one float multiply an integer division.
+  const idiv = (op, a, b, type) => {
+    const u = type === "uint";
+    const d = u ? b.c >>> 0 : b.c | 0;
+    if (d === 0) throw new Error(`cft-lower: integer ${op} by zero, which GLSL leaves undefined`);
+    F.gap(op === "/" ? "idiv" : "imod");
+    const ad = Math.abs(d);
+    const T = { type, tag: op };
+    // the dividend's magnitude and sign; a uint has no sign to take
+    let neg = null, A = a;
+    if (!u) {
+      neg = sLt(a, K(0, "int"));
+      const na = E(OP.ISUB, [K(0, "int"), a], T);
+      A = E(OP.SELECT, [na, a, neg], T);
+    }
+    const resign = (v, flip) => {                  // v, negated where the dividend was (xor flip)
+      if (neg === null) return v;
+      const nv = E(OP.ISUB, [K(0, "int"), v], T);
+      return flip ? E(OP.SELECT, [v, nv, neg], T) : E(OP.SELECT, [nv, v, neg], T);
+    };
+    if (ad === 1) {
+      if (op === "%") return K(0, type);
+      return d < 0 && !u ? E(OP.ISUB, [K(0, "int"), a], T) : a;
+    }
+    const k = Math.log2(ad);
+    if (Number.isInteger(k)) {
+      if (op === "%") return resign(E(OP.IAND, [A, K(ad - 1, type)], T), false);
+      return resign(E(OP.ISHR, [A, K(k, "uint")], T), d < 0);
+    }
+    const fa = u ? u2f(A) : i2f(A);
+    const p = E(OP.MUL, [fa, K(f32bits(1 / ad))], { tag: op });
+    const pp = E(OP.ADD, [p, K(K_2P23)], { rnd: RND.RDN, tag: op });
+    const q0 = E(OP.ISUB, [pp, K(K_2P23, "uint")], T);
+    const r0 = E(OP.ISUB, [A, E(OP.IMUL, [q0, K(ad, type)], T)], T);
+    const tooMany = sLt(r0, K(0, "int"));            // the estimate was one too high
+    const tooFew = sLt(K(ad - 1, "int"), r0);        // one too low
+    let q = E(OP.SELECT, [E(OP.ISUB, [q0, K(1, type)], T), q0, tooMany], T);
+    q = E(OP.SELECT, [E(OP.IADD, [q0, K(1, type)], T), q, tooFew], T);
+    if (op === "%") return resign(E(OP.ISUB, [A, E(OP.IMUL, [q, K(ad, type)], T)], T), false);
+    return resign(q, d < 0);
+  };
+
   // GLSL's min/max are NOT 754's minimum/maximum, and mapping them onto
   // the MIN and MAX opcodes computes a different function. GLSL 8.1
   // defines min(x,y) as "y < x ? y : x" and max(x,y) as "x < y ? y : x";
@@ -586,9 +658,13 @@ export function lowerFunction(lib, name, opts = {}) {
           case "%": if (y !== 0) return K(w(x % y), type); break;
         }
       }
-      if (op === "/" || op === "%")
-        throw new Error(`cft-lower: integer ${op} is not lowered yet - the ISA has no ` +
-                        `divider, and the exact sequence for it is the next expansion`);
+      if (op === "/" || op === "%") {
+        if (!isC(b))
+          throw new Error(`cft-lower: integer ${op} by a divisor that is not a literal is not ` +
+                          `lowered - the exact sequence (EXPANSIONS.idiv) wants the reciprocal ` +
+                          `as a constant, and every division in the corpus has one`);
+        return idiv(op, a, b, type);
+      }
       const map = { "+": OP.IADD, "-": OP.ISUB, "&": OP.IAND, "|": OP.IOR,
                     "^": OP.IXOR, "<<": OP.ISHL, ">>": OP.ISHR, "*": OP.IMUL };
       const o = map[op];
@@ -693,7 +769,10 @@ export function lowerFunction(lib, name, opts = {}) {
       const p = f.params[i];
       inner.set(p.name, p.out ? zeroOf(p.type) : lowerExpr(arg, env));
     });
+    F.callSites.set(n, (F.callSites.get(n) || 0) + 1);
+    F.fnStack.push(n);
     const r = lowerBody(f, inner);
+    F.fnStack.pop();
     e.args.forEach((arg, i) => {
       const p = f.params[i];
       if (!p.out) return;
@@ -1212,7 +1291,7 @@ function suOrder(ops, need, resultOrder, resultSet) {
  *  defined inside a body dies inside the body, which is what makes the
  *  body's registers reusable across trips; a body value read after the
  *  loop would be one trip's, and there is none by construction. */
-function profileOf(ops, args, resultIds, order, geo) {
+export function profileOf(ops, args, resultIds, order, geo) {
   const N = order.length;
   const pos = new Int32Array(ops.length).fill(-1);
   order.forEach((id, p) => { pos[id] = p; });
@@ -1401,7 +1480,7 @@ function allocate(ops, args, resultIds, order, geo, tailBase = 0) {
 /** The geometry of a program's op list: its loops, which loop each op
  *  is in, its straight-line segments, and where each phi's copy-in and
  *  loop are. Independent of the order within segments. */
-function geometryOf(ops, phis) {
+export function geometryOf(ops, phis) {
   const loops = [];
   const stack = [];
   const opLoop = new Int32Array(ops.length).fill(-1);
@@ -1488,7 +1567,7 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
   const ops = keep.map(old => {
     const o = F.ops[old];
     if (o.ctrl) return { ctrl: o.ctrl, trip: o.trip, phis: o.phis };
-    const m = { op: o.op, rnd: o.rnd, tag: o.tag, type: o.type };
+    const m = { op: o.op, rnd: o.rnd, tag: o.tag, type: o.type, fn: o.fn ?? null };
     if (o.phiInit !== undefined) m.phiInit = o.phiInit;
     if (o.phiBack !== undefined) m.phiBack = o.phiBack;
     for (const w of ["a", "b", "c"]) {
@@ -1690,6 +1769,14 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     needs: [...F.needs].sort(),
     gaps: Object.fromEntries([...F.gaps].sort()),
     folds: F.folds,
+    // THE GRAPH AS SCHEDULED, for tools that measure rather than encode
+    // (tools/measure-cft-gaps.mjs): the ops after dead-code elimination
+    // with their operands as {v}, {k}, {t}, {ph} or {arg}, the order the
+    // registers were allocated over, the loop geometry, and which det
+    // function each op was inlined from. tools/emit-cft.mjs's record
+    // does not carry it.
+    graph: { ops, order, geo, args, resultIds, phiNames: F.phis.map(p => p.name) },
+    callSites: Object.fromEntries([...F.callSites].sort()),
     counts: {
       alu,
       loop: loopWords,

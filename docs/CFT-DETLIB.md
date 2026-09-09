@@ -288,7 +288,9 @@ whole set fits `KMEM_D = 256` — the memory is already there, and
 
 ## What the ISA does not have, and what replaces it
 
-Ten operations in the shipped library have no opcode. Each is expanded
+Twelve operations in the shipped text have no opcode (ten in the
+library; the two integer divisions below are the plates', added
+2026-09-08 when the emitter target reached them). Each is expanded
 into operations that do exist; each expansion is derived rather than
 looked up, and each carries the domain it is exact on. They are in
 `core/cft-lower.mjs`'s `EXPANSIONS`, printed by the verifier, and
@@ -305,6 +307,8 @@ carried into `core/detlib.cft.json`.
 | `isnan(x)` | 2 | all `x` | `1 - CMPEQ(x, x)`; a quiet compare is false on a NaN. |
 | `isinf(x)` | 2 | all `x` | `CMPEQ(ABS(x), +inf)`. |
 | signed `<` | 3 | all int32 pairs | `ICMPLT` is unsigned, so both operands are biased by `0x80000000`. A constant operand folds, leaving two. |
+| `a / d`, `d` a literal | 20 (7 for a power of two) | int: `\|a\| < 2^22`; uint: `a < (2^23 - 1) * d` | `\|a\|` to float exactly, one multiply by `float(1/\|d\|)`, the `2^23` trick under roundTowardNegative to truncate, and the remainder `\|a\| - q*\|d\|` says which way the estimate missed: negative is one too many, at least `\|d\|` is one too few, one select each. The signs come back on the quotient. A power of two is a shift on the magnitude. Every plate that divides does so by a literal (2, 4, 5, 8, 16, 32), which is what makes the reciprocal a constant. |
+| `a % d`, `d` a literal | 22 (7 for a power of two) | as `/` | `a - (a / d) * d`: the remainder of the truncating division with the dividend's sign, which GLSL defines for non-negative operands and the reference interpreter's JavaScript `%` computes for all. A power of two is a mask on the magnitude, then the sign. |
 | integer `==` | 2 | all pairs | `ICMPLT(a ^ b, 1)`: the xor is zero exactly when they are equal, and unsigned-less-than-one is exactly zero. **Not** a float `CMPEQ` on the difference, which would also fire on a difference of `2^31`. |
 
 Only `floor` uses a rounding attribute other than `rne`, and only in
