@@ -521,9 +521,15 @@ What the numbers say for the coprocessor's side:
 - **What spilling costs.** The programs grew where they had to and
   nowhere else: the corpus's straight-line giant `throughput` went
   from 12,618 words at 212 registers to 14,801 at 32, and `threebody`
-  from 1,776 at 101 to 2,005 at 31, while the thirty-eight that
-  already fitted are untouched. No positive needs more than a
-  fraction of the 256 slots a lane has.
+  from 1,776 at 101 to 2,029 at 31, while the thirty-eight that
+  already fitted are untouched. Thirty-one positives reach the scratch
+  at all, and the deepest reaches 186 slots of the 256 a lane has -
+  `throughput` again, with 259 values spilled and nothing carried,
+  since it has no loop to carry anything. **256 was the right number
+  to ask for**: the sizing table in `docs/CFT-GAPS.md` said 128 would
+  leave `throughput` out and 256 would close the corpus, and it does,
+  with the margin a slot-reuse pass would widen and nothing to spare
+  at 128.
 - **The bank as run data changed nothing measured and everything
   operational**: every image carries no constants, and a run brings
   its bank.
