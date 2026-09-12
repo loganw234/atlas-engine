@@ -817,3 +817,39 @@ guarantee rather than a fixed-point accumulation's indifference to it -
 once the loop is lowered, since fifty of the sixty-nine positives carry
 one, and once records are captured from a card for the per-sample
 comparison, which is the harness step still open.
+
+**Addendum, 2026-09-11.** The first of those two conditions is
+discharged and the scope above is understated, so both are corrected
+here rather than left to be read as current. The loop is lowered, and
+so is everything else the corpus contains: **all sixty-nine positives
+lower to sequencer programs and all sixty-nine fit the tile**, each one
+held to its emitted text's bits at its lever defaults and at a hashed
+setting off them, through that project's program executor, its golden
+model, its assembler reproducing the image byte for byte from the
+program's own assembly text, and the runner that goes to a card. It
+took three revisions of that coprocessor's sequencer to get there, each
+asked for with a measurement from here and built the same day;
+`docs/CFT-GAPS.md` is the record of the asking and `docs/CFT-POSITIVE.md`
+of the result.
+
+The second condition is unchanged and is the whole of what is left: no
+records have been captured from a card for the per-sample comparison,
+so this is parity of a shape function's outputs and not a photograph.
+What that comparison would meet on the other side is worth naming,
+because it is already built and it is the stronger half of the
+argument. A negative is order-independent only under the deterministic
+bake's fixed-point deposit, where the adds are genuinely integer;
+the studio's compute kernel adds floats and its arrival order does
+change the sum, which is a parity class this project measures and gates
+rather than a guarantee. Integer addition is associative, so a negative
+accumulated from identical records is identical whatever order they
+arrive in - and the sequencer's deposits are addressed by index rather
+than by arrival, which is a fixed order by construction. The
+accumulator that would receive them needs no change; nobody has fed it
+tile records yet.
+
+One thing this does not buy, stated so it is not claimed later: the
+tile runs this workload at binary32, as the camera does throughout, so
+it is not a precision instrument here. It is a sixth kind of
+implementation with no compiler anywhere in its trust chain, which is
+the only reason this document has a use for it.
