@@ -1,5 +1,6 @@
 // The cft-fp256 sequencer's instruction set, as this repository needs
-// to speak it - at REVISION 2 of the contract (2026-09-08).
+// to speak it - at REVISION 3 of the contract (2026-09-08 evening),
+// with revision 4's R8 (2026-09-10).
 //
 // Every number here is read out of the coprocessor's golden model -
 // python/cft_golden/softfloat.py for the opcodes and the rounding
@@ -25,11 +26,41 @@
 //       the bank - n_consts format-width values, dense, in index order.
 //       imageBytes() writes either form; bankBytes() writes the bank.
 //
+// WHAT REVISION 3 CHANGED. It is this repository's second round of asks
+// (docs/CFT-GAPS.md, 2026-09-08), built the same evening, plus one
+// mechanism that round added on its own:
+//
+//   R4  A PER-LANE SCRATCH MEMORY, SCRATCH_D = 256 slots, four control
+//       codes: STL/LDL by static slot in imm[23:0], STX/LDX by the low
+//       log2(SCRATCH_D) bits of a register's bit pattern. A store is a
+//       register write for P3's purposes - masked by the lane's active
+//       bit - and a load writes rd, so it is masked too; neither is
+//       arithmetic. This is what a value too many spills into, and what
+//       an array local indexed at run time lives in.
+//   R5  THE SCRATCH AS A PER-RUN BLOCK. The header's second reserved
+//       word becomes `scratch_io`, [15:0] slots preloaded into every
+//       lane and [31:16] read back, behind flags bit 1. Not asked for
+//       and not used here yet: this target's per-run data is uniform
+//       across lanes, which is what the bank is for. Recorded because
+//       imageBytes() must write the word and the flag.
+//   R6  16,384 instructions (CAPS[23:20] reads 14).
+//   R7  A NINTH CONSTANT-INDEX BIT: under kx, imm[28], imm[29] and
+//       imm[30] are the ninth bits of ka's, kb's and kc's indices, so
+//       the bank reaches 512. imm[31] stays reserved-must-be-zero.
+//   R8  (revision 4, 2026-09-10, golden model first) flags bit 2,
+//       SCRATCH_STRICT: an INDEXED access at or past SCRATCH_D is
+//       reported in STATUS bit 5 rather than reduced modulo the depth.
+//       Every image this repository writes that touches the scratch
+//       sets it, because a program whose answer depends on the tile's
+//       scratch depth is exactly what this project does not ship.
+//
 // The two extensions of 2026-09-07 - kx (instruction bit 30, 8-bit
 // constant indices in imm[23:0], a 256-entry bank) and IMUL (opcode 30,
 // the low 32 bits of the product of the low 32 bits) - are published in
-// CAPS[4] and CAPS[28]; the registers in CAPS[5], the bank in CAPS[6].
-// A host asks before it loads, and cft_program_load refuses by name.
+// CAPS[4] and CAPS[28]; the registers in CAPS[5], the bank in CAPS[6],
+// the ninth index bit in CAPS[7], and the scratch and its I/O in
+// CAPS2[4] and CAPS2[5]. A host asks before it loads, and
+// cft_program_load refuses by name.
 
 // ---- opcodes (softfloat.py:641-670) ---------------------------------
 export const OP = {
@@ -78,10 +109,23 @@ export const ROUNDS = new Set([OP.FMA, OP.ADD, OP.SUB, OP.MUL]);
 export const RND = { RNE: 0, RTZ: 1, RDN: 2, RUP: 3, RMM: 4 };
 export const RND_NAME = { 0: "rne", 1: "rtz", 2: "rdn", 3: "rup", 4: "rmm" };
 
-// ---- control codes (seq.py:95) ---------------------------------------
-export const CTRL = { HALT: 0, REPEAT: 1, ENDREP: 2, DEPOSIT: 3, SETACT: 4, ACTALL: 5 };
+// ---- control codes (seq.py:143) --------------------------------------
+export const CTRL = {
+  HALT: 0, REPEAT: 1, ENDREP: 2, DEPOSIT: 3, SETACT: 4, ACTALL: 5,
+  // revision 3's R4, the per-lane scratch
+  STL: 6, LDL: 7, STX: 8, LDX: 9,
+};
 export const CTRL_NAME = Object.fromEntries(
   Object.entries(CTRL).map(([k, v]) => [v, k.toLowerCase()]));
+/** The four that touch the scratch, and which register field each
+ *  reads or writes - seq.py's IMM_ALLOWED in this file's terms. */
+export const SCRATCH_CODES = new Set([CTRL.STL, CTRL.LDL, CTRL.STX, CTRL.LDX]);
+export const SCRATCH_FIELDS = {
+  [CTRL.STL]: { reads: ["ra"], writes: null, slot: "imm" },
+  [CTRL.LDL]: { reads: [], writes: "rd", slot: "imm" },
+  [CTRL.STX]: { reads: ["ra", "rb"], writes: null, slot: "rb" },
+  [CTRL.LDX]: { reads: ["rb"], writes: "rd", slot: "rb" },
+};
 
 // ---- capacities ------------------------------------------------------
 // Build parameters of cft_seq, not part of the program model
@@ -93,15 +137,41 @@ export const CTRL_NAME = Object.fromEntries(
 export const NREG = 32;          // registers per lane, revision 2 (CAPS[5])
 export const NREG_REV1 = 16;     // what a lane had before, and what a program under 16 needs
 export const KREG = 16;          // addressable constants without kx
-export const KMEM_D = 256;       // constants the header may declare; kx's ceiling
-export const IMEM_D = 4096;      // instructions per image, revision 2 (CAPS[23:20] reads 12)
+export const KMEM_D = 512;       // constants the header may declare, revision 3 (CAPS[27:24] reads 9)
+export const KMEM_D_REV2 = 256;  // kx's ceiling before the ninth index bit; CAPS[7] is the guard
+export const IMEM_D = 16384;     // instructions per image, revision 3 (CAPS[23:20] reads 14)
+export const IMEM_D_REV2 = 4096; // what an image had at revision 2
+export const SCRATCH_D = 256;    // scratch slots per lane, revision 3 (CAPS2[3:0] log2, CAPS2[4])
 export const MAXD = 64;          // deposit slots per lane (rtl/cft_krnl.sv SEQ_MAXD)
 export const MAX_LOOP_DEPTH = 4; // REPEATs nest four deep
 
 export const MAGIC = 0x50544643n;   // "CFTP"
 export const PROGRAM_VERSION = 1;    // the PROGRAM version; the CSR VERSION is another thing
 export const FLAG_BANK_EXT = 1;      // header flags bit 0: the constants arrive per run
+export const FLAG_SCRATCH_IO = 2;    // bit 1: the header's second word is scratch_io (R5)
+export const FLAG_SCRATCH_STRICT = 4; // bit 2: an indexed slot past the depth is REPORTED (R8)
 export const REG_HI_SHIFT = { rd: 24, ra: 25, rb: 26, rc: 27 };
+/** Under kx, the ninth bit of each operand's constant index
+ *  (seq.py KX9_SHIFT). imm[31] stays reserved-must-be-zero. */
+export const KX9_SHIFT = { ra: 28, rb: 29, rc: 30 };
+
+/** The three constant indices packed into one immediate, and back -
+ *  the byte at 0, 8, 16 and the ninth bit at KX9_SHIFT. One place, so
+ *  the encoder, the disassembler and the .cfta writer cannot disagree
+ *  about where a 400th constant lives. */
+export function packKx(ia = 0, ib = 0, ic = 0) {
+  for (const [n, v] of [["a", ia], ["b", ib], ["c", ic]])
+    if (!(Number.isInteger(v) && v >= 0 && v < KMEM_D))
+      throw new Error(`cft-isa: constant index ${n}=${v} outside 0..${KMEM_D - 1}`);
+  return ((ia & 0xff) | ((ib & 0xff) << 8) | ((ic & 0xff) << 16)
+        | (((ia >> 8) & 1) << KX9_SHIFT.ra) | (((ib >> 8) & 1) << KX9_SHIFT.rb)
+        | (((ic >> 8) & 1) << KX9_SHIFT.rc)) >>> 0;
+}
+export function unpackKx(imm) {
+  return [(imm & 0xff) | (((imm >>> KX9_SHIFT.ra) & 1) << 8),
+          ((imm >>> 8) & 0xff) | (((imm >>> KX9_SHIFT.rb) & 1) << 8),
+          ((imm >>> 16) & 0xff) | (((imm >>> KX9_SHIFT.rc) & 1) << 8)];
+}
 
 // ---- encoding (seq.py encode/decode, revision 2) ---------------------
 
@@ -129,6 +199,29 @@ export function encode({ op, rd = 0, ra = 0, rb = 0, rc = 0, rnd = RND.RNE,
         throw new Error("cft-isa: REPEAT names no register and no constant");
       return B(op) | bit(true, 31) | (B(imm) << 32n);
     }
+    if (SCRATCH_CODES.has(op)) {
+      // R4. STL/LDL carry the slot in imm[23:0]; STX/LDX take it from
+      // rb and leave the immediate at zero. Every field the code does
+      // not read must be zero, which is seq.py's IMM_ALLOWED read the
+      // other way round.
+      const f = SCRATCH_FIELDS[op];
+      if (ka || kb || kc || kx) throw new Error(`cft-isa: ${CTRL_NAME[op]} names no constant`);
+      if (rnd !== RND.RNE) throw new Error(`cft-isa: ${CTRL_NAME[op]} takes no rounding attribute`);
+      if (rc) throw new Error(`cft-isa: ${CTRL_NAME[op]} does not read rc`);
+      if (!f.writes && rd) throw new Error(`cft-isa: ${CTRL_NAME[op]} writes no register`);
+      if (!f.reads.includes("ra") && ra) throw new Error(`cft-isa: ${CTRL_NAME[op]} does not read ra`);
+      if (f.slot === "imm") {
+        if (rb) throw new Error(`cft-isa: ${CTRL_NAME[op]} takes its slot from the immediate, not rb`);
+        if (!(imm >= 0 && imm < SCRATCH_D))
+          throw new Error(`cft-isa: scratch slot ${imm} outside 0..${SCRATCH_D - 1}`);
+      } else if (imm) {
+        throw new Error(`cft-isa: ${CTRL_NAME[op]} takes its slot from rb, so imm must be zero`);
+      }
+      const shi = (bit(rd >> 4, REG_HI_SHIFT.rd) | bit(ra >> 4, REG_HI_SHIFT.ra)
+                 | bit(rb >> 4, REG_HI_SHIFT.rb));
+      return B(op) | (B(rd & 15) << 8n) | (B(ra & 15) << 12n) | (B(rb & 15) << 16n)
+           | bit(true, 31) | ((B(imm) | shi) << 32n);
+    }
     if (rd || rb || rc || imm || ka || kb || kc || kx)
       throw new Error(`cft-isa: ${CTRL_NAME[op] ?? op} reads at most ra`);
     if (op !== CTRL.DEPOSIT && op !== CTRL.SETACT) {
@@ -137,10 +230,18 @@ export function encode({ op, rd = 0, ra = 0, rb = 0, rc = 0, rnd = RND.RNE,
     }
     return B(op) | (B(ra & 15) << 12n) | bit(true, 31) | (bit(ra >> 4, REG_HI_SHIFT.ra) << 32n);
   }
-  if (imm & 0xF0000000) throw new Error("cft-isa: imm[31:28] is reserved");
+  if (imm & 0x80000000) throw new Error("cft-isa: imm[31] is reserved");
   if (kx && (imm & 0x0F000000)) throw new Error("cft-isa: imm[27:24] are the register high bits, not indices");
   if (!kx && imm) throw new Error("cft-isa: an ALU instruction without kx has no immediate");
   for (const [k, r, n] of [[ka, ra, "ra"], [kb, rb, "rb"], [kc, rc, "rc"]]) {
+    // R7: the ninth index bit is read only under kx for an operand
+    // whose k flag is set. Set anywhere else it is an unread field and
+    // the loader refuses the program, so refuse it here.
+    if ((imm >>> KX9_SHIFT[n]) & 1) {
+      if (!kx || !k)
+        throw new Error(`cft-isa: imm[${KX9_SHIFT[n]}] is ${n}'s ninth constant-index bit, ` +
+                        `read only under kx for a constant operand`);
+    }
     if (!k) continue;
     // a constant operand: the 4-bit field is the index without kx and
     // zero under kx; the register high bit is not read and is not set
@@ -169,6 +270,13 @@ export function decode(word) {
   const hi = (name) => ((d.imm >>> REG_HI_SHIFT[name]) & 1) << 4;
   if (d.ctrl) {
     if (d.op === CTRL.DEPOSIT || d.op === CTRL.SETACT) d.ra |= hi("ra");
+    if (SCRATCH_CODES.has(d.op)) {
+      const f = SCRATCH_FIELDS[d.op];
+      if (f.writes) d.rd |= hi("rd");
+      if (f.reads.includes("ra")) d.ra |= hi("ra");
+      if (f.slot === "rb" || f.reads.includes("rb")) d.rb |= hi("rb");
+      d.slot = f.slot === "imm" ? (d.imm & 0x00ffffff) : null;
+    }
     return d;
   }
   d.rd |= hi("rd");
@@ -186,10 +294,13 @@ export function disasm(d, kNames = null) {
     const name = CTRL_NAME[d.op] ?? `ctrl${d.op}`;
     if (d.op === CTRL.REPEAT) return `${name} ${d.imm}`;
     if (d.op === CTRL.DEPOSIT || d.op === CTRL.SETACT) return `${name} r${d.ra}`;
+    if (d.op === CTRL.STL) return `${name} r${d.ra}, ${d.slot}`;
+    if (d.op === CTRL.LDL) return `${name} r${d.rd}, ${d.slot}`;
+    if (d.op === CTRL.STX) return `${name} r${d.ra}, r${d.rb}`;
+    if (d.op === CTRL.LDX) return `${name} r${d.rd}, r${d.rb}`;
     return name;
   }
-  const idx = d.kx ? [d.imm & 0xff, (d.imm >> 8) & 0xff, (d.imm >> 16) & 0xff]
-                   : [d.ra, d.rb, d.rc];
+  const idx = d.kx ? unpackKx(d.imm) : [d.ra, d.rb, d.rc];
   const src = (which, i) => {
     const isK = which === "a" ? d.ka : which === "b" ? d.kb : d.kc;
     return isK ? kn(idx[i]) : `r${[d.ra, d.rb, d.rc][i]}`;
@@ -207,8 +318,12 @@ export function disasm(d, kNames = null) {
  *  Under `bankExt` the constant section is absent and `nConsts` says how
  *  many the run must bring; otherwise `consts` is written and counted. */
 export function imageBytes({ insns, consts = [], maxDeposits, precisionCode, width = 32,
-                             bankExt = false, nConsts = consts.length }) {
+                             bankExt = false, nConsts = consts.length,
+                             scratchStrict = false, scratchIn = 0, scratchOut = 0 }) {
   const bytesPerConst = width / 8;
+  const scratchIo = !!(scratchIn || scratchOut);
+  if (scratchIn > SCRATCH_D || scratchOut > SCRATCH_D)
+    throw new Error(`cft-isa: scratch_io ${scratchIn}/${scratchOut} past the ${SCRATCH_D}-slot depth`);
   const stored = bankExt ? [] : consts;
   const buf = new ArrayBuffer(32 + stored.length * bytesPerConst + insns.length * 8);
   const dv = new DataView(buf);
@@ -218,8 +333,11 @@ export function imageBytes({ insns, consts = [], maxDeposits, precisionCode, wid
   dv.setUint32(12, nConsts, true);
   dv.setUint32(16, maxDeposits, true);
   dv.setUint32(20, precisionCode, true);
-  dv.setUint32(24, bankExt ? FLAG_BANK_EXT : 0, true);
-  dv.setUint32(28, 0, true);
+  dv.setUint32(24, (bankExt ? FLAG_BANK_EXT : 0) | (scratchIo ? FLAG_SCRATCH_IO : 0)
+                 | (scratchStrict ? FLAG_SCRATCH_STRICT : 0), true);
+  // R5's scratch_io word, meaningful only behind the flag; zero
+  // otherwise, which a revision-2 tile enforces and is the guard.
+  dv.setUint32(28, scratchIo ? (((scratchOut & 0xffff) << 16) | (scratchIn & 0xffff)) >>> 0 : 0, true);
   let o = 32;
   for (const k of stored) { dv.setUint32(o, k >>> 0, true); o += bytesPerConst; }
   for (const w of insns) { dv.setBigUint64(o, BigInt(w), true); o += 8; }

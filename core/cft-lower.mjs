@@ -42,7 +42,8 @@
 // takes as data; and LOOPS, below. A `t` value is a slot of that tail:
 // never folded, since its value is not known here.
 
-import { OP, RND, CTRL, READS, ROUNDS, encode, NREG, KREG, MAX_LOOP_DEPTH } from "./cft-isa.mjs";
+import { OP, RND, CTRL, READS, ROUNDS, encode, packKx, NREG, KREG, KMEM_D_REV2,
+         SCRATCH_D, MAX_LOOP_DEPTH } from "./cft-isa.mjs";
 import { CASTS, BUILTIN_TYPES, VEC, isArray, arrayLen } from "./glsl-sub.mjs";
 
 const _b = new DataView(new ArrayBuffer(4));
@@ -266,6 +267,8 @@ class Fn {
     this.pendingPhis = [];     // phis created for the loop about to open
     this.fnStack = [];         // the det function being inlined, innermost last
     this.callSites = new Map(); // det function -> how many times it was inlined
+    this.scratchFixed = 0;     // slots owned by array locals, below anything spilled
+    this.arrays = [];          // {name, base, len} - what the record prints
   }
 
   gap(k) { this.gaps.set(k, (this.gaps.get(k) || 0) + 1); }
@@ -327,13 +330,13 @@ class Fn {
     const p = this.phis[ph.ph];
     p.initOp = this.ops.length;
     this.ops.push({ op: OP.IOR, rnd: RND.RNE, a: src, b: { c: 0, type: "uint" }, type: p.type,
-                    tag: `phi-init ${p.name}`, phiInit: ph.ph });
+                    tag: `phi-init ${p.name}`, phiInit: ph.ph, copy: true });
     this.pendingPhis.push(ph.ph);
   }
   phiBack(ph, src, tag = "phi-back") {
     const p = this.phis[ph.ph];
     this.ops.push({ op: OP.IOR, rnd: RND.RNE, a: src, b: { c: 0, type: "uint" }, type: p.type,
-                    tag: `${tag} ${p.name}`, phiBack: ph.ph });
+                    tag: `${tag} ${p.name}`, phiBack: ph.ph, copy: true });
   }
   /** A copy-back that keeps the register where `cond` is false: the
    *  break-point snapshot, which must not touch a lane that stays. One
@@ -452,6 +455,49 @@ export function lowerFunction(lib, name, opts = {}) {
     const t = E(OP.MUL, [hi, K(f32bits(65536))], { type: "float", tag: "u2f" });
     return E(OP.ADD, [t, lo], { type: "float", tag: "u2f" });
   };
+  // AN ARRAY LOCAL LIVES IN THE SCRATCH. `precise float wts[28]`,
+  // written and read under loop counters, is the one construct the
+  // corpus has whose address is not known until the run, and revision
+  // 3's indexed scratch (docs/SEQUENCER.md R4: STX and LDX take the
+  // slot from the low bits of a register's bit pattern) is what it is
+  // for. The array's slots are taken from the bottom of the scratch
+  // before anything is spilled into it, so the base is a constant of
+  // the program and the index register carries only the subscript.
+  //
+  // The subscript is an int, held as its own bit pattern, which is
+  // exactly what the instruction reads; a base of zero needs no
+  // arithmetic at all. Out of range the instruction would WRAP - the
+  // contract reduces modulo the depth - so the emitted index is
+  // checked against the array's length the way GLSL's own undefined
+  // behaviour is checked here, by refusing to emit what it cannot
+  // prove: a literal subscript is checked at compile time, and a
+  // computed one is clamped into the array, which is what a driver's
+  // robust-access mode does and what the reference interpreter is held
+  // to below.
+  const arraySlot = (a, idx) => {
+    const lo = gmax(idx, K(0, "int"), "int");
+    const hi = gmin(lo, K(a.len - 1, "int"), "int");
+    return a.base === 0 ? hi : E(OP.IADD, [hi, K(a.base, "int")], { type: "int", tag: "array" });
+  };
+  const arrayLoad = (a, idx, type) => {
+    F.gap("array-load");
+    // THE SLOT FIRST. `arraySlot` emits the clamp, so reading
+    // F.ops.length before it would name one of those instructions as
+    // this load's result rather than the load - which is what happened
+    // on 2026-09-11, and cost `nested` every sample: the predicated
+    // store read a register the clamp had written instead of the
+    // element it was updating.
+    const slot = arraySlot(a, idx);
+    const id = F.ops.length;
+    F.ops.push({ mem: "ldx", b: slot, type, tag: `${a.name}[]` });
+    return { r: id, type };
+  };
+  const arrayStore = (a, idx, value) => {
+    F.gap("array-store");
+    F.ops.push({ mem: "stx", a: value, b: arraySlot(a, idx), type: value.type,
+                 tag: `${a.name}[] =` });
+  };
+
   // A value in a register, for a control word that reads one: SETACT,
   // like DEPOSIT, never names the bank, a tail slot or an untouched
   // input, so those are copied by an IOR the identity folder leaves alone.
@@ -502,6 +548,69 @@ export function lowerFunction(lib, name, opts = {}) {
     q = E(OP.SELECT, [E(OP.IADD, [q0, K(1, type)], T), q, tooFew], T);
     if (op === "%") return resign(E(OP.ISUB, [A, E(OP.IMUL, [q, K(ad, type)], T)], T), false);
     return resign(q, d < 0);
+  };
+
+  /** The same division when the divisor is known only at run time - a
+   *  lever, in the one positive that does it (`nested`'s `% p`, the
+   *  weight table's modulus). The reciprocal cannot be a constant then,
+   *  so the estimate comes from `det_div` - the shipped library's own
+   *  division, refined from a bit-trick seed with exact arithmetic and
+   *  already held bit-for-bit to the GPU's (docs/CFT-DETLIB.md) - and
+   *  the correction is the one above, unchanged: the remainder says
+   *  which way the estimate missed and one select each puts it right.
+   *
+   *  Exact for |a| < 2^22 and d != 0 in the same binade range: both go
+   *  to float exactly there, `det_div` is within an ulp of the true
+   *  quotient, and an ulp of a quotient below 2^22 is below 1, so the
+   *  truncation is off by at most one in either direction. Division by
+   *  zero is GLSL's undefined behaviour and stays undefined: `det_div`
+   *  returns an infinity and the truncation of it is what this
+   *  computes, which is what the reference interpreter is compared
+   *  against rather than a promise. */
+  const idivVar = (op, a, b, type) => {
+    const u = type === "uint";
+    F.gap(op === "/" ? "idiv-var" : "imod-var");
+    const T = { type, tag: op };
+    let negA = null, negB = null, A = a, B = b;
+    if (!u) {
+      negA = sLt(a, K(0, "int"));
+      A = E(OP.SELECT, [E(OP.ISUB, [K(0, "int"), a], T), a, negA], T);
+      negB = sLt(b, K(0, "int"));
+      B = E(OP.SELECT, [E(OP.ISUB, [K(0, "int"), b], T), b, negB], T);
+    }
+    const fa = u ? u2f(A) : i2f(A);
+    const fb = u ? u2f(B) : i2f(B);
+    const q0 = f2i(callLib("det_div", [fa, fb]));
+    const r0 = E(OP.ISUB, [A, E(OP.IMUL, [q0, B], T)], T);
+    const tooMany = sLt(r0, K(0, "int"));
+    const tooFew = notb(sLt(r0, B));
+    let q = E(OP.SELECT, [E(OP.ISUB, [q0, K(1, type)], T), q0, tooMany], T);
+    q = E(OP.SELECT, [E(OP.IADD, [q0, K(1, type)], T), q, tooFew], T);
+    if (op === "%") {
+      const m = E(OP.ISUB, [A, E(OP.IMUL, [q, B], T)], T);
+      return negA === null ? m : E(OP.SELECT, [E(OP.ISUB, [K(0, "int"), m], T), m, negA], T);
+    }
+    if (negA === null) return q;
+    // a predicate here is 1.0 or +0.0, so "differ" is a comparison and
+    // not a bitwise xor of the two patterns
+    const sign = notb(E(OP.CMPEQ, [negA, negB], { type: "bool", tag: op }));
+    return E(OP.SELECT, [E(OP.ISUB, [K(0, "int"), q], T), q, sign], T);
+  };
+
+  /** One of the library's functions, called with values rather than
+   *  with an argument list of source - the same inlining `lowerCall`
+   *  does, reached from an expansion instead of from a call in the
+   *  text. */
+  const callLib = (name, argVals) => {
+    const f = lib.byName.get(name);
+    if (!f) throw new Error(`cft-lower: no function ${name}`);
+    const inner = new Map(globalEnv);
+    f.params.forEach((pm, i) => inner.set(pm.name, argVals[i]));
+    F.callSites.set(name, (F.callSites.get(name) || 0) + 1);
+    F.fnStack.push(name);
+    const r = lowerBody(f, inner);
+    F.fnStack.pop();
+    return r.value;
   };
 
   // GLSL's min/max are NOT 754's minimum/maximum, and mapping them onto
@@ -574,10 +683,23 @@ export function lowerFunction(lib, name, opts = {}) {
       }
       case "index": {
         const o = lowerExpr(e.obj, env);
+        if (o.scratch !== undefined) {
+          const elem = VEC[o.type] ? VEC[o.type].elem : "float";
+          if (e.i.n === "lit") {
+            const i = e.i.value | 0;
+            if (i < 0 || i >= o.len) throw new Error(`cft-lower: [${i}] outside ${o.type}`);
+            const id = F.ops.length;
+            F.gap("array-load");
+            F.ops.push({ mem: "ldl", slot: o.base + i, type: elem, tag: `${o.name}[${i}]` });
+            return { r: id, type: elem };
+          }
+          return arrayLoad(o, lowerExpr(e.i, env), elem);
+        }
         if (!o.arr) throw new Error(`cft-lower: [] on a ${o.type}`);
         if (e.i.n !== "lit")
-          throw new Error("cft-lower: an array index has to be a literal - the bank " +
-                          "is addressed by the instruction, not by a register");
+          throw new Error("cft-lower: an array index has to be a literal here - `P` is the " +
+                          "per-run tail, addressed by the instruction and not by a register; " +
+                          "only an array LOCAL lives in the scratch");
         const i = e.i.value | 0;
         if (i < 0 || i >= o.arr.length) throw new Error(`cft-lower: [${i}] outside ${o.type}`);
         return o.arr[i];
@@ -686,13 +808,7 @@ export function lowerFunction(lib, name, opts = {}) {
           case "%": if (y !== 0) return K(w(x % y), type); break;
         }
       }
-      if (op === "/" || op === "%") {
-        if (!isC(b))
-          throw new Error(`cft-lower: integer ${op} by a divisor that is not a literal is not ` +
-                          `lowered - the exact sequence (EXPANSIONS.idiv) wants the reciprocal ` +
-                          `as a constant, and every division in the corpus has one`);
-        return idiv(op, a, b, type);
-      }
+      if (op === "/" || op === "%") return isC(b) ? idiv(op, a, b, type) : idivVar(op, a, b, type);
       const map = { "+": OP.IADD, "-": OP.ISUB, "&": OP.IAND, "|": OP.IOR,
                     "^": OP.IXOR, "<<": OP.ISHL, ">>": OP.ISHR, "*": OP.IMUL };
       const o = map[op];
@@ -714,6 +830,21 @@ export function lowerFunction(lib, name, opts = {}) {
     }
   }
 
+  /** One component, converted as the element type's own constructor
+   *  would convert it - the same expansions the scalar casts use. A
+   *  predicate is 1.0 or +0.0 here, so bool needs no instruction in
+   *  either direction. */
+  function castTo(v, from, to) {
+    if (from === to || from === undefined) return v;
+    if (to === "float") {
+      if (from === "int") return i2f(v);
+      if (from === "uint") return u2f(v);
+      return { ...v, type: "float" };
+    }
+    if ((to === "int" || to === "uint") && from === "float") return { ...f2i(v), type: to };
+    return { ...v, type: to };           // int <-> uint, and bool, are reinterpretations
+  }
+
   function lowerCall(e, env) {
     const n = e.name;
     if (CASTS.has(n)) {
@@ -730,13 +861,26 @@ export function lowerFunction(lib, name, opts = {}) {
       return { ...a, type: n };
     }
     if (VEC[n]) {
-      // a constructor: components in order, a lone scalar broadcast
+      // A constructor CONVERTS each component to the element type. It
+      // is the same conversion the scalar casts above perform, and
+      // leaving it out - relabelling an int component as a float -
+      // computes a different number the moment the two differ:
+      // measured 2026-09-11 on `nested`, the corpus's only user of
+      // integer vectors, where `ivec2(vec2(...) * s)` has to truncate
+      // and `vec2(ivec2)` has to convert. Every other positive builds
+      // its vectors out of floats, which is why it took this long.
+      const elem = VEC[n].elem;
       const parts = [];
-      for (const x of e.args) { const v = lowerExpr(x, env); if (v.vec) parts.push(...v.vec); else parts.push(v); }
+      for (const x of e.args) {
+        const v = lowerExpr(x, env);
+        const from = VEC[x.type] ? VEC[x.type].elem : x.type;
+        if (v.vec) for (const c of v.vec) parts.push(castTo(c, from, elem));
+        else parts.push(castTo(v, from, elem));
+      }
       const want = VEC[n].n;
       if (parts.length === 1) while (parts.length < want) parts.push(parts[0]);
       if (parts.length !== want) throw new Error(`cft-lower: ${n}(...) given ${parts.length} components`);
-      return { vec: parts.map(p => ({ ...p, type: VEC[n].elem })), type: n };
+      return { vec: parts.map(p => ({ ...p, type: elem })), type: n };
     }
     if (BUILTIN_TYPES[n]) {
       const a = e.args.map(x => lowerExpr(x, env));
@@ -852,9 +996,45 @@ export function lowerFunction(lib, name, opts = {}) {
         return false;
       }
       case "decl":
-        for (const d of s.decls)
+        for (const d of s.decls) {
+          // An array local with no initialiser takes slots of its own,
+          // once: a declaration inside a loop body names the same slots
+          // every iteration, exactly as it names the same storage in
+          // GLSL, and the emitter writes every element it goes on to
+          // read (nested's two passes visit the same subscripts).
+          if (d.len && !d.init) {
+            let a = F.arrays.find(x => x.decl === d);
+            if (!a) {
+              a = { decl: d, name: d.name, base: F.scratchFixed, len: d.len,
+                    type: s.type, elem: "float" };
+              F.scratchFixed += d.len;
+              if (F.scratchFixed > SCRATCH_D)
+                throw new Error(`cft-lower: the array locals want ${F.scratchFixed} scratch ` +
+                                `slots and a lane has ${SCRATCH_D}`);
+              F.arrays.push(a);
+            }
+            env.set(d.name, { scratch: a.base, base: a.base, len: a.len, name: a.name, type: s.type });
+            continue;
+          }
           env.set(d.name, d.init ? lowerExpr(d.init, env) : zeroOf(s.type));
+        }
         return false;
+      case "assignIndex": {
+        const a = env.get(s.name);
+        if (!a || a.scratch === undefined)
+          throw new Error(`cft-lower: ${s.name}[...] = is not an array local`);
+        const value = lowerExpr(s.value, env);
+        const idx = lowerExpr(s.index, env);
+        // PREDICATED like every other write. The instruction's own mask
+        // is the lane's active bit, which says nothing about the path
+        // that reached this statement, so a store under a condition
+        // reads the element back and selects - the same shape every
+        // other conditional assignment here has.
+        if (cond === null) { arrayStore(a, idx, value); return false; }
+        const old = arrayLoad(a, idx, value.type ?? "float");
+        arrayStore(a, idx, selVal(value, old, cond, value.type ?? "float", "[]?"));
+        return false;
+      }
       case "assign": env.set(s.name, lowerExpr(s.value, env)); return false;
       case "expr": lowerExpr(s.value, env); return false;
       case "return":
@@ -1221,9 +1401,43 @@ function lessKey(a, b) {
 /** The operands of an op that name other ops, as a list of op ids. */
 function predsOf(o) {
   const s = [];
-  for (const w of ["a", "b", "c"]) { const v = o[w]; if (v && v.v !== undefined && !s.includes(v.v)) s.push(v.v); }
+  for (const w of readsOf(o)) { const v = o[w]; if (v && v.v !== undefined && !s.includes(v.v)) s.push(v.v); }
   return s;
 }
+
+/** The operand slots an op actually READS. One definition, because the
+ *  live-range profile, the register allocator, dead-code elimination
+ *  and the segment analysis must agree about it exactly: a value read
+ *  by something they disagree about either keeps a register it does not
+ *  need or loses one it does.
+ *
+ *  A control word reads at most `a` (DEPOSIT, SETACT). A scratch store
+ *  reads the value in `a`, and the indexed form its slot in `b`; a
+ *  scratch load reads nothing, or `b` where it is indexed. Everything
+ *  else is an ALU instruction and reads what its opcode's READS says,
+ *  which the undefined slots below take care of. */
+function readsOf(o) {
+  switch (o.mem) {
+    case "stl": return ["a"];
+    case "ldl": return [];
+    case "stx": return ["a", "b"];
+    case "ldx": return ["b"];
+    default: break;
+  }
+  if (o.ctrl) return o.a ? ["a"] : [];
+  return ["a", "b", "c"];
+}
+
+/** Does this op write a register of its own? A control word does not; a
+ *  scratch store does not; a copy BACK into a loop-carried register
+ *  writes one it already has. Everything else defines a value. */
+function definesReg(o) {
+  if (o.mem) return o.mem === "ldl" || o.mem === "ldx";
+  return !o.ctrl && o.phiBack === undefined;
+}
+
+/** The four scratch codes, by the name the instruction list gives them. */
+const SCRATCH_NAMES = new Set(["stl", "ldl", "stx", "ldx"]);
 
 /** One greedy list schedule over a straight-line set of ops. Returns
  *  the new order as indices into `ops`. `ops` here is segment-local:
@@ -1389,9 +1603,10 @@ export function profileOf(ops, args, resultIds, order, geo) {
   const defOf = (id) => pos[id];
   for (const id of order) {
     const o = ops[id];
-    if (o.ctrl && !o.a) continue;
+    const reads = readsOf(o);
+    if (!reads.length && !definesReg(o)) continue;
     const q = pos[id];
-    for (const w of (o.ctrl ? ["a"] : ["a", "b", "c"])) {
+    for (const w of reads) {
       const v = o[w];
       if (!v) continue;
       if (v.v !== undefined) { const u = usePos(id, q, defOf(v.v)); if (u > last[v.v]) last[v.v] = u; }
@@ -1401,7 +1616,7 @@ export function profileOf(ops, args, resultIds, order, geo) {
         if (u > last[init]) last[init] = u;
       } else if (v.arg !== undefined) { const u = usePos(id, q, -1); if (u > argLast[v.arg]) argLast[v.arg] = u; }
     }
-    if (o.ctrl) continue;                          // a control word defines nothing
+    if (!definesReg(o) && o.phiBack === undefined) continue;   // defines nothing
     if (o.phiBack !== undefined) {
       // the copy-back writes the phi's register at this position, and
       // the register is needed to the end of the loop whatever else
@@ -1420,18 +1635,251 @@ export function profileOf(ops, args, resultIds, order, geo) {
   // live into position p: defined before p, last needed after p
   const diff = new Int32Array(N + 2);
   const span = (def, l) => { const s = def + 1, e = Math.min(l, N); if (e > s) { diff[s]++; diff[e]--; } };
-  for (const id of order) if (!ops[id].ctrl && ops[id].phiBack === undefined && last[id] >= 0) span(pos[id], last[id]);
+  for (const id of order) if (definesReg(ops[id]) && last[id] >= 0) span(pos[id], last[id]);
   args.forEach((_, k) => { if (argLast[k] >= 0) span(-1, argLast[k]); });
   let live = 0, peak = args.length, sum = 0;
+  const liveAt = new Int32Array(N);
   for (let p = 0; p < N; p++) {
     live += diff[p];
     const o = ops[order[p]];
-    const defines = !o.ctrl && o.phiBack === undefined;
-    const need = live + (defines ? 1 : 0);
+    const need = live + (definesReg(o) ? 1 : 0);
+    liveAt[p] = need;
     if (need > peak) peak = need;
     sum += need;
   }
-  return { peak, sum, pos, last, argLast };
+  return { peak, sum, pos, last, argLast, liveAt };
+}
+
+// ------------------------------------------------------- spilling
+//
+// THE SCRATCH IS WHERE A VALUE TOO MANY LIVES. Revision 3 of the
+// coprocessor's sequencer (2026-09-08 evening, docs/SEQUENCER.md R4)
+// gave a lane 256 scratch slots and four control codes - STL and LDL by
+// static slot, STX and LDX by a register's low bits - in answer to this
+// repository's first ask of docs/CFT-GAPS.md, which measured thirty
+// positives over the thirty-two registers a lane has and five of them
+// over sixty-four. A store is a register write for P3's purposes,
+// masked by the lane's active bit, so a lane that has left a loop keeps
+// what it stored exactly as it kept its registers; a load writes rd and
+// is masked the same way. Neither is arithmetic.
+//
+// So a spilled value's HOME IS A SLOT: it is computed into a register
+// and stored at once, and every later read loads it into a register of
+// its own. A loop-carried value - a phi - spills the same way, and more
+// naturally: its copy-in becomes a store, its copy-back a store, and
+// each read inside the body a load. The slot persists across
+// iterations, which is what the pinned register was for.
+//
+// The choice is Belady's, weighted: spill the value whose live range is
+// longest per read, because that is the one holding a register longest
+// for the least. Results are never spilled (a DEPOSIT reads a
+// register), nor are the three input streams, nor a reload.
+
+function usesOf(ops) {
+  const vUses = new Int32Array(ops.length);
+  const pUses = new Map();
+  for (const o of ops)
+    for (const w of readsOf(o)) {
+      const v = o[w];
+      if (!v) continue;
+      if (v.v !== undefined) vUses[v.v]++;
+      else if (v.ph !== undefined) pUses.set(v.ph, (pUses.get(v.ph) || 0) + 1);
+    }
+  return { vUses, pUses };
+}
+
+/** Which values to spill so that no position needs more than `maxRegs`.
+ *  Greedy over the live curve: take the worst position, spill the best
+ *  candidate that is live across it, subtract its range from the curve,
+ *  repeat. The curve is an estimate - a spilled value still holds a
+ *  register for the one instruction that computes it and for each
+ *  reload - so the caller re-profiles and comes back if it was wrong. */
+function chooseSpills(ops, resultIds, order, geo, prof, maxRegs, phis, already) {
+  const N = order.length;
+  const { vUses, pUses } = usesOf(ops);
+  const cands = [];
+  for (const id of order) {
+    const o = ops[id];
+    if (!definesReg(o)) continue;
+    if (prof.last[id] < 0) continue;
+    const from = prof.pos[id], to = Math.min(prof.last[id], N);
+    if (to <= from) continue;
+    if (o.phiInit !== undefined) {
+      if (already.phis.has(o.phiInit) || resultIds.ops.has(id)) continue;
+      cands.push({ kind: "phi", ph: o.phiInit, id, from, to, uses: pUses.get(o.phiInit) || 0 });
+    } else {
+      if (resultIds.ops.has(id) || already.values.has(id)) continue;
+      if (o.mem) continue;                       // a reload is not spilled again
+      cands.push({ kind: "value", id, from, to, uses: vUses[id] || 0 });
+    }
+  }
+  // range per read: the register-positions saved for each load it costs
+  for (const c of cands) c.score = (c.to - c.from) / (c.uses + 1);
+  cands.sort((a, b) => b.score - a.score || a.id - b.id);
+  const live = Int32Array.from(prof.liveAt);
+  const taken = new Set();
+  const chosen = { values: new Set(), phis: new Set() };
+  for (let guard = 0; guard < cands.length + 1; guard++) {
+    let worst = -1, worstAt = -1;
+    for (let p = 0; p < N; p++) if (live[p] > worst) { worst = live[p]; worstAt = p; }
+    if (worst <= maxRegs) break;
+    let pick = null;
+    for (const c of cands) {
+      if (taken.has(c)) continue;
+      if (c.from <= worstAt && worstAt <= c.to) { pick = c; break; }
+    }
+    if (!pick) break;                            // nothing left that helps here
+    taken.add(pick);
+    if (pick.kind === "phi") chosen.phis.add(pick.ph); else chosen.values.add(pick.id);
+    for (let p = pick.from; p <= pick.to && p < N; p++) live[p]--;
+  }
+  return chosen;
+}
+
+/** Rewrite the program with the chosen values living in scratch slots.
+ *  Returns the new op list IN PROGRAM ORDER (so the caller's order
+ *  becomes the identity and the segments are recomputed from it), the
+ *  map from old op ids to new, and how many slots were taken.
+ *
+ *  Slots are assigned by a linear scan over the live ranges, so two
+ *  values whose ranges do not overlap share one. */
+function rewriteSpills(ops, order, phis, chosen, prof, slotBase) {
+  const ranges = [];
+  for (const id of chosen.values) ranges.push({ key: `v${id}`, from: prof.pos[id], to: prof.last[id] });
+  for (const ph of chosen.phis) {
+    const init = phis[ph].initOpNew;
+    ranges.push({ key: `p${ph}`, from: prof.pos[init], to: prof.last[init] });
+  }
+  ranges.sort((a, b) => a.from - b.from || a.to - b.to);
+  const slotOf = new Map();
+  const free = [];
+  const busy = [];
+  let high = slotBase;
+  for (const r of ranges) {
+    for (let i = busy.length - 1; i >= 0; i--)
+      if (busy[i].to < r.from) { free.push(busy[i].slot); busy.splice(i, 1); }
+    free.sort((a, b) => a - b);
+    const slot = free.length ? free.shift() : high++;
+    slotOf.set(r.key, slot);
+    busy.push({ to: r.to, slot });
+  }
+  const slotV = (id) => slotOf.get(`v${id}`);
+  const slotP = (ph) => slotOf.get(`p${ph}`);
+
+  const out = [];
+  const idOf = new Int32Array(ops.length).fill(-1);
+  let stores = 0, loads = 0;
+  const reload = (slot, type, name) => {
+    const id = out.length;
+    out.push({ mem: "ldl", slot, type, tag: `reload ${name}` });
+    loads++;
+    return { v: id };
+  };
+  /** A STORE READS A REGISTER, NEVER THE CONSTANT BANK - the same rule
+   *  DEPOSIT has, and for the same reason: the loader refuses a stray
+   *  `ka` on a control instruction, and the operand field of an `stl`
+   *  whose source came out as a constant would name the REGISTER with
+   *  that constant's index. Measured 2026-09-11 on `dissipation`, whose
+   *  two carried values initialised to zero both stored from `r9`
+   *  because the zero constant sat at bank slot 9: every deposit of
+   *  every sample wrong, and the golden model and libcft agreeing with
+   *  each other about it. So a constant or a per-run slot is moved into
+   *  a register first, by OR-ing it with ITSELF - exact on every bit
+   *  pattern, and it needs no bank entry that the layout no longer has
+   *  room to add, the bank having been laid out before the schedule. */
+  const inReg = (v, type, tag) => {
+    if (v && (v.k !== undefined || v.t !== undefined)) {
+      const id = out.length;
+      out.push({ op: OP.IOR, rnd: RND.RNE, a: v, b: v, type, tag: `${tag} into a register` });
+      return { v: id };
+    }
+    return v;
+  };
+  for (const oldId of order) {
+    const o = ops[oldId];
+    const m = { ...o };
+    for (const w of readsOf(o)) {
+      const v = o[w];
+      if (!v) continue;
+      if (v.v !== undefined) {
+        m[w] = chosen.values.has(v.v)
+          ? reload(slotV(v.v), ops[v.v].type, ops[v.v].tag || "value")
+          : { v: idOf[v.v] };
+        if (m[w].v < 0) throw new Error("cft-lower: a spilled operand read before its definition");
+      } else if (v.ph !== undefined && chosen.phis.has(v.ph)) {
+        m[w] = reload(slotP(v.ph), phis[v.ph].type, phis[v.ph].name);
+      }
+    }
+    const phiHome = o.phiInit !== undefined && chosen.phis.has(o.phiInit) ? o.phiInit
+                  : o.phiBack !== undefined && chosen.phis.has(o.phiBack) ? o.phiBack : -1;
+    if (phiHome >= 0) {
+      // The carried value lives in a slot now, so its copy-in and every
+      // copy-back are stores. A plain copy stores its source directly;
+      // a SELECT (the SETACT snapshot) has to compute first.
+      const slot = slotP(phiHome);
+      let src = m.a;
+      if (!o.copy) {
+        const nid = out.length;
+        const body = { ...m };
+        delete body.phiInit; delete body.phiBack;
+        out.push(body);
+        src = { v: nid };
+      }
+      out.push({ mem: "stl", slot, a: inReg(src, phis[phiHome].type, o.tag),
+                 type: phis[phiHome].type, tag: `${o.tag} -> scratch` });
+      stores++;
+      continue;
+    }
+    const nid = out.length;
+    out.push(m);
+    idOf[oldId] = nid;
+    if (chosen.values.has(oldId)) {
+      out.push({ mem: "stl", slot: slotV(oldId), a: { v: nid }, type: o.type,
+                 tag: `spill ${o.tag || "value"}` });
+      stores++;
+    }
+  }
+  return { ops: out, idOf, slots: high - slotBase, high, stores, loads };
+}
+
+/** Spill until the program fits `maxRegs` registers a lane, or until
+ *  nothing is left to spill. Iterates because the reloads it inserts
+ *  hold registers of their own. */
+function spillToScratch(ops, args, resultIds, order, geo, phis, maxRegs, slotBase0 = 0) {
+  let curOps = ops, curOrder = order, curGeo = geo, curResults = resultIds;
+  let idMap = new Int32Array(ops.length).map((_, i) => i);
+  const already = { values: new Set(), phis: new Set() };   // values in the CURRENT numbering
+  let slotBase = slotBase0, stores = 0, loads = 0, rounds = 0;
+  let spilledValues = 0, spilledPhis = 0;
+  for (; rounds < 16; rounds++) {
+    const prof = profileOf(curOps, args, curResults, curOrder, curGeo);
+    if (prof.peak <= maxRegs) break;
+    // the phi's copy-in, in the CURRENT numbering, for the slot scan
+    curOps.forEach((o, i) => { if (o.phiInit !== undefined) phis[o.phiInit].initOpNew = i; });
+    const chosen = chooseSpills(curOps, curResults, curOrder, curGeo, prof, maxRegs, phis, already);
+    if (!chosen.values.size && !chosen.phis.size) break;
+    const r = rewriteSpills(curOps, curOrder, phis, chosen, prof, slotBase);
+    if (r.high > SCRATCH_D)
+      throw new Error(`cft-lower: spilling wants ${r.high} scratch slots and a lane has ${SCRATCH_D}`);
+    slotBase = r.high;
+    stores += r.stores; loads += r.loads;
+    spilledValues += chosen.values.size; spilledPhis += chosen.phis.size;
+    // the value ids are the CURRENT numbering, so carry the set through
+    // the rewrite's map as everything else is carried
+    const carried = new Set();
+    for (const v of already.values) if (r.idOf[v] >= 0) carried.add(r.idOf[v]);
+    for (const v of chosen.values) if (r.idOf[v] >= 0) carried.add(r.idOf[v]);
+    already.values = carried;
+    for (const p of chosen.phis) already.phis.add(p);
+    curOps = r.ops;
+    curOrder = curOps.map((_, i) => i);
+    curGeo = geometryOf(curOps, phis);
+    curResults = { ops: new Set([...curResults.ops].map(i => r.idOf[i])), args: curResults.args };
+    idMap = idMap.map(i => (i < 0 ? -1 : r.idOf[i]));
+  }
+  const peak = profileOf(curOps, args, curResults, curOrder, curGeo).peak;
+  return { ops: curOps, order: curOrder, geo: curGeo, resultIds: curResults, idMap,
+           slots: slotBase, stores, loads, rounds, peak, spilledValues, spilledPhis };
 }
 
 /** Local moves on a topological order, accepted when they lower the
@@ -1459,7 +1907,7 @@ function improveOrder(ops, args, resultIds, order0, geo) {
     for (let p = 0; p < N; p++) {
       const id = order[p];
       const o = ops[id];
-      if (o.ctrl || o.phiInit !== undefined || o.phiBack !== undefined) continue;   // pinned
+      if (o.ctrl || o.mem || o.phiInit !== undefined || o.phiBack !== undefined) continue;   // pinned
       const seg = geo.segOf[id];
       const pos = best.pos;
       let lo = geo.segFrom(seg, pos), hi = geo.segTo(seg, pos);
@@ -1528,11 +1976,29 @@ function allocate(ops, args, resultIds, order, geo, tailBase = 0) {
   for (let p = 0; p < N; p++) {
     const id = order[p];
     const o = ops[id];
-    if (o.ctrl) {
+    if (o.ctrl && !o.mem) {
       const a = o.a ? src(o, "a") : undefined;
       for (const [kind, k] of dying[p]) free.push(kind === "arg" ? argReg[k] : regOf[k]);
       for (const [kind, k] of dying[p]) { if (kind === "arg") argReg[k] = -1; }
       out.push({ i: id, ctrl: o.ctrl, trip: o.trip, a });
+      continue;
+    }
+    if (o.mem) {
+      // a store reads and frees; a load takes a register like any
+      // other definition, and both do it in that order
+      const a = o.a ? src(o, "a") : undefined;
+      const b = o.b ? src(o, "b") : undefined;
+      for (const [kind, k] of dying[p]) free.push(kind === "arg" ? argReg[k] : regOf[k]);
+      for (const [kind, k] of dying[p]) { if (kind === "arg") argReg[k] = -1; }
+      let rd;
+      if (definesReg(o)) {
+        if (!free.length) throw new Error("cft-lower: the register pool ran dry");
+        free.sort((x, y) => x - y);
+        rd = free.shift();
+        if (rd + 1 > peak) peak = rd + 1;
+        regOf[id] = rd;
+      }
+      out.push({ i: id, mem: o.mem, slot: o.slot, rd, a, b, tag: o.tag });
       continue;
     }
     const a = src(o, "a"), b = src(o, "b"), c = src(o, "c");
@@ -1591,17 +2057,30 @@ export function geometryOf(ops, phis) {
   const segOf = new Int32Array(ops.length).fill(-1);
   const segs = [];
   let cur = null;
+  // A SCRATCH ACCESS ENDS A SEGMENT. Not because it is a control word -
+  // it is encoded with the control bit because the opcode byte is a
+  // control code's, and it never touches the program counter - but
+  // because two accesses to the same slot are ordered by the SLOT and
+  // not by any operand the scheduler can see, and a reordering that
+  // respects only the data dependences would let a load pass the store
+  // it must see. Segments are how this file says "nothing moves across
+  // here", so scratch uses it. The spiller does not care either way:
+  // it inserts its accesses after the order is fixed, and from there
+  // the segments feed only the lifetime profile, which reads the loop
+  // geometry and not this.
   ops.forEach((o, i) => {
-    if (o.ctrl) { cur = null; return; }
+    if (o.ctrl || o.mem) { cur = null; return; }
     if (!cur) { cur = { ops: [], pinned: [] }; segs.push(cur); }
     segOf[i] = segs.length - 1;
-    if (o.phiInit !== undefined || o.phiBack !== undefined) cur.pinned.push(i); else cur.ops.push(i);
+    if (o.phiInit !== undefined || o.phiBack !== undefined) cur.pinned.push(i);
+    else cur.ops.push(i);
   });
   const geo = { loops, opLoop, phiLoop, phiInit, segOf, segs };
   // the reorderable window of a segment in a given order: from its first
   // free op to just before its first pinned op (or its last free op)
-  geo.segFrom = (s, pos) => Math.min(...segs[s].ops.map(i => pos[i]));
+  geo.segFrom = (s, pos) => (segs[s].ops.length ? Math.min(...segs[s].ops.map(i => pos[i])) : 0);
   geo.segTo = (s, pos) => {
+    if (!segs[s].ops.length) return -1;
     const lastFree = Math.max(...segs[s].ops.map(i => pos[i]));
     const firstPinned = segs[s].pinned.length ? Math.min(...segs[s].pinned.map(i => pos[i])) : Infinity;
     return Math.min(lastFree, firstPinned - 1);
@@ -1617,13 +2096,18 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
   const live = new Set();
   const stack = results.map(r => r.value).filter(v => v.r !== undefined && v.r >= 0).map(v => v.r);
   results.forEach(r => { if (r.value.ph !== undefined) stack.push(F.phis[r.value.ph].initOp); });
-  F.ops.forEach((o, i) => { if (o.ctrl || o.phiInit !== undefined || o.phiBack !== undefined) stack.push(i); });
+  F.ops.forEach((o, i) => {
+    // A STORE HAS AN EFFECT nothing else names, so it is a root here
+    // exactly as a control word is; a load is kept by whoever reads it.
+    if (o.ctrl || o.mem === "stl" || o.mem === "stx" ||
+        o.phiInit !== undefined || o.phiBack !== undefined) stack.push(i);
+  });
   while (stack.length) {
     const i = stack.pop();
     if (live.has(i)) continue;
     live.add(i);
     const o = F.ops[i];
-    for (const w of (o.ctrl ? ["a"] : ["a", "b", "c"])) {
+    for (const w of readsOf(o)) {
       const v = o[w];
       if (!v) continue;
       if (v.r !== undefined && v.r >= 0) stack.push(v.r);
@@ -1653,7 +2137,13 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
       if (o.a) m.a = mapV(o.a);
       return m;
     }
+    if (o.mem) {
+      const m = { mem: o.mem, slot: o.slot, tag: o.tag, type: o.type, fn: o.fn ?? null };
+      for (const w of ["a", "b"]) if (o[w] !== undefined) m[w] = mapV(o[w]);
+      return m;
+    }
     const m = { op: o.op, rnd: o.rnd, tag: o.tag, type: o.type, fn: o.fn ?? null };
+    if (o.copy) m.copy = true;
     if (o.phiInit !== undefined) m.phiInit = o.phiInit;
     if (o.phiBack !== undefined) m.phiBack = o.phiBack;
     for (const w of ["a", "b", "c"]) {
@@ -1688,9 +2178,10 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     const inSeg = new Set(seg.ops);
     const out = new Set();
     ops.forEach((o, i) => {
-      for (const w of (o.ctrl ? ["a"] : ["a", "b", "c"])) {
+      for (const w of readsOf(o)) {
         const v = o[w];
-        if (v && v.v !== undefined && inSeg.has(v.v) && (!inSeg.has(i) || o.phiInit !== undefined || o.phiBack !== undefined)) out.add(v.v);
+        if (v && v.v !== undefined && inSeg.has(v.v) &&
+            (!inSeg.has(i) || o.phiInit !== undefined || o.phiBack !== undefined || o.mem)) out.add(v.v);
       }
     });
     for (const r of resultOpIds) if (inSeg.has(r)) out.add(r);
@@ -1719,7 +2210,7 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     let i = 0;
     while (i < ops.length) {
       const o = ops[i];
-      if (o.ctrl) { order.push(i); i++; continue; }
+      if (o.ctrl || o.mem) { order.push(i); i++; continue; }
       const seg = geo.segs[s], L = segLocal[s];
       let localOrder;
       if (suMode === null) localOrder = listSchedule(L.local, [...L.localResults], policy);
@@ -1787,9 +2278,50 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     throw new Error(`cft-lower: ${tail} tail slots declared, ${tailValues.length} values given`);
   for (let i = 0; i < tail; i++) bank.push(tailValues[i] >>> 0);
 
-  const final = allocate(ops, args, resultIds, order, geo, tailBase);
+  // ---- the register wall, and the scratch on the other side of it
+  //
+  // The pool above is unbounded on purpose, so a program that wants more
+  // registers than a lane has is a number rather than an exception. When
+  // that number exceeds NREG, the values that hold a register longest for
+  // the fewest reads move into the per-lane scratch (revision 3's R4) and
+  // the program is re-profiled and re-allocated. The target drops by two
+  // each round, because the reloads themselves want registers, and the
+  // loop ends when the lane's thirty-two are enough.
+  let opsF = ops, orderF = order, geoF = geo, resultsF = resultIds;
+  let idMap = null, slotBase = F.scratchFixed, spillStores = 0, spillLoads = 0, spillRounds = 0;
+  let spillValues = 0, spillPhis = 0;
+  let final = allocate(opsF, args, resultsF, orderF, geoF, tailBase);
+  // CFT_NO_SPILL=1 leaves a program over the register count instead,
+  // which is how a fault is told from a fault in the spiller: the
+  // unspilled program goes down the widened-lane path and is scored
+  // against the same text. It found nothing on 2026-09-11 and that was
+  // the useful answer - the fault was in the vector constructors.
+  const spilling = process.env.CFT_NO_SPILL !== "1";
+  for (let target = NREG; spilling && final.peak > NREG && target >= 8; target -= 2) {
+    const s = spillToScratch(opsF, args, resultsF, orderF, geoF, F.phis, target, slotBase);
+    if (!s.stores && !s.loads) break;
+    opsF = s.ops; orderF = s.order; geoF = s.geo; resultsF = s.resultIds;
+    idMap = idMap ? idMap.map(i => (i < 0 ? -1 : s.idMap[i])) : s.idMap;
+    slotBase = s.slots; spillStores += s.stores; spillLoads += s.loads; spillRounds += s.rounds;
+    spillValues += s.spilledValues; spillPhis += s.spilledPhis;
+    final = allocate(opsF, args, resultsF, orderF, geoF, tailBase);
+  }
+  const scratchSlots = slotBase;
+  if (scratchSlots) F.needs.add("scratch");
+  if (F.arrays.length) F.needs.add("scratch-indexed");
+  const mapId = (i) => (idMap ? idMap[i] : i);
 
   const insns = final.alloc.map((e) => {
+    if (e.mem) {
+      // The slot is the instruction's own; the register fields are what
+      // the code reads and writes and nothing else. A scratch access
+      // names no constant, so an operand that came out of the bank is a
+      // bug in the spiller rather than something to encode.
+      if ((e.a && e.a.k) || (e.b && e.b.k))
+        throw new Error(`cft-lower: ${e.mem} reads a register, not the bank`);
+      return { ctrl: e.mem, slot: e.slot, rd: e.rd,
+               ra: e.a ? e.a.reg : undefined, rb: e.b ? e.b.reg : undefined, tag: e.tag };
+    }
     if (e.ctrl) {
       if (e.a && e.a.k) throw new Error("cft-lower: SETACT reads a register, not the bank");
       return { ctrl: e.ctrl, trip: e.trip, ra: e.a ? e.a.reg : undefined, tag: e.ctrl };
@@ -1797,11 +2329,12 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     const { rd, a, b, c, op, rnd, tag } = e;
     const kx = [a, b, c].some(s => s.k && s.reg >= KREG);
     if (kx) F.needs.add("kx");
+    if ([a, b, c].some(s => s.k && s.reg >= KMEM_D_REV2)) F.needs.add("kx9");
     return {
       op, rnd, rd,
       ra: kx && a.k ? 0 : a.reg, rb: kx && b.k ? 0 : b.reg, rc: kx && c.k ? 0 : c.reg,
       ka: a.k, kb: b.k, kc: c.k, kx,
-      imm: kx ? ((a.k ? a.reg : 0) | ((b.k ? b.reg : 0) << 8) | ((c.k ? c.reg : 0) << 16)) >>> 0 : 0,
+      imm: kx ? packKx(a.k ? a.reg : 0, b.k ? b.reg : 0, c.k ? c.reg : 0) : 0,
       tag,
     };
   });
@@ -1810,7 +2343,7 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     const v = r.value;
     const reg = v.ph !== undefined ? final.phiReg[v.ph]
               : v.r < 0 ? final.argReg[-1 - v.r]
-              : final.regOf[newId0.get(v.r)];
+              : final.regOf[mapId(newId0.get(v.r))];
     if (reg === undefined || reg < 0) throw new Error(`cft-lower: ${F.name}'s result ${r.name} has no register`);
     return { name: r.name, reg };
   });
@@ -1825,6 +2358,10 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
                           : i.ctrl === "endrep" ? encode({ op: CTRL.ENDREP, ctrl: true })
                           : i.ctrl === "setact" ? encode({ op: CTRL.SETACT, ctrl: true, ra: i.ra })
                           : i.ctrl === "actall" ? encode({ op: CTRL.ACTALL, ctrl: true })
+                          : i.ctrl === "stl" ? encode({ op: CTRL.STL, ctrl: true, ra: i.ra, imm: i.slot })
+                          : i.ctrl === "ldl" ? encode({ op: CTRL.LDL, ctrl: true, rd: i.rd, imm: i.slot })
+                          : i.ctrl === "stx" ? encode({ op: CTRL.STX, ctrl: true, ra: i.ra, rb: i.rb })
+                          : i.ctrl === "ldx" ? encode({ op: CTRL.LDX, ctrl: true, rd: i.rd, rb: i.rb })
                           : encode(i)));
     for (const d of deposits) words.push(encode({ op: CTRL.DEPOSIT, ra: d.reg, ctrl: true }));
     words.push(encode({ op: CTRL.HALT, ctrl: true }));
@@ -1834,7 +2371,8 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     throw new Error(`cft-lower: ${F.name} needs IMUL - re-run with --isa-ext`);
 
   const alu = insns.filter(i => !i.ctrl).length;
-  const loopWords = insns.length - alu;            // REPEAT, ENDREP, SETACT, ACTALL
+  const scratchWords = insns.filter(i => SCRATCH_NAMES.has(i.ctrl)).length;
+  const loopWords = insns.length - alu - scratchWords;   // REPEAT, ENDREP, SETACT, ACTALL
   const setacts = insns.filter(i => i.ctrl === "setact").length;
   return {
     name: F.name,
@@ -1862,12 +2400,17 @@ function schedule(F, args, results, { isaExt, fuse, minmaxOpcode, doSchedule = t
     // registers were allocated over, the loop geometry, and which det
     // function each op was inlined from. tools/emit-cft.mjs's record
     // does not carry it.
-    graph: { ops, order, geo, args, resultIds, phiNames: F.phis.map(p => p.name) },
+    graph: { ops: opsF, order: orderF, geo: geoF, args, resultIds: resultsF,
+             phiNames: F.phis.map(p => p.name) },
     callSites: Object.fromEntries([...F.callSites].sort()),
+    scratch: { slots: scratchSlots, stores: spillStores, loads: spillLoads, rounds: spillRounds,
+               values: spillValues, phis: spillPhis,
+               arrays: F.arrays.map(a => ({ name: a.name, base: a.base, len: a.len, type: a.type })) },
     counts: {
       alu,
       loop: loopWords,
       setact: setacts,
+      scratch: scratchWords,
       control: loopWords + deposits.length + 1,
       total: insns.length + deposits.length + 1,
       consts: bank.length,

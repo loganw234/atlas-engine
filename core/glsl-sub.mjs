@@ -248,12 +248,28 @@ class Parser {
     if (precise || (this.peek().k === "kw" && TYPES.has(this.peek().v) && this.peek(1).k === "id")) {
       const type = this.want("kw").v;
       const decls = [];
+      let arrayOf = null;
       do {
         const name = this.want("id").v;
+        // An ARRAY LOCAL: `precise float wts[28];`, the size a literal
+        // and no initialiser, which is the only array form the emitter
+        // writes (nested's weight table). GLSL puts the size after the
+        // NAME, so it is read here rather than with the type, and the
+        // declaration's type becomes the array's for everything after.
+        let len = null;
+        if (this.at("op", "[")) {
+          this.next();
+          const n = this.want("num");
+          len = Number(n.v) | 0;
+          this.want("op", "]");
+          if (!(len > 0)) throw new Error(`glsl-sub: ${name}[${len}] is not a size`);
+          arrayOf = len;
+        }
         const init = this.eat("op", "=") ? this.expr() : null;
-        decls.push({ name, init });
+        if (len !== null && init) throw new Error(`glsl-sub: ${name}[${len}] takes no initialiser`);
+        decls.push({ name, init, len });
       } while (this.eat("op", ","));
-      return { n: "decl", type, precise, decls };
+      return { n: "decl", type: arrayOf === null ? type : `${type}[${arrayOf}]`, precise, decls };
     }
     this.i = save;
     return null;
@@ -265,6 +281,14 @@ class Parser {
   simple() {
     const e = this.expr();
     if (this.eat("op", "=")) {
+      // `wts[sl] = ...`: an assignment to one element of an array
+      // local. The index is an expression, so where it lands is not
+      // known until the run - which is what the scratch's indexed
+      // store is for (docs/SEQUENCER.md R4).
+      if (e.n === "index") {
+        if (e.obj.n !== "var") throw new Error("glsl-sub: assignment through a nested index");
+        return { n: "assignIndex", name: e.obj.name, index: e.i, value: this.expr() };
+      }
       if (e.n !== "var") throw new Error("glsl-sub: assignment to a non-variable");
       return { n: "assign", name: e.name, value: this.expr() };
     }
@@ -531,6 +555,7 @@ export function typecheck(nodes) {
     else if (e.n === "sel") { f(e.c); f(e.a); f(e.b); }
     else if (e.n === "member") f(e.obj);
     else if (e.n === "index") { f(e.obj); f(e.i); }
+    else if (e.n === "assignIndex") { f(e.index); f(e.value); }
   };
 
   const stmt = (s, env) => {
@@ -542,6 +567,13 @@ export function typecheck(nodes) {
       case "assign": if (!env.has(s.name) && !globals.has(s.name))
         throw new Error(`glsl-sub: ${s.name} not in scope`);
         ann(s.value, env); break;
+      case "assignIndex": {
+        const at = env.get(s.name) ?? globals.get(s.name);
+        if (at === undefined) throw new Error(`glsl-sub: ${s.name} not in scope`);
+        if (!isArray(at)) throw new Error(`glsl-sub: ${s.name}[...] on a ${at}`);
+        ann(s.index, env); ann(s.value, env);
+        break;
+      }
       case "if": ann(s.c, env); stmt(s.then, env); if (s.els) stmt(s.els, env); break;
       case "for": {
         const e2 = new Map(env);

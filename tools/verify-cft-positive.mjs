@@ -62,7 +62,7 @@ import { lowerPositive, hostPrologue, hashedLevers } from "../core/emit-cft.mjs"
 import { bits as f32bits, asF32 } from "../core/glsl-f32.mjs";
 import { libcftEntry, Machine } from "../core/cft-run.mjs";
 import { hashu, u2f, Stream, Vec2, leverDefaults } from "../core/measure.mjs";
-import { NREG, NREG_REV1, IMEM_D } from "../core/cft-isa.mjs";
+import { NREG, NREG_REV1, IMEM_D, SCRATCH_D as MAX_SCRATCH } from "../core/cft-isa.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
@@ -163,7 +163,7 @@ const tRef = Date.now() - t0;
 // when there is no image
 const D = prog.results.length;
 const got = prog.results.map(() => new Uint32Array(n));
-let run, tLib, countsOk, digestOk = null, libDigest = null;
+let run, tLib, countsOk, digestOk = null, libDigest = null, scratchOk = null, libScratch = null;
 if (!WIDE) {
   const { Context } = await import(libcftEntry());
   const ctx = await Context.open("fp32");
@@ -180,6 +180,18 @@ if (!WIDE) {
   countsOk = Array.from(run.counts).every(c => c === D);
   libDigest = Buffer.from(loaded.digest(L.bank)).toString("hex");
   digestOk = libDigest === L.digest;
+  // HOW DEEP THE LIBRARY THINKS THIS PROGRAM REACHES. cft_program_info
+  // scans the image and reports one past the highest slot any STL or
+  // LDL names - or the whole depth when the program uses the indexed
+  // forms, whose slot is not known until the run. That is an
+  // independent count of what this side laid out, from the bytes
+  // rather than from the bookkeeping, so the two are compared: the
+  // spiller's slot accounting is the one part of the lowering that
+  // nothing else checks.
+  libScratch = loaded.scratchUsed;
+  scratchOk = prog.scratch.arrays.length
+    ? libScratch === MAX_SCRATCH          // an indexed access reaches anywhere
+    : libScratch === prog.scratch.slots;
   loaded.free();
 } else {
   const M = await Machine.open();
@@ -209,6 +221,7 @@ for (let k = 0; k < D; k++) {
   rows.push({ slot: k, name: prog.results[k].name, mismatch: bad, nanPayloadOnly: nanOnly, first });
 }
 if (digestOk === false) failed++;
+if (scratchOk === false) failed++;
 
 // ---- the assembler: the .cfta text through asm.py must give these bytes
 let asmCheck = null;
@@ -347,6 +360,11 @@ console.log(`  reference  : ${tRef} ms interpreting the text;  libcft: ${tLib} m
 if (!WIDE)
   console.log(`  digest     : ${digestOk ? "cft_program_digest agrees with SHA-256(image ++ bank)" : "MISMATCH"} ${L.digest}` +
               (digestOk ? "" : ` vs ${libDigest}`));
+  if (scratchOk !== null)
+    console.log(`  scratch    : ${prog.scratch.slots} slot(s) laid out here` +
+                (prog.scratch.arrays.length ? `, ${prog.scratch.arrays.map(a => `${a.name}[${a.len}]`).join(", ")} indexed` : "") +
+                `; cft_program_info reports ${libScratch} reached` +
+                (scratchOk ? " - agreed" : " - DISAGREES"));
 console.log(`\n  ${pad("deposit", 10)} ${num("mismatch", 9)} ${num("NaN-only", 9)}  first`);
 for (const r of rows)
   console.log(`  ${pad(r.name, 10)} ${num(r.mismatch, 9)} ${num(r.nanPayloadOnly, 9)}  ` +
@@ -387,7 +405,8 @@ writeFileSync(join(OUT, `${id}${LEVER_SEED === null ? "" : `.levers-${LEVER_SEED
              loops: prog.loops, carried: prog.phis, needs: prog.needs, gaps: prog.gaps, schedule: prog.schedulePicked,
              tried: prog.schedules },
   image: L.image ? { bytes: L.image.length, digest: L.digest } : null,
-  libcft: { flags: run.flags, status: run.status, countsOk, ms: tLib, digestOk, digest: libDigest }, deposits: rows,
+  libcft: { flags: run.flags, status: run.status, countsOk, ms: tLib, digestOk, digest: libDigest,
+            scratchUsed: libScratch, scratchOk }, deposits: rows,
   assembler: asmCheck, runner, golden,
   accuracy: acc.map(a => ({ name: a.name, maxAbs: a.maxAbs, meanAbs: a.n ? a.sumAbs / a.n : 0, n: a.n,
                             maxUlpAway: a.maxUlp, meanUlpAway: a.nUlp ? a.sumUlp / a.nUlp : 0, nAway: a.nUlp,

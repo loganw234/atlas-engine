@@ -117,6 +117,19 @@ export class DetLib {
         for (const d of s.decls) env.set(d.name, d.init ? this.eval(d.init, env) : zeroOf(s.type));
         return null;
       case "assign": env.set(s.name, this.eval(s.value, env)); return null;
+      // One element of an array local. The array is a JavaScript array
+      // of element values, so this is the assignment it looks like; the
+      // index is read as GLSL reads it, and an index outside the array
+      // is undefined behaviour there and an error here.
+      case "assignIndex": {
+        const arr = env.get(s.name);
+        const i = this.eval(s.index, env) | 0;
+        if (!Array.isArray(arr)) throw new Error(`glsl-f32: ${s.name} is not an array`);
+        if (!(i >= 0 && i < arr.length))
+          throw new Error(`glsl-f32: ${s.name}[${i}] outside 0..${arr.length - 1}`);
+        arr[i] = this.eval(s.value, env);
+        return null;
+      }
       case "if":
         if (this.eval(s.c, env)) return this.stmt(s.then, env);
         return s.els ? this.stmt(s.els, env) : null;
@@ -198,9 +211,20 @@ export class DetLib {
       if (name === "bool") return !!v;
     }
     if (VEC[name]) {
-      // a constructor: components in order, a lone scalar broadcast
+      // A constructor CONVERTS each component to the element type, it
+      // does not relabel it: GLSL 5.4.2 says a constructor's arguments
+      // are converted as by the scalar constructor of the element type,
+      // so `ivec2(vec2(...))` truncates each component and `vec2(ivec2)`
+      // converts each to float. Only `nested` does either, which is why
+      // this went unnoticed until it lowered (2026-09-11).
+      const elem = VEC[name].elem;
       const parts = [];
-      for (const x of e.args) { const v = this.eval(x, env); if (Array.isArray(v)) parts.push(...v); else parts.push(v); }
+      for (const x of e.args) {
+        const v = this.eval(x, env);
+        const from = VEC[x.type] ? VEC[x.type].elem : x.type;
+        if (Array.isArray(v)) for (const c of v) parts.push(castScalar(c, from, elem));
+        else parts.push(castScalar(v, from, elem));
+      }
       const want = VEC[name].n;
       if (parts.length === 1) while (parts.length < want) parts.push(parts[0]);
       if (parts.length !== want)
@@ -302,6 +326,18 @@ function scalarBin(op, a, b, t, ot) {
 
 /** The value an uninitialised declaration or an out parameter starts
  *  with: zero, in the shape of its type. */
+/** One component, converted as the element type's own constructor
+ *  would convert it (GLSL 5.4.1's table). `bool` is 1.0/0.0 here as it
+ *  is everywhere else in this subset. */
+function castScalar(v, from, to) {
+  if (from === to || from === undefined) return v;
+  if (to === "float") return from === "bool" ? (v ? 1 : 0) : fr(v);
+  if (to === "int") return from === "float" ? Math.trunc(v) | 0 : from === "bool" ? (v ? 1 : 0) : v | 0;
+  if (to === "uint") return from === "float" ? Math.trunc(v) >>> 0 : from === "bool" ? (v ? 1 : 0) : v >>> 0;
+  if (to === "bool") return !!v;
+  return v;
+}
+
 export function zeroOf(type) {
   if (VEC[type]) return new Array(VEC[type].n).fill(0);
   if (isArray(type)) return new Array(arrayLen(type)).fill(0);

@@ -26,7 +26,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import { createHash } from "node:crypto";
 import { lowerPositive, TAIL, GLOBALS_PROVENANCE, constantNames } from "../core/emit-cft.mjs";
-import { decode, disasm, OP_NAME, RND_NAME, NREG, NREG_REV1, KREG, KMEM_D, IMEM_D, MAXD } from "../core/cft-isa.mjs";
+import { decode, disasm, OP_NAME, RND_NAME, NREG, NREG_REV1, KREG, KMEM_D, IMEM_D, MAXD,
+         SCRATCH_D } from "../core/cft-isa.mjs";
 import { EXPANSIONS, bitsF32 } from "../core/cft-lower.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -58,9 +59,19 @@ function recordOf(L) {
   const hexw = (w) => "0x" + w.toString(16).padStart(16, "0");
   const instructions = prog.insns.map((ins, pc) => {
     const w = prog.words ? prog.words[pc] : null;
-    if (ins.ctrl) return { pc, word: w === null ? null : hexw(w), ctrl: ins.ctrl, trip: ins.trip, ra: ins.ra,
-                           asm: ins.ctrl === "repeat" ? `repeat ${ins.trip}` : ins.ctrl === "setact" ? `setact r${ins.ra}` : ins.ctrl,
-                           from: ins.ctrl === "setact" ? "break" : "for" };
+    if (ins.ctrl) {
+      const asm = ins.ctrl === "repeat" ? `repeat ${ins.trip}`
+                : ins.ctrl === "setact" ? `setact r${ins.ra}`
+                : ins.ctrl === "stl" ? `stl r${ins.ra}, ${ins.slot}`
+                : ins.ctrl === "ldl" ? `ldl r${ins.rd}, ${ins.slot}`
+                : ins.ctrl === "stx" ? `stx r${ins.ra}, r${ins.rb}`
+                : ins.ctrl === "ldx" ? `ldx r${ins.rd}, r${ins.rb}`
+                : ins.ctrl;
+      const scratch = ["stl", "ldl", "stx", "ldx"].includes(ins.ctrl);
+      return { pc, word: w === null ? null : hexw(w), ctrl: ins.ctrl, trip: ins.trip,
+               ra: ins.ra, rd: ins.rd, rb: ins.rb, slot: ins.slot, asm,
+               from: scratch ? ins.tag : ins.ctrl === "setact" ? "break" : "for" };
+    }
     return {
       pc, word: w === null ? null : hexw(w),
       op: OP_NAME[ins.op] ?? `op${ins.op}`, rd: ins.rd, ra: ins.ra, rb: ins.rb, rc: ins.rc,
@@ -92,9 +103,10 @@ function recordOf(L) {
       target: "cft-fp256 orbit sequencer, docs/SEQUENCER.md revision 2 (2026-09-08)",
       precision: "fp32 (PREC_CODE 0)",
       capacities: { registers: NREG, addressableConstants: KREG, constantMemory: KMEM_D,
-                    instructions: IMEM_D, deposits: MAXD },
+                    instructions: IMEM_D, deposits: MAXD, scratch: SCRATCH_D },
       needsCaps: L.needsCaps,
     },
+    scratch: L.prog.scratch,
     image: L.image ? { bytes: L.image.length, sha256: sha(L.image), flags: "BANK_EXT" } : null,
     bank: { bytes: L.bank.length, sha256: sha(L.bank), values: prog.consts.map(hex8) },
     digest: L.digest,
@@ -172,7 +184,7 @@ for (const t of targets) {
   if (L.cfta) writeFileSync(join(OUT, `${id}.cfta`), L.cfta);
   rows.push({ id, words: L.prog.counts.total, alu: L.prog.counts.alu, loops: L.prog.loops.length,
               regs: L.prog.regsUsed, consts: L.prog.counts.fixedConsts, tail: L.prog.tail,
-              needs: L.prog.needs, fits: L.fits, gaps: L.prog.gaps,
+              needs: L.prog.needs, fits: L.fits, gaps: L.prog.gaps, scratch: L.prog.scratch,
               sha: rec.image ? rec.image.sha256.slice(0, 8) : "-", digest: L.digest });
   if (!all) {
     console.log(`${id}: ${L.prog.counts.total} words (${L.prog.counts.alu} ALU, ${L.prog.loops.length} loop(s), ` +
@@ -187,9 +199,9 @@ for (const t of targets) {
 if (all) {
   const pad = (s, w) => String(s).padEnd(w), num = (s, w) => String(s).padStart(w);
   console.log(`positives -> cft-fp256 sequencer programs, against ${NREG} registers, ` +
-              `${IMEM_D} words, ${MAXD} deposits (revision 2)\n`);
+              `${IMEM_D} words, ${MAXD} deposits, ${SCRATCH_D} scratch slots (revision 3)\n`);
   console.log(`${pad("positive", 12)} ${num("words", 6)} ${num("alu", 5)} ${num("loops", 5)} ${num("regs", 4)} ` +
-              `${num("k", 4)} ${pad("fits", 5)} ${pad("needs / refusal", 40)}`);
+              `${num("k", 4)} ${num("scr", 4)} ${pad("fits", 5)} ${pad("needs / refusal", 40)}`);
   console.log("-".repeat(96));
   let lowered = 0, fitsAll = 0, overRegs = 0, overImage = 0, over16 = 0, overBank = 0;
   const refusals = new Map();
@@ -198,7 +210,7 @@ if (all) {
       const key = r.refused.split(" - ")[0].slice(0, 70);
       refusals.set(key, (refusals.get(key) || 0) + 1);
       console.log(`${pad(r.id, 12)} ${num("-", 6)} ${num("-", 5)} ${num("-", 5)} ${num("-", 4)} ${num("-", 4)} ` +
-                  `${pad("-", 5)} refused: ${key}`);
+                  `${num("-", 4)} ${pad("-", 5)} refused: ${key}`);
       continue;
     }
     lowered++;
@@ -208,11 +220,11 @@ if (all) {
     if (!r.fits.image) overImage++;
     if (!r.fits.bank) overBank++;
     console.log(`${pad(r.id, 12)} ${num(r.words, 6)} ${num(r.alu, 5)} ${num(r.loops, 5)} ${num(r.regs, 4)} ` +
-                `${num(r.consts, 4)} ${pad(r.fits.all ? "yes" : "NO", 5)} ` +
+                `${num(r.consts, 4)} ${num(r.scratch.slots, 4)} ${pad(r.fits.all ? "yes" : "NO", 5)} ` +
                 `${r.needs.join(", ")}${!r.fits.registers ? "; over " + NREG + " registers" : ""}` +
                 `${!r.fits.image ? `; over ${IMEM_D} words` : ""}${!r.fits.bank ? `; over the ${KMEM_D}-slot bank` : ""}`);
   }
-  console.log(`\n${rows.length} positives: ${lowered} lowered, ${fitsAll} fit the tile at revision 2, ` +
+  console.log(`\n${rows.length} positives: ${lowered} lowered, ${fitsAll} fit the tile at revision 3, ` +
               `${over16} need REGS32, ${overRegs} over ${NREG} registers, ${overImage} over ${IMEM_D} words, ` +
               `${overBank} over the ${KMEM_D}-slot bank, ` +
               `${rows.length - lowered} refused by a construct not lowered yet:`);

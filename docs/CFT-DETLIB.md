@@ -499,3 +499,32 @@ same bits:
 all nineteen under the new form, same sweeps, same domains. The
 verification table above is kept as the record of 2026-09-07;
 `core/detlib.cft.json` carries today's programs.
+
+## Addendum, 2026-09-11: unchanged, and with a second caller
+
+Revision 3 of the sequencer - a per-lane scratch, 16,384 instructions,
+a 512-entry bank - changed nothing here. The nineteen functions are the
+same 1,390 instructions, the largest still 251, every one bit-identical
+to the shipped GLSL on the same 4,096-point sweeps; `det_pow`'s
+fourteen registers were the binding case at revision 2 and remain
+comfortable. The capacities moved under the library, not through it.
+
+Two entries joined `EXPANSIONS` that no library function uses, because
+they belong to the plates rather than to the library, and they are
+listed in `core/detlib.cft.json` all the same so that one table names
+every sequence this repository emits:
+
+| gap | insns | exact on | how |
+|---|---|---|---|
+| `a / d`, `d` a run-time value | ~90 | `\|a\| < 2^22`, `d != 0` | the constant reciprocal is not available, so the estimate is **`det_div(float(a), float(d))`** - this library's own division - truncated and corrected by the remainder, one step either way. |
+| `a % d`, `d` a run-time value | ~95 | as above | `a - (a / d) * d` over that sequence. |
+| `w[i]`, `i` a run-time value | 1 load or 1 store, plus the index | `0 <= i < len`, clamped | the array local lives in the per-lane scratch and `LDX`/`STX` reach it by a register's low bits. |
+
+The first is the only place this repository's emitter calls a det
+function that the plate did not write, and it is worth saying why that
+is sound rather than convenient: `det_div` is correctly refined and
+already held bit for bit to what the GPUs compute, so the estimate it
+gives is the same estimate on every machine, and the correction that
+follows is exact integer arithmetic. A quotient below 2^22 has an ulp
+below one, so the truncation is off by at most one either way, which
+is what the single correction step covers.

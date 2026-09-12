@@ -9,19 +9,29 @@ assembler byte for byte, and through the runner that goes to the card.
 Software only; no change to `core/emit.mjs`, no change to what a
 positive means.
 
-Three sessions on 2026-09-08, and this file is the record of all three. The
-first landed `hopf` at revision 1 of the sequencer - sixteen registers,
-a 1,024-word image, constants inside the image - and measured the
-corpus against it. The same day the coprocessor moved to revision 2 -
-thirty-two registers, 4,096 words, the constant bank as run data - and
-the second session moved this target to it, lowered the loop the
+**Sixty-nine of sixty-nine positives lower, and all sixty-nine fit the
+tile.** That is the state on 2026-09-11, after four sessions, and it
+took three revisions of the coprocessor's sequencer to reach - each
+one asked for with a measurement and built the same day.
+
+The first session landed `hopf` at revision 1 - sixteen registers, a
+1,024-word image, constants inside the image - and measured the corpus
+against it: six fitted. The same day the coprocessor moved to revision
+2 - thirty-two registers, 4,096 words, the constant bank as run data -
+and the second session moved this target to it, lowered the loop the
 emitter writes for `s.orbit`, `sum`, `s.descend` and `s.window`, and
-found the one cast that had been wrong all along. The third lowered
-integer division by a literal, which is what the five plates that
-divide were waiting on, and measured what would close the gaps that
-remain - `docs/CFT-GAPS.md` is that record and the three asks it
-produced. Every number below came out of a run, and the command that
-produced it is named.
+found the one cast that had been wrong all along: thirty-seven fitted.
+The third lowered integer division by a literal, which is what the
+five plates that divide were waiting on, lowered a top-level `break`
+as `SETACT`, and measured what stopped the rest - `docs/CFT-GAPS.md`
+is that record and the three asks it produced. Revision 3 was built
+that evening: a per-lane scratch memory, 16,384 words, a 512-entry
+bank. **The fourth session, 2026-09-11, adopted it** - a spiller, an
+array local that lives in the scratch, and division by a divisor known
+only at run time - and the last positive fell.
+
+Every number below came out of a run, and the command that produced
+it is named.
 
 ```bash
 node tools/emit-cft.mjs positives/hopf.pos.mjs        # the image, its bank, its .cfta, its record
@@ -266,6 +276,113 @@ not a literal stays refused by name - `nested`'s `% wd_15_p` is one,
 a per-run integer from a lever, which the hoisting `docs/CFT-GAPS.md`
 measures would make a constant too.
 
+A divisor known only at run time - `nested`'s `% p`, where `p` is an
+integer lever - has no constant reciprocal, so the estimate comes from
+`det_div` instead: the shipped library's own division, refined from a
+bit-trick seed with exact arithmetic and already held bit for bit to
+what the GPUs compute (`docs/CFT-DETLIB.md`). The correction is the
+same one, unchanged. Exact on the same domain and for the same
+reason - `det_div` is within an ulp of the true quotient, and an ulp
+of a quotient below 2^22 is below one, so the truncation is off by at
+most one either way. It is the only place this target calls a library
+function that the plate did not write.
+
+## The scratch, and the two things that live in it
+
+Revision 3 gave a lane 256 scratch slots and four control codes -
+`STL` and `LDL` by static slot, `STX` and `LDX` by the low bits of a
+register - in answer to `docs/CFT-GAPS.md`'s first ask. A store is a
+register write for P3's purposes, masked by the lane's active bit; a
+load writes `rd` and is masked the same way; neither is arithmetic.
+Two things live there.
+
+**Spilled values.** The allocator's pool is unbounded on purpose, so a
+program that wants more registers than a lane has is a number rather
+than an exception. When that number exceeds thirty-two, the values
+that hold a register longest for the fewest reads move into the
+scratch, and the program is re-profiled and re-allocated; the target
+drops by two each round, because the reloads want registers of their
+own. A spilled value is computed into a register and stored at once,
+and every later read loads it into a register of its own. A
+loop-carried value spills more naturally than an ordinary one: its
+copy-in becomes a store, its copy-back a store, each read inside the
+body a load, and the slot persists across iterations exactly as the
+pinned register did - including for a lane that has left the loop,
+whose stores are masked just as its register writes were.
+
+**An array local.** `nested`'s `precise float wts[28]`, written and
+read under loop counters, is the one construct in the corpus whose
+address is not known until the run, and the indexed form is what it is
+for. The array takes slots from the bottom of the scratch before
+anything is spilled, so its base is a constant of the program and the
+index register carries only the subscript - which is an `int`, held as
+its own bit pattern, which is exactly what the instruction reads. The
+subscript is clamped into the array, the way a driver's robust-access
+mode clamps it, because out of range the instruction would wrap: the
+contract reduces an index modulo the depth, and a program whose answer
+depends on the tile's scratch depth is not something this repository
+ships. `SCRATCH_STRICT` - revision 4's R8, which reports such an index
+instead - is the durable answer and is not set yet, because on
+2026-09-10 the flag exists in the golden model alone and
+`cft_program_load` refuses a header that carries it.
+
+A store under a condition reads the element back and selects, because
+the instruction's own mask is the lane's active bit and says nothing
+about the path that reached the statement. That is the shape every
+other conditional assignment here has.
+
+Two rules the round had to get right, both of them rules the
+instruction set already stated about some other instruction:
+
+- **A store reads a register, never the bank** - the same rule
+  `DEPOSIT` has. A carried value whose initial value is a constant
+  stored from the *register whose number is that constant's bank
+  index*: measured on `dissipation`, whose two carried values
+  initialised to zero both stored from `r9` because the zero constant
+  sat at bank slot 9. Every deposit of every sample wrong, with libcft,
+  the golden model and this repository's own executor all agreeing
+  about it - which is what said the fault was in the lowering and not
+  in the encoding.
+- **A scratch access orders a segment.** Two accesses to the same slot
+  are ordered by the slot and not by any operand the scheduler can
+  see, so nothing may be reordered across one. Segments are how this
+  file already says that, and scratch uses them.
+
+## The vector constructor that was not converting
+
+`nested` is the only positive that builds integer vectors, and it was
+the only one that could have found this: a constructor was RELABELLING
+its components rather than converting them. GLSL 5.4.2 says a
+constructor's arguments are converted as by the scalar constructor of
+the element type, so `ivec2(vec2(...) * s)` truncates each component
+and `vec2(ivec2)` converts each to float. Both the lowering and the
+binary32 reference took the components as they were and changed the
+type label, which computes a different number the moment the two
+differ - and `nested` divides by, scales and re-rounds a window
+rectangle, so they differ everywhere.
+
+Worth stating plainly: **this was a fault in the reference too**, not
+only in the program, so it is a correction to what this repository
+says a conforming driver computes rather than a port bug. It was
+invisible for as long as it was because every other positive builds
+its vectors out of floats, where relabelling and converting are the
+same thing.
+
+## And one the assembler caught on its own
+
+`throughput` addresses 316 constants, the only positive past 256, so
+it is the only one whose operands carry revision 3's ninth index bit.
+The `.cfta` text form was writing the byte and dropping the bit, so a
+program addressing constant 300 was written `k44` and assembled as
+`k44` - a valid program computing something else. Every other
+evaluation agreed with the emitter, because every other evaluation
+reads the emitter's own image: the reference matched, libcft matched,
+the golden model matched, the runner matched, and the digest matched
+itself. The one check that could see it is the one that hands the text
+to the coprocessor's assembler and compares the bytes, which is the
+whole reason for holding two encoders to each other rather than
+trusting one of them twice.
+
 ## The scheduler, and what a whole positive taught it
 
 The library's functions fit sixteen registers under a kills-first list
@@ -310,108 +427,103 @@ rather than argue for one.
 `node tools/emit-cft.mjs --all`, against revision 2 - thirty-two
 registers, 4,096 words, sixty-four deposits:
 
-| positive | words | loops | registers | constants | fits |
-|---|---|---|---|---|---|
-| `psf` | 185 | 0 | 10 | 25 | yes |
-| `chladni` | 346 | 0 | 13 | 52 | yes |
-| `buddha` | 450 | 2 | 20 | 58 | yes |
-| `swallow` | 452 | 0 | 20 | 87 | yes |
-| `bifurc` | 532 | 2 | 24 | 68 | yes |
-| `harm` | 567 | 0 | 14 | 60 | yes |
-| `gibbs` | 571 | 1 | 21 | 57 | yes |
-| `collatz` | 574 | 2 | 27 | 60 | yes |
-| `wave` | 618 | 1 | 21 | 76 | yes |
-| `hopf` | 638 | 0 | 16 | 48 | yes |
-| `orbital` | 656 | 2 | 28 | 66 | yes |
-| `logz` | 674 | 0 | 15 | 65 | yes |
-| `nonorient` | 700 | 0 | 21 | 57 | yes |
-| `qjulia` | 713 | 1 | 18 | 87 | yes |
-| `penrose` | 722 | 1 | 25 | 64 | yes |
-| `jong` | 737 | 1 | 22 | 65 | yes |
-| `kleinian` | 737 | 1 | 26 | 52 | yes |
-| `arnold` | 746 | 3 | 22 | 63 | yes |
-| `zeta` | 746 | 1 | 24 | 75 | yes |
-| `caustic` | 747 | 0 | 16 | 57 | yes |
-| `invjulia` | 747 | 1 | 18 | 62 | yes |
-| `modmul` | 749 | 0 | 17 | 53 | yes |
-| `wpath` | 794 | 1 | 29 | 79 | yes |
-| `relativity` | 836 | 1 | 26 | 82 | yes |
-| `polytope` | 846 | 0 | 27 | 54 | yes |
-| `ifs` | 885 | 1 | 24 | 58 | yes |
-| `lyap` | 900 | 2 | 23 | 82 | yes |
-| `stdmap` | 912 | 1 | 23 | 67 | yes |
-| `curves` | 934 | 0 | 21 | 73 | yes |
-| `rmt` | 953 | 1 | 25 | 73 | yes |
-| `primes` | 969 | 2 | 26 | 60 | yes |
-| `dipole` | 1,009 | 1 | 21 | 81 | yes |
-| `cursum` | 1,016 | 1 | 27 | 73 | yes |
-| `mand` | 1,111 | 1 | 17 | 81 | yes |
-| `newton` | 1,112 | 3 | 29 | 65 | yes |
-| `bulb` | 1,470 | 1 | 29 | 94 | yes |
-| `hyper` | 2,168 | 2 | 30 | 81 | yes |
-| `halo` | 3,145 | 0 | 31 | 95 | yes |
-| `conoscope` | 2,093 | 0 | 33 | 92 | registers |
-| `nodal` | 2,719 | 3 | 34 | 101 | registers |
-| `critical` | 1,012 | 2 | 35 | 86 | registers |
-| `dissipation` | 1,207 | 1 | 35 | 82 | registers |
-| `breakdown` | 2,564 | 2 | 36 | 116 | registers |
-| `drainage` | 1,737 | 2 | 36 | 107 | registers |
-| `tangle` | 2,156 | 1 | 36 | 99 | registers |
-| `cascade` | 1,760 | 3 | 38 | 92 | registers |
-| `domain` | 2,596 | 1 | 38 | 105 | registers |
-| `rainbow` | 3,110 | 0 | 38 | 119 | registers |
-| `hilbert` | 3,497 | 10 | 39 | 80 | registers |
-| `stoch` | 1,895 | 5 | 40 | 89 | registers |
-| `tpms` | 3,385 | 0 | 40 | 58 | registers |
-| `allpaths` | 1,820 | 1 | 43 | 86 | registers |
-| `ford` | 3,523 | 2 | 43 | 95 | registers |
-| `e8` | 1,983 | 3 | 44 | 152 | registers |
-| `vortex` | 2,281 | 3 | 44 | 96 | registers |
-| `mirage` | 2,539 | 3 | 46 | 120 | registers |
-| `starfield` | 5,413 | 0 | 46 | 150 | registers, words |
-| `wavecat` | 4,140 | 2 | 47 | 168 | registers, words |
-| `flows` | 926 | 1 | 56 | 89 | registers |
-| `elliptic` | 1,796 | 6 | 57 | 85 | registers |
-| `billiards` | 2,808 | 1 | 61 | 111 | registers |
-| `diffract` | 4,269 | 3 | 62 | 134 | registers, words |
-| `rulespace` | 2,242 | 11 | 66 | 118 | registers |
-| `universal` | 2,720 | 8 | 92 | 138 | registers |
-| `threebody` | 1,776 | 1 | 101 | 79 | registers |
-| `rule30` | 4,097 | 9 | 131 | 126 | registers, words |
-| `vlsi` | 8,611 | 4 | 149 | 256 | registers, words, bank |
-| `throughput` | 12,618 | 0 | 212 | 307 | registers, words, bank |
+| positive | words | loops | registers | scratch | constants | fits |
+|---|---|---|---|---|---|---|
+| `psf` | 185 | 0 | 10 | - | 25 | yes |
+| `chladni` | 346 | 0 | 13 | - | 52 | yes |
+| `buddha` | 450 | 2 | 20 | - | 58 | yes |
+| `swallow` | 452 | 0 | 20 | - | 87 | yes |
+| `bifurc` | 532 | 2 | 24 | - | 68 | yes |
+| `harm` | 567 | 0 | 14 | - | 60 | yes |
+| `gibbs` | 571 | 1 | 21 | - | 57 | yes |
+| `collatz` | 574 | 2 | 27 | - | 60 | yes |
+| `wave` | 618 | 1 | 21 | - | 76 | yes |
+| `hopf` | 638 | 0 | 16 | - | 48 | yes |
+| `orbital` | 656 | 2 | 28 | - | 66 | yes |
+| `logz` | 674 | 0 | 15 | - | 65 | yes |
+| `nonorient` | 700 | 0 | 21 | - | 57 | yes |
+| `qjulia` | 713 | 1 | 18 | - | 87 | yes |
+| `penrose` | 722 | 1 | 25 | - | 64 | yes |
+| `jong` | 737 | 1 | 22 | - | 65 | yes |
+| `kleinian` | 737 | 1 | 26 | - | 52 | yes |
+| `arnold` | 746 | 3 | 22 | - | 63 | yes |
+| `zeta` | 746 | 1 | 24 | - | 75 | yes |
+| `caustic` | 747 | 0 | 16 | - | 57 | yes |
+| `invjulia` | 747 | 1 | 18 | - | 62 | yes |
+| `modmul` | 749 | 0 | 17 | - | 53 | yes |
+| `wpath` | 794 | 1 | 29 | - | 79 | yes |
+| `relativity` | 836 | 1 | 26 | - | 82 | yes |
+| `polytope` | 846 | 0 | 27 | - | 54 | yes |
+| `ifs` | 885 | 1 | 24 | - | 58 | yes |
+| `lyap` | 900 | 2 | 23 | - | 82 | yes |
+| `stdmap` | 912 | 1 | 23 | - | 67 | yes |
+| `curves` | 934 | 0 | 21 | - | 73 | yes |
+| `rmt` | 953 | 1 | 25 | - | 73 | yes |
+| `primes` | 969 | 2 | 26 | - | 60 | yes |
+| `flows` | 998 | 1 | 32 | 24 | 89 | yes |
+| `dipole` | 1,009 | 1 | 21 | - | 81 | yes |
+| `cursum` | 1,016 | 1 | 27 | - | 73 | yes |
+| `critical` | 1,022 | 2 | 32 | 3 | 86 | yes |
+| `mand` | 1,111 | 1 | 17 | - | 81 | yes |
+| `newton` | 1,112 | 3 | 29 | - | 65 | yes |
+| `dissipation` | 1,216 | 1 | 32 | 3 | 82 | yes |
+| `nested` | 1,401 | 6 | 32 | 46 | 101 | yes |
+| `bulb` | 1,470 | 1 | 29 | - | 94 | yes |
+| `drainage` | 1,748 | 2 | 32 | 4 | 107 | yes |
+| `cascade` | 1,774 | 3 | 32 | 6 | 92 | yes |
+| `elliptic` | 1,847 | 6 | 32 | 25 | 85 | yes |
+| `allpaths` | 1,855 | 1 | 32 | 11 | 86 | yes |
+| `stoch` | 1,917 | 5 | 31 | 9 | 89 | yes |
+| `e8` | 2,024 | 3 | 32 | 13 | 152 | yes |
+| `threebody` | 2,029 | 1 | 31 | 70 | 79 | yes |
+| `conoscope` | 2,096 | 0 | 32 | 1 | 92 | yes |
+| `hyper` | 2,168 | 2 | 30 | - | 81 | yes |
+| `tangle` | 2,168 | 1 | 32 | 4 | 99 | yes |
+| `vortex` | 2,323 | 3 | 32 | 12 | 96 | yes |
+| `rulespace` | 2,363 | 11 | 32 | 34 | 118 | yes |
+| `breakdown` | 2,574 | 2 | 32 | 4 | 116 | yes |
+| `mirage` | 2,586 | 3 | 32 | 15 | 120 | yes |
+| `domain` | 2,616 | 1 | 32 | 6 | 105 | yes |
+| `nodal` | 2,724 | 3 | 32 | 2 | 101 | yes |
+| `billiards` | 2,921 | 1 | 32 | 29 | 111 | yes |
+| `universal` | 3,123 | 8 | 32 | 64 | 138 | yes |
+| `rainbow` | 3,138 | 0 | 32 | 7 | 119 | yes |
+| `halo` | 3,145 | 0 | 31 | - | 95 | yes |
+| `tpms` | 3,476 | 0 | 32 | 8 | 58 | yes |
+| `hilbert` | 3,548 | 10 | 32 | 8 | 80 | yes |
+| `ford` | 3,569 | 2 | 31 | 13 | 95 | yes |
+| `wavecat` | 4,203 | 2 | 32 | 17 | 168 | yes |
+| `diffract` | 4,379 | 3 | 32 | 30 | 134 | yes |
+| `rule30` | 4,720 | 9 | 32 | 105 | 126 | yes |
+| `starfield` | 5,475 | 0 | 32 | 17 | 150 | yes |
+| `vlsi` | 9,676 | 4 | 32 | 122 | 256 | yes |
+| `throughput` | 14,801 | 0 | 32 | 186 | 307 | yes |
 
-Sixty-eight of sixty-nine lower; **38 fit the tile at revision 2**, 62 of the sixty-eight needing REGS32; 30 exceed thirty-two registers, 6 exceed 4,096 words and 2 the 256-slot bank.
+Sixty-nine of sixty-nine lower and **all sixty-nine fit the tile at revision 3**; 63 need REGS32, 31 need the scratch (the deepest 186 slots of the 256 a lane has), 6 exceed what revision 2's image held and 1 what its bank addressed.
 
-One is refused by name: an array local indexed at run time -
-`precise float wts[28]`, written and read under loop counters
-(`nested`) - because the ISA has no indexed access to a lane's
-registers. The five that divide - `domain`, `e8`, `elliptic` by `/`,
-`hilbert`, `polytope` by `%` - were refused until the third session
-gave integer division by a literal its expansion (below). `polytope`
-fits and is in the sweep; the other four exceed thirty-two registers
-(38 to 58) and reproduce the text's bits on the widened lane.
+**Nothing is refused.** The corpus reached that in three steps, each
+of them a thing the tile gained or a thing this side learned to
+lower: integer division by a literal (five plates), the same division
+by a divisor known only at run time (one), and the array local in the
+per-lane scratch (one).
 
 What the numbers say for the coprocessor's side:
 
-- **Thirty-two registers took the corpus from six fitting to
-  thirty-seven**, the division expansion to thirty-eight, and the image
-  from 1,024 to 4,096 words from six over to six over: the loop body is written once under `REPEAT`, so
-  the programs that exceed the image are the straight-line giants
-  (`throughput`, `starfield`, `vlsi`) and the deepest nests (`rule30`,
-  `diffract`, `wavecat`).
-- **Thirty positives exceed thirty-two registers** as scheduled,
-  from 33 to 212 - twenty-six before the dividing plates lowered, and
-  four of those five joined them. They are the plates that hold
-  several vectors and a stream across nested descents. What reaches
-  them is measured in `docs/CFT-GAPS.md`: the per-run values moved
-  into the bank take some of them under the line, and a per-lane spill
-  memory - the first of the three asks there - the rest.
-- **Two exceed the constant bank** - `throughput` at 307 program
-  constants and `vlsi` at 256, each plus the nine-slot tail - which the
-  fit check did not know until this session: kx addresses 256 constants
-  and the tile stores 256, so a longer bank does not load whatever the
-  registers and words say. `fits.bank` says so now.
+- **Each revision moved the count, and the measurement asked for the
+  next one.** Sixteen registers and a 1,024-word image fitted six
+  positives. Thirty-two registers and 4,096 words fitted thirty-seven,
+  and the division expansion thirty-eight. Revision 3 - the scratch,
+  16,384 words, a 512-entry bank - fits **all sixty-nine**, and the
+  binding constraint at every stage was registers: of the thirty that
+  exceeded thirty-two, every one that also exceeded the image or the
+  bank was already over on registers, so the two capacities would have
+  changed no count on their own. The scratch is what did it.
+- **What spilling costs.** The programs grew where they had to and
+  nowhere else: the corpus's straight-line giant `throughput` went
+  from 12,618 words at 212 registers to 14,801 at 32, and `threebody`
+  from 1,776 at 101 to 2,005 at 31, while the thirty-eight that
+  already fitted are untouched. No positive needs more than a
+  fraction of the 256 slots a lane has.
 - **The bank as run data changed nothing measured and everything
   operational**: every image carries no constants, and a run brings
   its bank.
@@ -422,46 +534,77 @@ What the numbers say for the coprocessor's side:
 
 | positive | words | registers | defaults | hashed levers | seconds |
 |---|---|---|---|---|---|
+| `allpaths` | 1855 | 32 | yes | yes | 19 |
 | `arnold` | 746 | 22 | yes | yes | 18 |
-| `bifurc` | 532 | 24 | yes | yes | 15 |
+| `bifurc` | 532 | 24 | yes | yes | 17 |
+| `billiards` | 2921 | 32 | yes | yes | 23 |
+| `breakdown` | 2574 | 32 | yes | yes | 13 |
 | `buddha` | 450 | 20 | yes | yes | 3 |
-| `bulb` | 1470 | 29 | yes | yes | 6 |
-| `caustic` | 747 | 16 | yes | yes | 2 |
+| `bulb` | 1470 | 29 | yes | yes | 7 |
+| `cascade` | 1774 | 32 | yes | yes | 30 |
+| `caustic` | 747 | 16 | yes | yes | 3 |
 | `chladni` | 346 | 13 | yes | yes | 2 |
-| `collatz` | 574 | 27 | yes | yes | 8 |
-| `cursum` | 1016 | 27 | yes | yes | 10 |
-| `curves` | 934 | 21 | yes | yes | 2 |
-| `dipole` | 1009 | 21 | yes | yes | 3 |
+| `collatz` | 574 | 27 | yes | yes | 9 |
+| `conoscope` | 2096 | 32 | yes | yes | 7 |
+| `critical` | 1022 | 32 | yes | yes | 8 |
+| `cursum` | 1016 | 27 | yes | yes | 14 |
+| `curves` | 934 | 21 | yes | yes | 4 |
+| `diffract` | 4379 | 32 | yes | yes | 10 |
+| `dipole` | 1009 | 21 | yes | yes | 7 |
+| `dissipation` | 1216 | 32 | yes | yes | 10 |
+| `domain` | 2616 | 32 | yes | yes | 17 |
+| `drainage` | 1748 | 32 | yes | yes | 14 |
+| `e8` | 2024 | 32 | yes | yes | 13 |
+| `elliptic` | 1847 | 32 | yes | yes | 13 |
+| `flows` | 998 | 32 | yes | yes | 306 |
+| `ford` | 3569 | 31 | yes | yes | 5 |
 | `gibbs` | 571 | 21 | yes | yes | 4 |
-| `halo` | 3145 | 31 | yes | yes | 3 |
+| `halo` | 3145 | 31 | yes | yes | 4 |
 | `harm` | 567 | 14 | yes | yes | 2 |
-| `hopf` | 638 | 16 | yes | yes | 3 |
-| `hyper` | 2168 | 30 | yes | yes | 7 |
+| `hilbert` | 3548 | 32 | yes | yes | 14 |
+| `hopf` | 638 | 16 | yes | yes | 2 |
+| `hyper` | 2168 | 30 | yes | yes | 8 |
 | `ifs` | 885 | 24 | yes | yes | 4 |
-| `invjulia` | 747 | 18 | yes | yes | 5 |
-| `jong` | 737 | 22 | yes | yes | 4 |
+| `invjulia` | 747 | 18 | yes | yes | 6 |
+| `jong` | 737 | 22 | yes | yes | 5 |
 | `kleinian` | 737 | 26 | yes | yes | 4 |
 | `logz` | 674 | 15 | yes | yes | 2 |
-| `lyap` | 900 | 23 | yes | yes | 32 |
+| `lyap` | 900 | 23 | yes | yes | 33 |
 | `mand` | 1111 | 17 | yes | yes | 4 |
-| `modmul` | 749 | 17 | yes | yes | 2 |
-| `newton` | 1112 | 29 | yes | yes | 9 |
+| `mirage` | 2586 | 32 | yes | yes | 19 |
+| `modmul` | 749 | 17 | yes | yes | 3 |
+| `nested` | 1401 | 32 | yes | yes | 17 |
+| `newton` | 1112 | 29 | yes | yes | 10 |
+| `nodal` | 2724 | 32 | yes | yes | 41 |
 | `nonorient` | 700 | 21 | yes | yes | 2 |
-| `orbital` | 656 | 28 | yes | yes | 4 |
+| `orbital` | 656 | 28 | yes | yes | 3 |
 | `penrose` | 722 | 25 | yes | yes | 3 |
 | `polytope` | 846 | 27 | yes | yes | 3 |
 | `primes` | 969 | 26 | yes | yes | 4 |
-| `psf` | 185 | 10 | yes | yes | 2 |
+| `psf` | 185 | 10 | yes | yes | 1 |
 | `qjulia` | 713 | 18 | yes | yes | 3 |
+| `rainbow` | 3138 | 32 | yes | yes | 5 |
 | `relativity` | 836 | 26 | yes | yes | 18 |
 | `rmt` | 953 | 25 | yes | yes | 4 |
-| `stdmap` | 912 | 23 | yes | yes | 63 |
+| `rule30` | 4720 | 32 | yes | yes | 524 |
+| `rulespace` | 2363 | 32 | yes | yes | 750 |
+| `starfield` | 5475 | 32 | yes | yes | 7 |
+| `stdmap` | 912 | 23 | yes | yes | 67 |
+| `stoch` | 1917 | 31 | yes | yes | 19 |
 | `swallow` | 452 | 20 | yes | yes | 2 |
-| `wave` | 618 | 21 | yes | yes | 3 |
+| `tangle` | 2168 | 32 | yes | yes | 10 |
+| `threebody` | 2029 | 31 | yes | yes | 848 |
+| `throughput` | 14801 | 32 | yes | yes | 21 |
+| `tpms` | 3476 | 32 | yes | yes | 5 |
+| `universal` | 3123 | 32 | yes | yes | 280 |
+| `vlsi` | 9676 | 32 | yes | yes | 15 |
+| `vortex` | 2323 | 32 | yes | yes | 13 |
+| `wave` | 618 | 21 | yes | yes | 4 |
+| `wavecat` | 4203 | 32 | yes | yes | 14 |
 | `wpath` | 794 | 29 | yes | yes | 4 |
-| `zeta` | 746 | 24 | yes | yes | 5 |
+| `zeta` | 746 | 24 | yes | yes | 6 |
 
-**38 of 38 reproduce the emitted text's bits through every evaluation, at the defaults and off them.**
+**69 of 69 reproduce the emitted text's bits through every evaluation, at the defaults and off them.**
 
 ## The accuracy column
 
@@ -480,17 +623,31 @@ wrong.
 
 ## What was not done
 
-- **Integer division and modulus**, five positives.
-- **The run-time-indexed array**, one positive; either both of its
-  loops unrolled so every index is a literal, or the weights spilled
-  through deposits and a second program, which is the init block again.
+Nothing in the corpus is refused any more, so what is left is speed and
+size rather than reach.
+
+- **Hoisting.** A value that depends only on the levers, the clock and
+  the program's constants is the same on every lane and in every
+  iteration, and could arrive in the bank instead of being computed
+  per sample: 23,661 words across the corpus, and the register
+  pressure that drives the spilling with them
+  (`docs/CFT-GAPS.md`). It no longer decides a fit, which is why it
+  waited.
+- **Copy coalescing.** A carried value costs a copy in and a copy back
+  per iteration; the op that computes the next value could write the
+  register directly. 1,958 copies.
 - **Deposit when ready.** Deposits sit at the end, so every result
   holds a register from its computation to the last instruction.
   Issuing a `DEPOSIT` as soon as its value is final would free those
   registers and reorder the deposit schema, which the record can carry.
-- **Copy coalescing and `SETACT`.** A carried value costs a copy in and
-  a copy back per iteration; the op that computes the next value could
-  write the phi's register directly. And a top-level loop could
-  `SETACT` on the running flag so the tile takes the early exit it is
-  entitled to. Both change the time and not the bits.
+- **Better spilling.** The choice is Belady's, weighted by reads, and
+  the reloads are not shared: two reads of one spilled value in the
+  same segment load it twice. Rematerialisation would beat both where
+  the value is cheaper to recompute than to store.
+- **`SCRATCH_STRICT`**, when the library carries revision 4's flag.
+  Until then an indexed access is clamped here rather than reported
+  there.
+- **`CALL`**, measured at 41,435 words of inlined copies across the
+  corpus and asked for by nobody, because at 16,384 words it decides
+  no fit.
 - **The GPU record capture** is step 5 of ATLAS.md, and remains.

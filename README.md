@@ -124,8 +124,11 @@ And the rest:
   GLSL subset both are written in. `tools/emit-cft.mjs` writes an image
   or measures the corpus; `tools/verify-cft-positive.mjs` and
   `tools/verify-cft-detlib.mjs` hold the programs to the text's bits
-  through that project's libcft and golden model. `docs/CFT-DETLIB.md`
-  and `docs/CFT-POSITIVE.md` are the records, dated.
+  through that project's libcft and golden model;
+  `tools/measure-cft-gaps.mjs` measures what stops the rest of the
+  corpus, which is where the asks of `docs/CFT-GAPS.md` came from.
+  `docs/CFT-DETLIB.md`, `docs/CFT-POSITIVE.md` and `docs/CFT-GAPS.md`
+  are the records, dated.
 
 ![Twenty-four independent rendering stacks converging on a single
 column digest, with the one disagreeing driver drawn apart and
@@ -321,29 +324,38 @@ what the two repositories are executing:
   `det_fract`'s `float(int(x))` are not - right at the defaults exactly
   when the default was even, wrong one notch over, and caught by
   verifying off the defaults, which the verifier now does.
-- **The second round of asks - measured 2026-09-08**, in
-  `docs/CFT-GAPS.md`. Thirty positives exceed thirty-two registers as
-  scheduled, six exceed the image, two the constant bank, and one waits
-  on a run-time-indexed array. `tools/measure-cft-gaps.mjs` says how
-  much of that the engine removes on its own - every per-run value
-  moved into the bank takes the thirty to twenty-three and 23,661 words
-  out of the programs; a `break` lowered as `SETACT` gives the loops
-  their early exit, a median of twice fewer trips at the defaults and
-  ten times fewer on sixteen positives - and what it cannot: a per-lane
-  spill memory, load and store by slot, which closes the register wall
-  for all twenty-three and the indexed array with it; the image to
-  16,384 words; and a ninth constant-index bit for a 512-slot bank,
-  which two positives need to load at all. `CALL` is measured at
-  41,435 inlined words across the corpus and not asked, since it
-  decides no fit once the image is larger.
-- **What remains on this side.** `SETACT` for the top-level loops
-  landed the same evening - every loop positive's `break` at the top
-  level is the lane going inactive where it leaves, `ACTALL` after the
-  `ENDREP`, so the tile's early exit fires; 1,759 words and forty-eight
-  register peaks came down with the running flags - then the hoisting,
-  copy coalescing for the loops' carried registers, and the spiller
-  when the memory lands. Then the parity harness: a debug variant of
-  the emitted GLSL
+- **The second round of asks - measured 2026-09-08, built the same
+  evening, adopted 2026-09-11.** `docs/CFT-GAPS.md` measured what
+  stopped the rest of the corpus over the scheduled programs - thirty
+  positives over thirty-two registers, six over the image, two over the
+  constant bank, one waiting on a run-time-indexed array - said how
+  much of it this side could remove alone, and asked for three things
+  it could not: a per-lane spill memory, the image to 16,384 words, and
+  a ninth constant-index bit for a 512-slot bank. Revision 3 of the
+  sequencer is all three, and cost the tile 3.4% of its LUT and
+  **0.000 ns** of timing. Adopting them took a spiller - a value too
+  many is computed into a register, stored to a slot at once, and
+  loaded back where it is read, and a loop-carried value spills more
+  naturally still, since the slot persists across iterations exactly as
+  its pinned register did - and it took the indexed form for the array
+  local that was the last refusal. **Sixty-nine of sixty-nine positives now
+  lower, and all of them fit.** `CALL` stays measured and unasked at
+  41,435 inlined words, because at 16,384 it decides no fit.
+- **The one that was wrong in the reference too.** The array positive
+  was the corpus's only user of integer vectors, and lowering it found
+  that a vector constructor was relabelling its components rather than
+  converting them - so `ivec2(vec2(...) * s)` did not truncate. GLSL
+  says a constructor converts as the element type's own scalar
+  constructor does. The binary32 reference had the same fault, which
+  makes it a correction to what this repository says a conforming
+  driver computes and not a port bug; it was invisible for as long as
+  it was because every other positive builds its vectors out of floats,
+  where relabelling and converting are the same thing.
+- **What remains on this side.** Speed and size rather than reach:
+  hoisting the per-run values into the bank (23,661 words), coalescing
+  the loops' carried copies (1,958), depositing a result as soon as it
+  is final, and sharing a spilled value's reloads. Then the parity
+  harness: a debug variant of the emitted GLSL
   that writes `xyz`, `col` and `glow` to a buffer instead of
   depositing, so the GPU's records and the tile's are compared per
   sample and a first divergence gets named; then the records binned in

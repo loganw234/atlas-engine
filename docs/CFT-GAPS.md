@@ -1,5 +1,27 @@
 # What closes the gaps, measured: the second round of asks
 
+**All three were built the same evening, as revision 3 of the
+sequencer (cft-fp256 `docs/SEQUENCER.md`, 2026-09-08 evening), and the
+round added two mechanisms nobody here asked for. The engine adopted
+them on 2026-09-11 and the corpus now fits. What that took, and what
+it found, is the last section of this file; the measurements that
+asked for them are kept exactly as they were written, because the
+point of writing them down was to be held to them.**
+
+| ask | built as | what it cost the tile |
+|---|---|---|
+| a per-lane spill memory, load and store by slot | **R4**: `SCRATCH_D = 256` slots a lane, `STL`/`LDL` by static slot and `STX`/`LDX` by a register's low bits, masked by the active bit | of the round's +4,050 LUT (+3.4%), +28.5 block RAM tiles, +7 UltraRAMs and **0.000 ns** of timing |
+| the image to 16,384 words | **R6**: `SEQ_IMEM_D` 4096 -> 16384, `PCW` 14 | four UltraRAMs |
+| a ninth constant-index bit, the bank to 512 | **R7**: `imm[28]`, `imm[29]`, `imm[30]` under `kx`, `KMEM_D` 512, CAPS[7] | 16 KiB at beat width |
+
+Two more came with them. **R5** makes the scratch a per-run block in
+and out, which is the init block two older workloads asked for; this
+target does not use it, because its per-run data is uniform across
+lanes and that is what the bank is for. **R8** (revision 4,
+2026-09-10) adds `SCRATCH_STRICT`, under which an indexed access past
+the depth is reported rather than reduced modulo it - so the depth
+stops being part of an instruction's meaning.
+
 2026-09-08, the third session on the emitter target. The corpus stands
 at sixty-eight of sixty-nine positives lowering to cft-fp256 sequencer
 programs and thirty-eight fitting the tile at revision 2, every one of
@@ -320,6 +342,61 @@ inner loops exit early too, P3 intact since the restore is where the
 loop closes whether or not the exit fired, and it is worth a fraction
 of the work on six positives.
 
+## The round that adopted them, 2026-09-11
+
+`core/cft-isa.mjs` speaks revision 3 and R8: the four scratch codes and
+their reserved-field rules, the ninth index bit through `packKx`, the
+capacities, and the two new header flags. Held to the coprocessor's own
+encoder the way every other word is - `asm.py` assembles each `.cfta`
+to the emitter's exact bytes, `stl` and `ldl` included, on every
+program below.
+
+**The spiller.** `core/cft-lower.mjs` allocates registers from an
+unbounded pool, so a program that wants more than a lane has is a
+number rather than an exception. When that number exceeds thirty-two,
+the values that hold a register longest for the fewest reads move into
+the scratch and the program is re-profiled and re-allocated, the target
+dropping by two each round because the reloads want registers of their
+own. A spilled value's home is a slot: it is computed into a register
+and stored at once, and every later read loads it into a register of
+its own. **A loop-carried value spills more naturally than an ordinary
+one** - its copy-in becomes a store, its copy-back a store, and each
+read inside the body a load, and the slot persists across iterations
+exactly as the pinned register did. The masking is already right: a
+store is a register write for P3's purposes, so a lane that has left a
+loop keeps what it stored, which is what its registers did.
+
+Two things the round had to get right, both of them rules the
+instruction set already stated about some other instruction.
+
+- **A store reads a register, never the bank.** The same rule
+  `DEPOSIT` has. A carried value whose initial value is a constant
+  stored from the *register whose number is that constant's bank
+  index*: measured on `dissipation`, whose two carried values
+  initialised to zero both stored from `r9` because the zero constant
+  sat at bank slot 9. Every deposit of every sample wrong, libcft and
+  the golden model agreeing with each other about it, and this
+  repository's own executor agreeing too - which is what said the fault
+  was in the lowering rather than in the encoding. A constant or a
+  per-run slot is moved into a register first now, by OR-ing it with
+  itself, which is exact and needs no bank entry the layout no longer
+  has room for.
+- **A scratch access is not a control word.** It is encoded with the
+  control bit because the opcode byte is a control code's, but it does
+  not touch the program counter, so it belongs to the segment it sits
+  in like any other instruction. Only the five that decide where the
+  tile goes next end a segment.
+
+**`SCRATCH_STRICT` is not set, and the reason is dated.** On
+2026-09-10 the bit exists in the golden model alone; the library's
+`SEQ_FLAGS_KNOWN` is `BANK_EXT | SCRATCH_IO`, and `cft_program_load`
+refuses a header carrying anything else - measured here the same day,
+every image that set it came back "artifact missing, unreadable, or
+not a tile". Refusing an unknown flag is the guard working as
+designed, so this waits for the library rather than routing around it,
+and costs nothing meanwhile: every slot the spiller names is static,
+so there is no index to reduce and the two readings agree.
+
 ## What the engine side does next, in order
 
 1. **Integer division by a literal - done this session.** The five
@@ -337,16 +414,24 @@ of the work on six positives.
    94,632 where the flag form ran every one of its 400 trips. The six
    positives with breaks in nested loops keep the flag on the inner
    loop only.
-3. **Hoisting**: the per-run frontier into the bank, computed per run
+3. **The spiller - done 2026-09-11**, when Asks 1 to 3 landed. Every
+   positive that lowers now fits the tile, which is what the three were
+   for; the section above is what it took.
+4. **Hoisting**: the per-run frontier into the bank, computed per run
    from the same text by the reference interpreter or by an init
    program on libcft's software backend - either way held to the other,
-   and the digest still names image and bank together. Thirty over the
-   registers become twenty-three; 23,661 words leave the programs.
-4. **Copy coalescing**: the 1,958 copies into and out of the loops'
+   and the digest still names image and bank together. It no longer
+   decides a fit, so it is an optimisation now rather than a
+   necessity: 23,661 words leave the programs and the spilling that
+   remains is smaller.
+5. **Copy coalescing**: the 1,958 copies into and out of the loops'
    carried registers, most of which can be the register itself.
-5. Then Asks 1 to 3 as they land, the spiller with Ask 1, and the parity
-   harness - the GPU's per-sample records against the tile's - behind
-   them.
+6. **The array local**, the corpus's one remaining refusal: `nested`'s
+   `precise float wts[28]`, written and read under loop counters, is
+   what `STX`/`LDX` are for, and it is the only positive that needs
+   the indexed form at all.
+7. Then the parity harness - the GPU's per-sample records against the
+   tile's.
 
 ## Not asked, measured
 

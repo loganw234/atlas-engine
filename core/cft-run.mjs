@@ -31,7 +31,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join, resolve } from "node:path";
-import { OP, READS, ROUNDS, RND, CTRL, decode, NREG } from "./cft-isa.mjs";
+import { OP, READS, ROUNDS, RND, CTRL, decode, NREG, SCRATCH_D } from "./cft-isa.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -110,6 +110,9 @@ export class Machine {
     for (let r = 0; r < nregs; r++) regs[r] = zero;
     argBits.forEach((a, i) => { regs[i] = Array.from(a, u => this.fromBits(u)); });
     const bank = this._bank(prog.consts, n);
+    // Slots start at +0 for every lane, which is normative: a run whose
+    // untouched scratch kept whatever was there would not be bit-exact.
+    const scratch = new Array(SCRATCH_D).fill(null);
 
     let flags = 0;
     let emulated = 0, executed = 0;
@@ -151,6 +154,35 @@ export class Machine {
       if (ins.ctrl === "actall") {
         if (stack.length) throw new Error("cft-run: ACTALL inside a loop");
         active.fill(1); allActive = true;
+        pc++; continue;
+      }
+      // THE PER-LANE SCRATCH, revision 3's R4. Lane i's slot s is
+      // reachable by lane i alone; a store is a register write for P3's
+      // purposes and a load writes rd, so both go through the same mask
+      // as any other write. An indexed slot is the low log2(SCRATCH_D)
+      // bits of rb's BIT PATTERN read as an unsigned integer, reduced
+      // modulo the depth - which is the contract's own wording, and
+      // what FLAG_SCRATCH_STRICT would report instead.
+      if (ins.ctrl === "stl" || ins.ctrl === "stx") {
+        const src = regs[ins.ra];
+        const idx = ins.ctrl === "stl" ? null : regs[ins.rb];
+        for (let i = 0; i < n; i++) {
+          if (!active[i]) continue;
+          const slot = idx === null ? ins.slot : (this.toBits(idx[i]) >>> 0) % SCRATCH_D;
+          if (!scratch[slot]) scratch[slot] = new Array(n).fill(this.fromBits(0));
+          scratch[slot][i] = src[i];
+        }
+        pc++; continue;
+      }
+      if (ins.ctrl === "ldl" || ins.ctrl === "ldx") {
+        const idx = ins.ctrl === "ldl" ? null : regs[ins.rb];
+        const out = regs[ins.rd].slice();
+        for (let i = 0; i < n; i++) {
+          if (!active[i]) continue;
+          const slot = idx === null ? ins.slot : (this.toBits(idx[i]) >>> 0) % SCRATCH_D;
+          out[i] = scratch[slot] ? scratch[slot][i] : this.fromBits(0);
+        }
+        regs[ins.rd] = out;
         pc++; continue;
       }
       executed++;

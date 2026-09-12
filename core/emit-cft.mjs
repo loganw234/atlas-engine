@@ -62,8 +62,9 @@ import { substitute, names as constNames, record } from "./oracle.mjs";
 import { unfuse, noFmaLeft } from "./unfuse.mjs";
 import { DetLib, bits as f32bits } from "./glsl-f32.mjs";
 import { lowerFunction } from "./cft-lower.mjs";
-import { imageBytes, bankBytes, OP_NAME, RND_NAME, READS, ROUNDS, RND,
-         NREG, NREG_REV1, IMEM_D, MAXD, KREG, KMEM_D } from "./cft-isa.mjs";
+import { imageBytes, bankBytes, unpackKx, OP_NAME, RND_NAME, READS, ROUNDS, RND,
+         NREG, NREG_REV1, IMEM_D, IMEM_D_REV2, MAXD, KREG, KMEM_D, KMEM_D_REV2,
+         SCRATCH_D } from "./cft-isa.mjs";
 import { leverDefaults, hashu } from "./measure.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -250,7 +251,8 @@ export function cftaText(L) {
   L2.push(`;   inputs   ${prog.args.map(a => `${a.stream} = ${a.name}`).join(", ")}`);
   L2.push(`;   deposits ${prog.results.map((d, i) => `${i}:${d.name}`).join(" ")}`);
   L2.push(`;   the bank: ${prog.tailBase} program constants, then the per-run tail P[0..7], uT`);
-  L2.push(`;   ${prog.counts.total} words, ${prog.regsUsed} registers, ${prog.loops.length} loop(s)`);
+  L2.push(`;   ${prog.counts.total} words, ${prog.regsUsed} registers, ${prog.loops.length} loop(s)` +
+          (prog.scratch.slots ? `, ${prog.scratch.slots} scratch slot(s)` : ""));
   L2.push("");
   L2.push(".format   fp32");
   L2.push(`.deposits ${prog.results.length}`);
@@ -261,10 +263,17 @@ export function cftaText(L) {
             (knames[i] ? ` ${knames[i]}` : "") + tail);
   });
   L2.push("");
+  // THE NINTH BIT IS PART OF THE INDEX. Under kx an operand's constant
+  // index is a byte of `imm` plus a ninth bit at imm[28..30] (revision
+  // 3's R7), and reading only the byte names a different constant: a
+  // program addressing 300 would be written `k44` here and assembled as
+  // `k44` there. Measured 2026-09-11 on `throughput`, the one positive
+  // with more than 256 constants - the only check that caught it was
+  // asm.py's bytes against these, which is what that check is for.
   const kIndex = (ins, w) => {
-    const field = { a: ins.ra, b: ins.rb, c: ins.rc }[w];
-    if (!ins.kx) return field;
-    return { a: ins.imm & 0xff, b: (ins.imm >> 8) & 0xff, c: (ins.imm >> 16) & 0xff }[w];
+    if (!ins.kx) return { a: ins.ra, b: ins.rb, c: ins.rc }[w];
+    const [ia, ib, ic] = unpackKx(ins.imm);
+    return { a: ia, b: ib, c: ic }[w];
   };
   let depth = 0;
   for (const ins of prog.insns) {
@@ -273,6 +282,10 @@ export function cftaText(L) {
     if (ins.ctrl === "endrep") { depth--; L2.push(`${"  ".repeat(depth)}endrep`); continue; }
     if (ins.ctrl === "setact") { L2.push(`${ind}setact r${ins.ra}`.padEnd(38) + "; the lane leaves while this is zero"); continue; }
     if (ins.ctrl === "actall") { L2.push(`${ind}actall`.padEnd(38) + "; every lane back"); continue; }
+    if (ins.ctrl === "stl") { L2.push(`${ind}stl r${ins.ra}, ${ins.slot}`.padEnd(38) + `; ${ins.tag}`); continue; }
+    if (ins.ctrl === "ldl") { L2.push(`${ind}ldl r${ins.rd}, ${ins.slot}`.padEnd(38) + `; ${ins.tag}`); continue; }
+    if (ins.ctrl === "stx") { L2.push(`${ind}stx r${ins.ra}, r${ins.rb}`.padEnd(38) + `; ${ins.tag}`); continue; }
+    if (ins.ctrl === "ldx") { L2.push(`${ind}ldx r${ins.rd}, r${ins.rb}`.padEnd(38) + `; ${ins.tag}`); continue; }
     const reads = READS[ins.op];
     const operands = reads.map(w => {
       const isK = { a: ins.ka, b: ins.kb, c: ins.kc }[w];
@@ -311,9 +324,23 @@ export function lowerPositive(pos, opts = {}) {
     tailValues,
   });
   const fitsImage = prog.counts.total <= IMEM_D;
+  // SCRATCH_STRICT, revision 4's R8, is NOT set, and the reason is
+  // dated. The bit says an INDEXED scratch access at or past the depth
+  // is reported in STATUS rather than reduced modulo it, and on
+  // 2026-09-10 it exists in the golden model alone - `SEQ_FLAGS_KNOWN`
+  // in the library's host/src/program.c is BANK_EXT | SCRATCH_IO, and
+  // `cft_program_load` refuses a header whose flags carry anything else
+  // (measured here the same day: every image that set it came back
+  // "artifact missing, unreadable, or not a tile"). Refusing an unknown
+  // flag is the right behaviour and the guard working as designed, so
+  // this waits for the library rather than routing around it. It costs
+  // nothing meanwhile: every slot this target names is STATIC, so there
+  // is no index to reduce and the two readings agree. `opts.scratchStrict`
+  // turns it on for whoever measures the library's half.
   const image = prog.words
     ? imageBytes({ insns: prog.words, consts: prog.consts, nConsts: prog.consts.length,
-                   maxDeposits: prog.results.length, precisionCode: 0, bankExt: true })
+                   maxDeposits: prog.results.length, precisionCode: 0, bankExt: true,
+                   scratchStrict: !!opts.scratchStrict && prog.scratch.slots > 0 })
     : null;
   const bank = bankBytes(prog.consts);
   const L = {
@@ -326,11 +353,16 @@ export function lowerPositive(pos, opts = {}) {
     // and words say. Measured 2026-09-08: throughput's 307 is the one
     // positive over it as emitted, and vlsi sits exactly on it.
     fits: { registers: prog.encodable, image: fitsImage, deposits: prog.results.length <= MAXD,
-            bank: prog.consts.length <= KMEM_D,
-            all: prog.encodable && fitsImage && prog.results.length <= MAXD && prog.consts.length <= KMEM_D },
+            bank: prog.consts.length <= KMEM_D, scratch: prog.scratch.slots <= SCRATCH_D,
+            all: prog.encodable && fitsImage && prog.results.length <= MAXD &&
+                 prog.consts.length <= KMEM_D && prog.scratch.slots <= SCRATCH_D },
     needsCaps: {
       kx: prog.needs.includes("kx"), imul: prog.needs.includes("imul"),
       regs32: prog.regsUsed > NREG_REV1, bankPtr: true,
+      kx9: prog.consts.length > KMEM_D_REV2 || prog.needs.includes("kx9"),
+      scratch: prog.scratch.slots > 0,
+      scratchStrict: !!opts.scratchStrict && prog.scratch.slots > 0,
+      imemRev3: prog.counts.total > IMEM_D_REV2,
     },
     inputs: [
       { stream: "a", holds: "q.x", type: "float" },
@@ -343,4 +375,4 @@ export function lowerPositive(pos, opts = {}) {
   return L;
 }
 
-export { NREG, NREG_REV1, IMEM_D, MAXD, KREG, KMEM_D };
+export { NREG, NREG_REV1, IMEM_D, IMEM_D_REV2, MAXD, KREG, KMEM_D, KMEM_D_REV2, SCRATCH_D };
