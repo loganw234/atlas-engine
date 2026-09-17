@@ -257,6 +257,11 @@ export function cftaText(L) {
   L2.push(".format   fp32");
   L2.push(`.deposits ${prog.results.length}`);
   L2.push(".bank     external");
+  // R8 in the text form is a property of the scratch (asm.py's
+  // do_scratch): the same header bit the image sets, or the assembler's
+  // bytes and this emitter's disagree at byte 24.
+  if (L.image && (new DataView(L.image.buffer, L.image.byteOffset, L.image.byteLength).getUint32(24, true) & 4))
+    L2.push(".scratch strict");
   prog.consts.forEach((bits, i) => {
     const tail = i >= prog.tailBase ? "   [tail]" : "";
     L2.push(`.const    k${i}`.padEnd(22) + `; 0x${(bits >>> 0).toString(16).toUpperCase().padStart(8, "0")}` +
@@ -324,23 +329,25 @@ export function lowerPositive(pos, opts = {}) {
     tailValues,
   });
   const fitsImage = prog.counts.total <= IMEM_D;
-  // SCRATCH_STRICT, revision 4's R8, is NOT set, and the reason is
-  // dated. The bit says an INDEXED scratch access at or past the depth
-  // is reported in STATUS rather than reduced modulo it, and on
-  // 2026-09-10 it exists in the golden model alone - `SEQ_FLAGS_KNOWN`
-  // in the library's host/src/program.c is BANK_EXT | SCRATCH_IO, and
-  // `cft_program_load` refuses a header whose flags carry anything else
-  // (measured here the same day: every image that set it came back
-  // "artifact missing, unreadable, or not a tile"). Refusing an unknown
-  // flag is the right behaviour and the guard working as designed, so
-  // this waits for the library rather than routing around it. It costs
-  // nothing meanwhile: every slot this target names is STATIC, so there
-  // is no index to reduce and the two readings agree. `opts.scratchStrict`
-  // turns it on for whoever measures the library's half.
+  // SCRATCH_STRICT, revision 4's R8, IS SET on every image that touches
+  // the scratch. The bit says an INDEXED access at or past the depth is
+  // reported in STATUS and writes nothing, rather than being reduced
+  // modulo the depth - so the depth stops being part of what an
+  // instruction means, and an image that uses the scratch computes the
+  // same bits on any implementation deep enough to load it, which is
+  // what cft-fp256's conformance profile says capacities are for. It
+  // waited, dated: on 2026-09-10 the bit existed in the golden model
+  // alone and libcft refused it by name, which was the guard working.
+  // Every card image since the revision-4 pair (2026-09-13) carries it
+  // and libcft's SEQ_FLAGS_KNOWN has it; set here 2026-09-17, the day
+  // this target first went to the card. An image with no scratch access
+  // leaves it clear, so it still loads on a tile older than the flag.
+  // `opts.scratchStrict === false` clears it for a comparison run.
+  const strict = opts.scratchStrict !== false && prog.scratch.slots > 0;
   const image = prog.words
     ? imageBytes({ insns: prog.words, consts: prog.consts, nConsts: prog.consts.length,
                    maxDeposits: prog.results.length, precisionCode: 0, bankExt: true,
-                   scratchStrict: !!opts.scratchStrict && prog.scratch.slots > 0 })
+                   scratchStrict: strict })
     : null;
   const bank = bankBytes(prog.consts);
   const L = {
@@ -361,7 +368,7 @@ export function lowerPositive(pos, opts = {}) {
       regs32: prog.regsUsed > NREG_REV1, bankPtr: true,
       kx9: prog.consts.length > KMEM_D_REV2 || prog.needs.includes("kx9"),
       scratch: prog.scratch.slots > 0,
-      scratchStrict: !!opts.scratchStrict && prog.scratch.slots > 0,
+      scratchStrict: strict,
       imemRev3: prog.counts.total > IMEM_D_REV2,
     },
     inputs: [

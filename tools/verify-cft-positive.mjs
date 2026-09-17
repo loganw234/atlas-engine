@@ -61,6 +61,7 @@ import { createHash } from "node:crypto";
 import { lowerPositive, hostPrologue, hashedLevers } from "../core/emit-cft.mjs";
 import { bits as f32bits, asF32 } from "../core/glsl-f32.mjs";
 import { libcftEntry, Machine } from "../core/cft-run.mjs";
+import { frameSamples } from "../core/cft-samples.mjs";
 import { hashu, u2f, Stream, Vec2, leverDefaults } from "../core/measure.mjs";
 import { NREG, NREG_REV1, IMEM_D, SCRATCH_D as MAX_SCRATCH } from "../core/cft-isa.mjs";
 
@@ -72,7 +73,7 @@ const CFT_ROOT = process.env.CFT_ROOT || join(ROOT, "..", "cft-fp256");
 
 const argv = process.argv.slice(2);
 const opt = (n, d) => { const i = argv.indexOf(n); return i < 0 ? d : argv[i + 1]; };
-const target = argv.find((a, i) => !a.startsWith("--") && !["--points", "--golden", "--uT", "--levers"].includes(argv[i - 1]))
+const target = argv.find((a, i) => !a.startsWith("--") && !["--points", "--golden", "--uT", "--levers", "--pack"].includes(argv[i - 1]))
              || join(ROOT, "positives", "hopf.pos.mjs");
 const POINTS = Number(opt("--points", "4096"));
 const GOLDEN = Number(opt("--golden", "256"));
@@ -81,6 +82,13 @@ const UT = Math.fround(Number(opt("--uT", "0")));
 // the defaults, so the integer levers and the branches they gate are
 // exercised off the values the author happened to choose
 const LEVER_SEED = opt("--levers", null);
+// --pack <dir>: when every evaluation agrees, write this case as files a
+// program executor can be scored on without this repository - the image,
+// its bank, the three input streams, the expected deposit buffer and a
+// JSON record of what agreed on it. tools/pack-cft-set.mjs drives it over
+// the corpus and writes the manifest. Nothing is written for a case that
+// failed, and nothing for a program that does not load as it stands.
+const PACK = opt("--pack", null);
 
 const hex = (u) => "0x" + (u >>> 0).toString(16).padStart(8, "0");
 const isNaNbits = (u) => ((u & 0x7f800000) === 0x7f800000) && (u & 0x007fffff) !== 0;
@@ -90,10 +98,18 @@ const u8 = (arr) => new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength);
 // ---- the positive, lowered
 const pos = (await import(pathToFileURL(resolve(target)).href)).default;
 const id = pos.id.replace(/_pos$/, "");
+// EVERY WORKING FILE IS NAMED FOR THE CASE, not the positive. Until
+// 2026-09-17 they were named for the positive, so the defaults run and
+// the hashed-lever run of one positive, started side by side by
+// tools/pack-cft-set.mjs, wrote the same bank file: mand's golden-model
+// check read the other setting's bank and reported 64 deposits differing
+// from a libcft run that was right. The image and the inputs are the same
+// for both settings; the bank is not, and one shared name was enough.
+const WORK = LEVER_SEED === null ? id : `${id}.levers-${LEVER_SEED}`;
 const Pset = LEVER_SEED === null ? null : hashedLevers(pos, Number.parseInt(LEVER_SEED, 10) >>> 0);
 const L = lowerPositive(pos, { uT: UT, P: Pset });
 const { prog } = L;
-console.log(`${id} -> cft-fp256 sequencer program (revision 2)`);
+console.log(`${id} -> cft-fp256 sequencer program (revision 6)`);
 console.log(`  words      : ${prog.counts.total} of ${IMEM_D} (${prog.counts.alu} ALU, ` +
             `${prog.counts.loop} loop, ${prog.counts.control - prog.counts.loop} deposit/halt)`);
 console.log(`  loops      : ${prog.loops.length ? prog.loops.map(l => `repeat ${l.trip} at depth ${l.depth}`).join(", ") : "none"}` +
@@ -124,18 +140,10 @@ if (WIDE) {
   console.log(`  went through cft_program_load, and the golden model is not run.`);
 }
 
-// ---- the samples: a frame's own points, from the index
+// ---- the samples: a frame's own points, from the index - core/cft-samples.mjs,
+// the one definition tools/cft-streams.mjs writes at card scale too
 const n = POINTS;
-const qx = new Uint32Array(n), qy = new Uint32Array(n), rx = new Uint32Array(n), seed = new Uint32Array(n);
-const ptc = new Uint32Array(n);
-for (let i = 0; i < n; i++) {
-  const ia = i < n / 2 ? i >>> 0 : hashu((i ^ 0xA7C4F3D1) >>> 0);
-  const qxf = u2f(Math.imul(ia, 3242174889) >>> 0);
-  const qyf = u2f(Math.imul(ia, 2447445414) >>> 0);
-  const h1 = hashu(ia), h2 = hashu(h1), h3 = hashu(h2), h4 = hashu(h3);
-  qx[i] = f32bits(qxf); qy[i] = f32bits(qyf); rx[i] = f32bits(u2f(h1)); seed[i] = h4;
-  ptc[i] = hostPrologue(L.ref, L.prologue, { qx: qxf, qy: qyf, rndx: u2f(h1), seed: h4 });
-}
+const { qx, qy, rx, seed, ptc } = frameSamples(L, n);
 
 // ---- the reference
 const Pd = L.P;
@@ -167,7 +175,11 @@ let run, tLib, countsOk, digestOk = null, libDigest = null, scratchOk = null, li
 if (!WIDE) {
   const { Context } = await import(libcftEntry());
   const ctx = await Context.open("fp32");
-  const feats = ctx.seqFeatureNames ? ctx.seqFeatureNames : [];
+  // The binding's own name table stops at SCRATCH_IO (read 2026-09-17),
+  // so the bits after it are named here from host/include/cft.h rather
+  // than printed as numbers.
+  const LATER_FEATS = { bit10: "SCRATCH_STRICT", bit11: "SCALAR", bit13: "INDEXED", bit14: "LANE_MASK" };
+  const feats = (ctx.seqFeatureNames ? ctx.seqFeatureNames : []).map(f => LATER_FEATS[f] ?? f);
   console.log(`  device     : ${ctx.backend ?? "software"}, ABI ${ctx.abiVersion ?? "?"}, features ${feats.join(" ") || "-"}, ` +
               `maxInsns ${ctx.maxInsns}, maxConsts ${ctx.maxConsts}`);
   const t1 = Date.now();
@@ -222,11 +234,15 @@ for (let k = 0; k < D; k++) {
 }
 if (digestOk === false) failed++;
 if (scratchOk === false) failed++;
+// Every lane deposits every result, and a clean run's STATUS is zero:
+// both were printed and neither was scored until 2026-09-17.
+if (countsOk === false) failed++;
+if (!WIDE && run.status) failed++;
 
 // ---- the assembler: the .cfta text through asm.py must give these bytes
 let asmCheck = null;
 if (!WIDE) {
-  const cftaPath = join(OUT, `${id}.cfta`), imgPath = join(OUT, `${id}.cftp`);
+  const cftaPath = join(OUT, `${WORK}.cfta`), imgPath = join(OUT, `${WORK}.cftp`);
   writeFileSync(cftaPath, L.cfta);
   writeFileSync(imgPath, L.image);
   try {
@@ -246,12 +262,12 @@ if (!WIDE) {
   const exe2 = join(CFT_ROOT, "host", "positive-run");
   const bin = existsSync(exe) ? exe : existsSync(exe2) ? exe2 : null;
   if (bin) {
-    const aPath = join(OUT, `${id}.a.bin`), bPath = join(OUT, `${id}.b.bin`), cPath = join(OUT, `${id}.c.bin`);
-    const bankPath = join(OUT, `${id}.default.bank`), depPath = join(OUT, `${id}.runner.deposits.bin`);
+    const aPath = join(OUT, `${WORK}.a.bin`), bPath = join(OUT, `${WORK}.b.bin`), cPath = join(OUT, `${WORK}.c.bin`);
+    const bankPath = join(OUT, `${WORK}.bank`), depPath = join(OUT, `${WORK}.runner.deposits.bin`);
     writeFileSync(aPath, u8(qx)); writeFileSync(bPath, u8(qy)); writeFileSync(cPath, u8(ptc));
     writeFileSync(bankPath, L.bank);
     try {
-      const out = execFileSync(bin, [join(OUT, `${id}.cftp`), "--a", aPath, "--b", bPath, "--c", cPath,
+      const out = execFileSync(bin, [join(OUT, `${WORK}.cftp`), "--a", aPath, "--b", bPath, "--c", cPath,
                                      "--bank", bankPath, "--out", depPath],
                                { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
       const dep = new Uint32Array(readFileSync(depPath).buffer.slice(0));
@@ -276,8 +292,8 @@ if (!WIDE) {
 let golden = null;
 if (GOLDEN > 0 && !WIDE) {
   const m = Math.min(GOLDEN, n);
-  const inPath = join(OUT, `${id}.golden-in.json`), outPath = join(OUT, `${id}.golden-out.json`);
-  const imgPath = join(OUT, `${id}.cftp`), bankPath = join(OUT, `${id}.default.bank`);
+  const inPath = join(OUT, `${WORK}.golden-in.json`), outPath = join(OUT, `${WORK}.golden-out.json`);
+  const imgPath = join(OUT, `${WORK}.cftp`), bankPath = join(OUT, `${WORK}.bank`);
   writeFileSync(imgPath, L.image);
   writeFileSync(bankPath, L.bank);
   writeFileSync(inPath, JSON.stringify({
@@ -397,7 +413,7 @@ for (const a of acc)
               `over ${a.nUlp} of ${a.n}` +
               (a.atMax ? `; at max: f32 ${a.atMax.f32.toPrecision(7)} f64 ${a.atMax.f64.toPrecision(9)}` : ""));
 
-writeFileSync(join(OUT, `${id}${LEVER_SEED === null ? "" : `.levers-${LEVER_SEED}`}.verify.json`), JSON.stringify({
+writeFileSync(join(OUT, `${WORK}.verify.json`), JSON.stringify({
   generated: new Date().toISOString().slice(0, 10), positive: pos.id, points: n, uT: UT,
   levers: { setting: LEVER_SEED === null ? "defaults" : `hashed ${LEVER_SEED}`, values: L.P },
   program: { words: prog.counts.total, alu: prog.counts.alu, loop: prog.counts.loop, registers: prog.regsUsed,
@@ -413,11 +429,96 @@ writeFileSync(join(OUT, `${id}${LEVER_SEED === null ? "" : `.levers-${LEVER_SEED
                             atMax: a.atMax })),
   identical: failed === 0,
 }, null, 2) + "\n");
-console.log(`\n  wrote build/cft/${id}.verify.json`);
+console.log(`\n  wrote build/cft/${WORK}.verify.json`);
 console.log(failed ? `\n  ${failed} check(s) did not reproduce the text's bits`
                    : WIDE ? `\n  every deposit reproduces the emitted text's bits - on a widened lane, ` +
                             `instruction by instruction; the program does not load as it stands`
                           : `\n  every deposit reproduces the emitted text's bits, through libcft's ` +
                             `program executor` + (golden && !golden.error ? ", the golden model" : "") +
                             (asmCheck && asmCheck.identical ? ", and the assembler's bytes agree" : ""));
+// ---- the package
+if (PACK !== null && !WIDE) {
+  const nanOnlyAll = rows.reduce((s, r) => s + r.nanPayloadOnly, 0);
+  const flagBits = new DataView(L.image.buffer, L.image.byteOffset, L.image.byteLength).getUint32(24, true);
+  // positive-run keeps its OWN subset of header flags and, at cft-fp256
+  // 56ad0cd, leaves SCRATCH_STRICT out of it on purpose (its comment:
+  // "this cannot emit it") - though libcft, the assembler and every card
+  // image since 2026-09-13 take it. A refusal that names the flags word on
+  // an image that sets the bit is that tool's limit and not a disagreement,
+  // so it is recorded rather than counted; any other runner error still
+  // stops the case from being packed.
+  const runnerRefusedStrict = !!(runner && runner.error && (flagBits & 4) &&
+                                 /header flags 0x[0-9a-f]+: only /.test(runner.error));
+  const runnerBad = runner && !runnerRefusedStrict &&
+                    (runner.error || runner.differFromLibcft || runner.depositShaMatches === false);
+  const goldenBad = golden && (golden.error || golden.mismatchVsLibcft || golden.mismatchVsReference);
+  if (failed || nanOnlyAll || runnerBad || goldenBad || !asmCheck || !asmCheck.identical) {
+    console.log(`\n  NOT PACKED: ${failed} failed check(s), ${nanOnlyAll} NaN-payload-only deposit(s), ` +
+                `runner ${runner ? (runnerBad ? "disagreed or errored" : "agreed") : "absent"}, ` +
+                `golden ${golden ? (goldenBad ? "disagreed or errored" : "agreed") : "absent"}`);
+    process.exit(1);
+  }
+  const caseName = LEVER_SEED === null ? id : `${id}.levers-${LEVER_SEED}`;
+  mkdirSync(PACK, { recursive: true });
+  const sha = (b) => createHash("sha256").update(b).digest("hex");
+  const put = (suffix, bytes) => {
+    const file = `${caseName}${suffix}`;
+    writeFileSync(join(PACK, file), bytes);
+    return { file, bytes: bytes.length, sha256: sha(bytes) };
+  };
+  // the deposit buffer exactly as positive-run writes it: lane-major,
+  // n x maxDeposits binary32 values, little-endian
+  const depBuf = new Uint32Array(n * D);
+  for (let i = 0; i < n; i++) for (let k = 0; k < D; k++) depBuf[i * D + k] = got[k][i];
+  const gitHead = (dir) => {
+    try {
+      const head = execFileSync("git", ["-C", dir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+      const dirty = execFileSync("git", ["-C", dir, "status", "--porcelain", "--untracked-files=no"], { encoding: "utf8" }).trim();
+      return dirty ? `${head}+dirty` : head;
+    } catch { return null; }
+  };
+  const record = {
+    schema: "atlas-engine cft program case, 1",
+    case: caseName,
+    positive: pos.id,
+    source: `positives/${id}.pos.mjs`,
+    format: "fp32",
+    lanes: n,
+    setting: { levers: LEVER_SEED === null ? "defaults" : `hashed, seed ${LEVER_SEED}`, values: L.P, uT: UT },
+    samples: "q, rnd.x and seed from the sample index as the atlas header derives them, half sequential " +
+             "from 0 and half spread by the header's hash; the two prologue statements run on the host give pt",
+    image: { ...put(".cftp", L.image), words: prog.counts.total, maxDeposits: D, nConsts: prog.consts.length,
+             headerFlags: flagBits, headerFlagNames: [flagBits & 1 ? "BANK_EXT" : null, flagBits & 2 ? "SCRATCH_IO" : null,
+                                                       flagBits & 4 ? "SCRATCH_STRICT" : null].filter(Boolean) },
+    text: put(".cfta", Buffer.from(L.cfta, "utf8")),
+    bank: put(".bank", L.bank),
+    streams: {
+      a: { ...put(".a.bin", u8(qx)), holds: "q.x, binary32" },
+      b: { ...put(".b.bin", u8(qy)), holds: "q.y, binary32" },
+      c: { ...put(".c.bin", u8(ptc)), holds: "pt, the stream state, uint32" },
+    },
+    expect: {
+      deposits: { ...put(".deposits.bin", u8(depBuf)), layout: `lane-major: lane i's deposit d at element i*${D}+d, binary32 little-endian`,
+                  names: prog.results.map(r => r.name) },
+      countsEveryLane: D,
+      flags: run.flags >>> 0,
+      status: run.status >>> 0,
+      digest: libDigest,
+    },
+    needs: { ...L.needsCaps, registers: prog.regsUsed, scratchSlots: prog.scratch.slots,
+             scratchIndexed: prog.scratch.arrays.length > 0, loops: prog.loops.length },
+    agreedBy: {
+      reference: `atlas-engine core/glsl-f32.mjs interpreting the emitted GLSL text at binary32, all ${n} lanes`,
+      libcft: `cft_program_load + cft_program_run_bank, software backend, ${n} lanes; cft_program_digest matched`,
+      goldenModel: `python/cft_golden/seq.py on the first ${golden ? golden.lanes : 0} lanes, no deposit differing`,
+      assembler: "python/cft_golden/asm.py assembled the .cfta to the image's exact bytes",
+      runner: runnerRefusedStrict ? `not scored: host/positive-run refused the header's SCRATCH_STRICT by name (${runner.error})`
+            : runner ? `host/positive-run on the same files, ${runner.deposits} deposits, none differing; its deposit SHA-256 matched`
+            : "not run: no positive-run binary beside the checkout",
+    },
+    provenance: { generated: new Date().toISOString(), atlasEngine: gitHead(join(HERE, "..")), cftFp256: gitHead(CFT_ROOT) },
+  };
+  writeFileSync(join(PACK, `${caseName}.json`), JSON.stringify(record, null, 2) + "\n");
+  console.log(`\n  packed ${caseName}: ${n} lanes, deposit buffer ${record.expect.deposits.sha256.slice(0, 16)}...`);
+}
 process.exit(failed ? 1 : WIDE ? 2 : 0);
