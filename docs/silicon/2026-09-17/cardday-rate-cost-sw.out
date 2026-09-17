@@ -1,0 +1,68 @@
+=== 2026-09-17T07:08:43-07:00 rate on single --chunks 8
+=== 2026-09-17T07:08:43-07:00 rate on single --chunks 8
+ |FPGA |32 |
+ |Int Vcc |41 |
+ Power : 20.115945 Watts
+tools/silicon/cardday.sh: line 65: 3171550 Segmentation fault      (core dumped) python3 "$ROOT/tools/cft-silicon-time.py" --lib "$LIB" --device "$dev" --dir "$ROOT/rate" --reps 3 $extra --jsonl "$LOG/rate-$t.jsonl"
+RATE_EXIT=139
+ |FPGA |36 |
+ |Int Vcc |41 |
+ Power : 15.016010 Watts
+=== 2026-09-17T07:08:49-07:00 done
+=== 2026-09-17T07:08:49-07:00 rate on quad 
+=== 2026-09-17T07:08:49-07:00 rate on quad 
+ |FPGA |36 |
+ |Int Vcc |41 |
+ Power : 15.016010 Watts
+tools/silicon/cardday.sh: line 65: 3171632 Segmentation fault      (core dumped) python3 "$ROOT/tools/cft-silicon-time.py" --lib "$LIB" --device "$dev" --dir "$ROOT/rate" --reps 3 $extra --jsonl "$LOG/rate-$t.jsonl"
+RATE_EXIT=139
+ |FPGA |31 |
+ |Int Vcc |41 |
+ Power : 20.141145 Watts
+=== 2026-09-17T07:08:58-07:00 done
+=== 2026-09-17T07:08:58-07:00 cost on single
+=== 2026-09-17T07:08:58-07:00 cost on single
+ |FPGA |31 |
+ |Int Vcc |41 |
+ Power : 20.141145 Watts
+cost-alu-setact.t1024.n16384   MATCH    lanes    16384  words     9  first 0.089 s  median 0.088 s       5.38 us/lane       185722 lanes/s
+cost-alu1.t1024.n16384         MATCH    lanes    16384  words     8  first 0.021 s  median 0.020 s       1.24 us/lane       807193 lanes/s
+cost-alu2.t1024.n16384         MATCH    lanes    16384  words     9  first 0.037 s  median 0.037 s       2.24 us/lane       446412 lanes/s
+cost-stl-ldl.t1024.n16384      MATCH    lanes    16384  words     9  first 0.134 s  median 0.134 s       8.18 us/lane       122310 lanes/s
+cost-stx-ldx.t1024.n16384      MATCH    lanes    16384  words     9  first 0.138 s  median 0.138 s       8.41 us/lane       118968 lanes/s
+COST_EXIT=0
+ |FPGA |36 |
+ |Int Vcc |41 |
+ Power : 15.041102 Watts
+=== 2026-09-17T07:09:04-07:00 done
+=== 2026-09-17T07:09:04-07:00 cost on quad
+=== 2026-09-17T07:09:04-07:00 cost on quad
+ |FPGA |36 |
+ |Int Vcc |41 |
+ Power : 15.041102 Watts
+cost-alu-setact.t1024.n16384   MATCH    lanes    16384  words     9  first 0.089 s  median 0.088 s       5.38 us/lane       185796 lanes/s
+cost-alu1.t1024.n16384         MATCH    lanes    16384  words     8  first 0.021 s  median 0.020 s       1.23 us/lane       816159 lanes/s
+cost-alu2.t1024.n16384         MATCH    lanes    16384  words     9  first 0.037 s  median 0.037 s       2.24 us/lane       447059 lanes/s
+cost-stl-ldl.t1024.n16384      MATCH    lanes    16384  words     9  first 0.134 s  median 0.134 s       8.18 us/lane       122276 lanes/s
+cost-stx-ldx.t1024.n16384      MATCH    lanes    16384  words     9  first 0.138 s  median 0.138 s       8.41 us/lane       118936 lanes/s
+COST_EXIT=0
+ |FPGA |31 |
+ |Int Vcc |41 |
+ Power : 20.152380 Watts
+=== 2026-09-17T07:09:14-07:00 done
+=== 2026-09-17T07:09:14-07:00 cost on sw
+=== 2026-09-17T07:09:14-07:00 cost on sw
+ |FPGA |31 |
+ |Int Vcc |41 |
+ Power : 20.103122 Watts
+cost-alu-setact.t1024.n16384   MATCH    lanes    16384  words     9  first 0.418 s  median 0.406 s      24.76 us/lane        40381 lanes/s
+cost-alu1.t1024.n16384         MATCH    lanes    16384  words     8  first 0.243 s  median 0.242 s      14.77 us/lane        67686 lanes/s
+cost-alu2.t1024.n16384         MATCH    lanes    16384  words     9  first 0.480 s  median 0.479 s      29.23 us/lane        34210 lanes/s
+cost-stl-ldl.t1024.n16384      MATCH    lanes    16384  words     9  first 0.252 s  median 0.263 s      16.08 us/lane        62187 lanes/s
+cost-stx-ldx.t1024.n16384      MATCH    lanes    16384  words     9  first 0.383 s  median 0.382 s      23.34 us/lane        42845 lanes/s
+COST_EXIT=0
+ |FPGA |31 |
+ |Int Vcc |41 |
+ Power : 20.112798 Watts
+=== 2026-09-17T07:09:20-07:00 done
+=== 2026-09-17T07:09:20-07:00 set on sw with strict runner

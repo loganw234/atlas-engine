@@ -1,0 +1,18 @@
+mask sizing patched
+lib build exit 0
+-rwxrwxr-x 1 logan logan 238976 Sep 17 07:13 positive-run-fixed
+## hopf, 6 deposits a lane, 24 bytes a lane of deposits
+hopf k=33792 exit=0 MATCH 
+hopf k=34816 exit=0 MATCH 
+hopf k=35840 exit=0 MATCH 
+hopf k=36864 exit=0 MATCH 
+hopf k=37888 exit=0 MATCH 
+hopf k=38912 exit=0 MATCH 
+hopf k=39936 exit=0 MATCH 
+## cost-alu1, 1 deposit a lane, 4 bytes a lane; the expected deposit is stream a
+alu1 k=32768 exit=0 MATCH 
+alu1 k=40960 exit=0 MATCH 
+alu1 k=65536 exit=0 MATCH 
+alu1 k=131072 exit=0 MATCH 
+alu1 k=196608 exit=0 MATCH 
+alu1 k=262144 exit=0 MATCH 

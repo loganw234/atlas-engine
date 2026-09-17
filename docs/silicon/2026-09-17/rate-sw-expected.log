@@ -1,0 +1,16 @@
+Thu Sep 17 06:51:05 AM MST 2026
+hopf.n1048576                  MATCH    lanes  1048576  words   638  | 32 chunks in 32 procs 7.1 s
+hopf.n65536                    MATCH    lanes    65536  words   638  | 32 chunks in 32 procs 0.5 s
+jong.n1048576                  MATCH    lanes  1048576  words   737  | 32 chunks in 32 procs 40.9 s
+jong.n65536                    MATCH    lanes    65536  words   737  | 32 chunks in 32 procs 2.7 s
+mand.n1048576                  MATCH    lanes  1048576  words  1111  | 32 chunks in 32 procs 14.7 s
+mand.n65536                    MATCH    lanes    65536  words  1111  | 32 chunks in 32 procs 1.1 s
+nested.n65536                  MATCH    lanes    65536  words  1401  | 32 chunks in 32 procs 19.4 s
+psf.n1048576                   MATCH    lanes  1048576  words   185  | 32 chunks in 32 procs 2.2 s
+psf.n65536                     MATCH    lanes    65536  words   185  | 32 chunks in 32 procs 0.2 s
+starfield.n65536               MATCH    lanes    65536  words  5475  | 32 chunks in 32 procs 3.4 s
+stdmap.n65536                  MATCH    lanes    65536  words   912  | 32 chunks in 32 procs 53.9 s
+threebody.n65536               MATCH    lanes    65536  words  2029  | 32 chunks in 32 procs 856.0 s
+throughput.n65536              MATCH    lanes    65536  words 14801  | 32 chunks in 32 procs 6.2 s
+SW_EXIT=0
+Thu Sep 17 07:07:54 AM MST 2026

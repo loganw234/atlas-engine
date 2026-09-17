@@ -1,0 +1,17 @@
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/bigint.c -o src/bigint.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/softfloat.c -o src/softfloat.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/device.c -o src/device.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/divsqrt.c -o src/divsqrt.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/clause5.c -o src/clause5.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/chars.c -o src/chars.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/augmented.c -o src/augmented.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/mpfloat.c -o src/mpfloat.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/transcend.c -o src/transcend.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/program.c -o src/program.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/reduce.c -o src/reduce.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/formatof.c -o src/formatof.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/conformance.c -o src/conformance.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/sha256.c -o src/sha256.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/backend_remote.c -o src/backend_remote.o
+g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -isystem /opt/xilinx/xrt/include -c src/backend_xrt.cpp -o src/backend_xrt.o
+ar rcs libcft.a src/bigint.o src/softfloat.o src/device.o src/divsqrt.o src/clause5.o src/chars.o src/augmented.o src/mpfloat.o src/transcend.o src/program.o src/reduce.o src/formatof.o src/conformance.o src/sha256.o src/backend_remote.o src/backend_xrt.o

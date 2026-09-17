@@ -1,0 +1,151 @@
+=== 2026-09-17T08:07:02-07:00 set on sw with stock runner
+ |FPGA |33 |
+ |Int Vcc |39 |
+ Power : 14.898073 Watts
+SHA256SUMS: every file matches
+allpaths                   REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+allpaths.levers-7          REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+arnold                     MATCH       4.606 s  
+arnold.levers-7            MATCH       4.260 s  
+bifurc                     MATCH       3.624 s  
+bifurc.levers-7            MATCH       3.694 s  
+billiards                  REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+billiards.levers-7         REFUSED     0.004 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+breakdown                  REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+breakdown.levers-7         REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+buddha                     MATCH       0.361 s  
+buddha.levers-7            MATCH       0.383 s  
+bulb                       MATCH       0.549 s  
+bulb.levers-7              MATCH       0.743 s  
+cascade                    REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+cascade.levers-7           REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+caustic                    MATCH       0.107 s  
+caustic.levers-7           MATCH       0.109 s  
+chladni                    MATCH       0.050 s  
+chladni.levers-7           MATCH       0.059 s  
+collatz                    MATCH       1.532 s  
+collatz.levers-7           MATCH       1.577 s  
+conoscope                  REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+conoscope.levers-7         REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+critical                   REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+critical.levers-7          REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+cursum                     MATCH       2.763 s  
+cursum.levers-7            MATCH       1.845 s  
+curves                     MATCH       0.133 s  
+curves.levers-7            MATCH       0.134 s  
+diffract                   REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+diffract.levers-7          REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+dipole                     MATCH       0.202 s  
+dipole.levers-7            MATCH       0.167 s  
+dissipation                REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+dissipation.levers-7       REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+domain                     REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+domain.levers-7            REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+drainage                   REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+drainage.levers-7          REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+e8                         REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+e8.levers-7                REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+elliptic                   REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+elliptic.levers-7          REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+flows                      REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+flows.levers-7             REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+ford                       REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+ford.levers-7              REFUSED     0.004 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+gibbs                      MATCH       0.465 s  
+gibbs.levers-7             MATCH       0.619 s  
+halo                       MATCH       0.369 s  
+halo.levers-7              MATCH       0.368 s  
+harm                       MATCH       0.079 s  
+harm.levers-7              MATCH       0.078 s  
+hilbert                    REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+hilbert.levers-7           REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+hopf                       MATCH       0.084 s  
+hopf.levers-7              MATCH       0.083 s  
+hyper                      MATCH       0.372 s  
+hyper.levers-7             MATCH       0.372 s  
+ifs                        MATCH       0.567 s  
+ifs.levers-7               MATCH       0.421 s  
+invjulia                   MATCH       0.964 s  
+invjulia.levers-7          MATCH       0.793 s  
+jong                       MATCH       0.497 s  
+jong.levers-7              MATCH       0.679 s  
+kleinian                   MATCH       0.581 s  
+kleinian.levers-7          MATCH       0.429 s  
+logz                       MATCH       0.084 s  
+logz.levers-7              MATCH       0.092 s  
+lyap                       MATCH       6.615 s  
+lyap.levers-7              MATCH       9.384 s  
+mand                       MATCH       0.174 s  
+mand.levers-7              MATCH       0.144 s  
+mirage                     REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+mirage.levers-7            REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+modmul                     MATCH       0.108 s  
+modmul.levers-7            MATCH       0.108 s  
+nested                     REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+nested.levers-7            REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+newton                     MATCH       0.213 s  
+newton.levers-7            MATCH       0.471 s  
+nodal                      REFUSED     0.004 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+nodal.levers-7             REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+nonorient                  MATCH       0.102 s  
+nonorient.levers-7         MATCH       0.095 s  
+orbital                    MATCH       0.151 s  
+orbital.levers-7           MATCH       0.151 s  
+penrose                    MATCH       0.196 s  
+penrose.levers-7           MATCH       0.304 s  
+polytope                   MATCH       0.092 s  
+polytope.levers-7          MATCH       0.087 s  
+primes                     MATCH       0.253 s  
+primes.levers-7            MATCH       0.298 s  
+psf                        MATCH       0.022 s  
+psf.levers-7               MATCH       0.024 s  
+qjulia                     MATCH       0.125 s  
+qjulia.levers-7            MATCH       0.112 s  
+r8-modulo                  MATCH       0.008 s  
+r8-strict                  REFUSED     0.002 s  positive-run: header flags 0x00000004: only BANK_EXT and SCRATCH_IO are defined
+rainbow                    REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+rainbow.levers-7           REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+relativity                 MATCH       3.841 s  
+relativity.levers-7        MATCH       3.531 s  
+rmt                        MATCH       0.588 s  
+rmt.levers-7               MATCH       0.103 s  
+rule30                     REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+rule30.levers-7            REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+rulespace                  REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+rulespace.levers-7         REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+starfield                  REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+starfield.levers-7         REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+stdmap                     MATCH      10.591 s  
+stdmap.levers-7            MATCH      18.206 s  
+stoch                      REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+stoch.levers-7             REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+swallow                    MATCH       0.061 s  
+swallow.levers-7           MATCH       0.065 s  
+tangle                     REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+tangle.levers-7            REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+threebody                  REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+threebody.levers-7         REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+throughput                 REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+throughput.levers-7        REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+tpms                       REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+tpms.levers-7              REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+universal                  REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+universal.levers-7         REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+vlsi                       REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+vlsi.levers-7              REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+vortex                     REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+vortex.levers-7            REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+wave                       MATCH       0.243 s  
+wave.levers-7              MATCH       0.279 s  
+wavecat                    REFUSED     0.003 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+wavecat.levers-7           REFUSED     0.002 s  positive-run: header flags 0x00000005: only BANK_EXT and SCRATCH_IO are defined
+wpath                      MATCH       0.366 s  
+wpath.levers-7             MATCH       0.439 s  
+zeta                       MATCH       0.943 s  
+zeta.levers-7              MATCH       0.692 s  
+140 case(s): 77 matched, 0 mismatched, 63 refused by name
+RUN_SET_EXIT=2
+ |FPGA |34 |
+ |Int Vcc |39 |
+ Power : 14.930705 Watts
+=== 2026-09-17T08:08:37-07:00 done

@@ -1,0 +1,115 @@
+Thu Sep 17 06:42:35 AM MST 2026
+== hardware
+device: backend xrt, 1 tile, contract 0x00000a00, formats fp32 fp64 fp128 fp256
+  format refusals: this image carries all four formats, NOT TESTED
+comparing 8 elements per case against the software backend
+the caps a backend reports are the caps it enforces
+  software reports max_deposits 1048576, max_insns 4294967295, max_consts 512, seq_features 0x671f
+    +1 deposit slot -> operation or format not available on this device: this program's max_deposits is 1048577; this device's is 1048576 (deposit slots a lane). Ask cft_get_caps - cft_caps.max_deposits - before building one: a device refuses an image past its capacities itself, with a status bit and no explanation
+    max_insns 4294967295: an image past it is 34359738400 bytes, NOT TESTED
+    k[511] (kx, nine bits form) loads, at the cap
+    max_consts 512: an index past it does not fit the immediate's nine bits, NOT TESTED
+    scratch slot 255 loads, at the cap
+    scratch slot 256 -> operation or format not available on this device: this program's scratch slot is 256; this device's is 255 (scratch slots a lane, indexed from 0). Ask cft_get_caps - cft_caps.max_scratch - before building one: a device refuses an image past its capacities itself, with a status bit and no explanation
+    features: kx REGS32 BANK_PTR KX9 IMUL SCRATCH SCRATCH_IO INDEXED LANE_MASK   max_scratch 256
+    REGS32 published, r31 loads
+    BANK_PTR published, a BANK_EXT image loads
+    SCRATCH published, STL/LDL loads
+    SCRATCH_IO published, a SCRATCH_IO image loads
+    SCRATCH_STRICT published, a strict image loads
+    KX9 published, k[256] loads
+  device reports max_deposits 64, max_insns 16384, max_consts 512, seq_features 0x7f1f
+    +1 deposit slot -> operation or format not available on this device: this program's max_deposits is 65; this device's is 64 (deposit slots a lane). Ask cft_get_caps - cft_caps.max_deposits - before building one: a device refuses an image past its capacities itself, with a status bit and no explanation
+    +1 instruction -> operation or format not available on this device: this program's instruction count is 16385; this device's is 16384 (instructions it can hold). Ask cft_get_caps - cft_caps.max_insns - before building one: a device refuses an image past its capacities itself, with a status bit and no explanation
+    k[511] (kx, nine bits form) loads, at the cap
+    max_consts 512: an index past it does not fit the immediate's nine bits, NOT TESTED
+    scratch slot 255 loads, at the cap
+    scratch slot 256 -> operation or format not available on this device: this program's scratch slot is 256; this device's is 255 (scratch slots a lane, indexed from 0). Ask cft_get_caps - cft_caps.max_scratch - before building one: a device refuses an image past its capacities itself, with a status bit and no explanation
+    features: kx REGS32 BANK_PTR KX9 IMUL SCRATCH SCRATCH_IO REDUCE_SEG INDEXED LANE_MASK   max_scratch 256
+    REGS32 published, r31 loads
+    BANK_PTR published, a BANK_EXT image loads
+    SCRATCH published, STL/LDL loads
+    SCRATCH_IO published, a SCRATCH_IO image loads
+    SCRATCH_STRICT published, a strict image loads
+    KX9 published, k[256] loads
+fp32
+  fma ok: 59 checks so far, 0 failed
+    fp32 fma: 6 (scalar, indexed) operand pairs, call and constant-bank program both == dense
+  seq indexed inputs: 8 lanes through a 3-element source, 2 of them +0, identity == dense and rotated != dense, the bound refused on both
+  seq lane mask: 8 lanes, 3 of them masked, device == software, masked lanes untouched, all-ones == dense and holed != dense
+  seq indexed and masked: 8 lanes, 3 masked, a table of 2 sentinels into a 3-element source, device == software, masked lanes untouched, all-ones == unmasked
+  seq lane mask, scratch-out: 8 lanes, 3 of them masked, device == software, masked slots and counts untouched, kept lanes hold their own store
+  sequencer programs: 278 checks so far, 0 failed
+  div/sqrt ok: 286 checks so far, 0 failed
+  boundary sizes done: 310 checks, 0 failed
+  partition invariance done: 313 checks, 0 failed
+  reductions
+    sum, finite operands: 349 checks, 0 failed
+    sum, any bit pattern: 353 checks, 0 failed
+    dot: 369 checks, 0 failed
+    sumsq: 393 checks, 0 failed
+    sumabs: 417 checks, 0 failed
+    maxall: 449 checks, 0 failed
+    per segment: 589 checks, 0 failed (CAPS2[8] present, computed on the device)
+fp64
+  fma ok: 612 checks so far, 0 failed
+    fp64 fma: 6 (scalar, indexed) operand pairs, call and constant-bank program both == dense
+  seq indexed inputs: 8 lanes through a 3-element source, 2 of them +0, identity == dense and rotated != dense, the bound refused on both
+  seq lane mask: 8 lanes, 3 of them masked, device == software, masked lanes untouched, all-ones == dense and holed != dense
+  seq indexed and masked: 8 lanes, 3 masked, a table of 2 sentinels into a 3-element source, device == software, masked lanes untouched, all-ones == unmasked
+  seq lane mask, scratch-out: 8 lanes, 3 of them masked, device == software, masked slots and counts untouched, kept lanes hold their own store
+  sequencer programs: 831 checks so far, 0 failed
+  div/sqrt ok: 839 checks so far, 0 failed
+  boundary sizes done: 863 checks, 0 failed
+  partition invariance done: 866 checks, 0 failed
+  reductions
+    sum, finite operands: 902 checks, 0 failed
+    sum, any bit pattern: 906 checks, 0 failed
+    dot: 922 checks, 0 failed
+    sumsq: 946 checks, 0 failed
+    sumabs: 970 checks, 0 failed
+    maxall: 1002 checks, 0 failed
+    per segment: 1142 checks, 0 failed (CAPS2[8] present, computed on the device)
+fp128
+  fma ok: 1165 checks so far, 0 failed
+    fp128 fma: 6 (scalar, indexed) operand pairs, call and constant-bank program both == dense
+  seq indexed inputs: 8 lanes through a 3-element source, 2 of them +0, identity == dense and rotated != dense, the bound refused on both
+  seq lane mask: 8 lanes, 3 of them masked, device == software, masked lanes untouched, all-ones == dense and holed != dense
+  seq indexed and masked: 8 lanes, 3 masked, a table of 2 sentinels into a 3-element source, device == software, masked lanes untouched, all-ones == unmasked
+  seq lane mask, scratch-out: 8 lanes, 3 of them masked, device == software, masked slots and counts untouched, kept lanes hold their own store
+  sequencer programs: 1384 checks so far, 0 failed
+  div/sqrt ok: 1392 checks so far, 0 failed
+  boundary sizes done: 1416 checks, 0 failed
+  partition invariance done: 1419 checks, 0 failed
+  reductions
+    sum, finite operands: 1455 checks, 0 failed
+    sum, any bit pattern: 1459 checks, 0 failed
+    dot: 1475 checks, 0 failed
+    sumsq: 1499 checks, 0 failed
+    sumabs: 1523 checks, 0 failed
+    maxall: 1555 checks, 0 failed
+    per segment: 1695 checks, 0 failed (CAPS2[8] present, computed on the device)
+fp256
+  fma ok: 1718 checks so far, 0 failed
+    fp256 fma: 6 (scalar, indexed) operand pairs, call and constant-bank program both == dense
+  seq indexed inputs: 8 lanes through a 3-element source, 2 of them +0, identity == dense and rotated != dense, the bound refused on both
+  seq lane mask: 8 lanes, 3 of them masked, device == software, masked lanes untouched, all-ones == dense and holed != dense
+  seq indexed and masked: 8 lanes, 3 masked, a table of 2 sentinels into a 3-element source, device == software, masked lanes untouched, all-ones == unmasked
+  seq lane mask, scratch-out: 8 lanes, 3 of them masked, device == software, masked slots and counts untouched, kept lanes hold their own store
+  sequencer programs: 1937 checks so far, 0 failed
+  div/sqrt ok: 1945 checks so far, 0 failed
+  boundary sizes done: 1969 checks, 0 failed
+  partition invariance done: 1972 checks, 0 failed
+  reductions
+    sum, finite operands: 2008 checks, 0 failed
+    sum, any bit pattern: 2012 checks, 0 failed
+    dot: 2028 checks, 0 failed
+    sumsq: 2052 checks, 0 failed
+    sumabs: 2076 checks, 0 failed
+    maxall: 2108 checks, 0 failed
+    per segment: 2248 checks, 0 failed (CAPS2[8] present, computed on the device)
+
+2248 checks, 0 failed
+the device and the software backend agree on every case, bits and flags
+DEVTEST_EXIT=0
+Thu Sep 17 06:42:39 AM MST 2026

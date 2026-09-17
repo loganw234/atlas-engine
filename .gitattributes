@@ -1,0 +1,2 @@
+# Shell scripts run on the card host, which is Linux: keep them LF on every checkout.
+tools/silicon/*.sh text eol=lf

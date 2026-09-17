@@ -262,6 +262,17 @@ without it neither runs on any tile at any register count.
 
 ## The loops
 
+**Measured on silicon, 2026-09-17** (`docs/CFT-SILICON.md`). On the card,
+each program with `SETACT` against the same program in the selected form:
+`jong` 1.57 times faster and `stdmap` 1.86, where the table below says 1.6
+and 1.81 - but `mand` 1.99, where it says thirty. The ratios hold where the
+sampled lanes' slowest is typical of a block and fail where it is not: the
+table took a block's cost as the slowest of 128 sampled lanes, and a block on
+the card is 128 lanes that runs until its slowest leaves, so a positive whose
+sample happened to exit early - `mand`, and on the same evidence the
+hundredfold rows - is bounded by the slow lanes nearly every block holds.
+The table is kept as it was measured; the choice it argued for was right.
+
 Forty-eight positives reach a loop at the defaults. What the tile runs
 today - every trip of the literal bound, for every lane, the lanes that
 left holding their values by selection - against what a block would run

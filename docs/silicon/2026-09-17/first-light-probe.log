@@ -1,0 +1,74 @@
+Thu Sep 17 06:43:02 AM MST 2026
+=== hopf on sw
+image         hopf.cftp
+format        fp32
+instructions  638
+constants     57  (from the bank)
+deposits      6 a lane
+elements      1001
+bank          hopf.bank, 228 bytes
+device        software
+counts        min 6, max 6, total 6006
+flags         0x00000011  invalid inexact
+status        0x00000000
+digest        62826b55f6e072a22aaf895b01b2deaca7fe95ee086ac2a7a7e83d809da2eb09  program and bank
+sha256        67a2f9d565c3698397f7bc274aad25f67790d364cea0f9ddd84dbdbfb07241b1  deposit buffer
+wall 0.08 s, rss 6008 KB
+exit 0
+expected deposit sha256: 67a2f9d565c3698397f7bc274aad25f67790d364cea0f9ddd84dbdbfb07241b1
+file sha256:             67a2f9d565c3698397f7bc274aad25f67790d364cea0f9ddd84dbdbfb07241b1
+=== hopf on cft_hw_single.xclbin
+image         hopf.cftp
+format        fp32
+instructions  638
+constants     57  (from the bank)
+deposits      6 a lane
+elements      1001
+bank          hopf.bank, 228 bytes
+device        /home/logan/cardday-round2/cft_hw_single.xclbin
+counts        min 6, max 6, total 6006
+flags         0x00000011  invalid inexact
+status        0x00000000
+digest        62826b55f6e072a22aaf895b01b2deaca7fe95ee086ac2a7a7e83d809da2eb09  program and bank
+sha256        67a2f9d565c3698397f7bc274aad25f67790d364cea0f9ddd84dbdbfb07241b1  deposit buffer
+wall 0.28 s, rss 80640 KB
+exit 0
+expected deposit sha256: 67a2f9d565c3698397f7bc274aad25f67790d364cea0f9ddd84dbdbfb07241b1
+file sha256:             67a2f9d565c3698397f7bc274aad25f67790d364cea0f9ddd84dbdbfb07241b1
+=== nested on sw
+image         nested.cftp
+format        fp32
+instructions  1401
+constants     110  (from the bank)
+deposits      6 a lane
+elements      1001
+bank          nested.bank, 440 bytes
+device        software
+counts        min 6, max 6, total 6006
+flags         0x00000014  overflow inexact
+status        0x00000000
+digest        83327d4ae736fed4c2d460ba56a0c50b6057932ef88c4913daaf4147e7ef3d92  program and bank
+sha256        fcc8671c87529ca70a6f81836f7121b48731ffc8745a43fef76cc8f5a7e2e8fa  deposit buffer
+wall 3.93 s, rss 9504 KB
+exit 0
+expected deposit sha256: fcc8671c87529ca70a6f81836f7121b48731ffc8745a43fef76cc8f5a7e2e8fa
+file sha256:             fcc8671c87529ca70a6f81836f7121b48731ffc8745a43fef76cc8f5a7e2e8fa
+=== nested on cft_hw_single.xclbin
+image         nested.cftp
+format        fp32
+instructions  1401
+constants     110  (from the bank)
+deposits      6 a lane
+elements      1001
+bank          nested.bank, 440 bytes
+device        /home/logan/cardday-round2/cft_hw_single.xclbin
+counts        min 6, max 6, total 6006
+flags         0x00000014  overflow inexact
+status        0x00000000
+digest        83327d4ae736fed4c2d460ba56a0c50b6057932ef88c4913daaf4147e7ef3d92  program and bank
+sha256        fcc8671c87529ca70a6f81836f7121b48731ffc8745a43fef76cc8f5a7e2e8fa  deposit buffer
+wall 0.41 s, rss 80640 KB
+exit 0
+expected deposit sha256: fcc8671c87529ca70a6f81836f7121b48731ffc8745a43fef76cc8f5a7e2e8fa
+file sha256:             fcc8671c87529ca70a6f81836f7121b48731ffc8745a43fef76cc8f5a7e2e8fa
+Thu Sep 17 06:43:07 AM MST 2026

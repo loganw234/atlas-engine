@@ -1,0 +1,14 @@
+=== 2026-09-17T07:09:04-07:00 cost on quad
+ |FPGA |36 |
+ |Int Vcc |41 |
+ Power : 15.041102 Watts
+cost-alu-setact.t1024.n16384   MATCH    lanes    16384  words     9  first 0.089 s  median 0.088 s       5.38 us/lane       185796 lanes/s
+cost-alu1.t1024.n16384         MATCH    lanes    16384  words     8  first 0.021 s  median 0.020 s       1.23 us/lane       816159 lanes/s
+cost-alu2.t1024.n16384         MATCH    lanes    16384  words     9  first 0.037 s  median 0.037 s       2.24 us/lane       447059 lanes/s
+cost-stl-ldl.t1024.n16384      MATCH    lanes    16384  words     9  first 0.134 s  median 0.134 s       8.18 us/lane       122276 lanes/s
+cost-stx-ldx.t1024.n16384      MATCH    lanes    16384  words     9  first 0.138 s  median 0.138 s       8.41 us/lane       118936 lanes/s
+COST_EXIT=0
+ |FPGA |31 |
+ |Int Vcc |41 |
+ Power : 20.152380 Watts
+=== 2026-09-17T07:09:14-07:00 done

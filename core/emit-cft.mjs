@@ -327,6 +327,9 @@ export function lowerPositive(pos, opts = {}) {
       globals: { uT: { tail: TAIL.uT } },
     },
     tailValues,
+    // false keeps every loop's exit in the selected form, SETACT nowhere -
+    // the comparison run that prices the early exit on a device
+    setactLoops: opts.setactLoops,
   });
   const fitsImage = prog.counts.total <= IMEM_D;
   // SCRATCH_STRICT, revision 4's R8, IS SET on every image that touches

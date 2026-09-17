@@ -1,0 +1,7 @@
+=== 2026-09-17T07:53:21-07:00 the early exit priced on the single tile: SETACT form, then selected form, same inputs, same expected deposits
+mand.n65536                    MATCH    lanes    65536  words  1111  first 0.199 s  median 0.197 s       3.01 us/lane       332731 lanes/s
+jong.n65536                    MATCH    lanes    65536  words   737  first 0.262 s  median 0.260 s       3.97 us/lane       252111 lanes/s
+stdmap.n65536                  MATCH    lanes    65536  words   912  first 6.256 s  median 6.255 s      95.45 us/lane        10477 lanes/s
+mand.flagloops.n65536          MATCH    lanes    65536  words  1127  first 0.394 s  median 0.392 s       5.99 us/lane       167018 lanes/s
+jong.flagloops.n65536          MATCH    lanes    65536  words   749  first 0.409 s  median 0.407 s       6.22 us/lane       160890 lanes/s
+stdmap.flagloops.n65536        MATCH    lanes    65536  words   928  first 11.640 s  median 11.638 s     177.59 us/lane         5631 lanes/s

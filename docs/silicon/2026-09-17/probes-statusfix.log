@@ -1,0 +1,18 @@
+--- r8-strict on sw with the status fix
+status        0x00000020
+sha256        addc31b32597fb8a0c057f77fca0c0a7c5fc92489f93d9b059ac379e7c579576  deposit buffer
+--- r8-modulo on sw with the status fix
+status        0x00000000
+sha256        ce526ce7c9e33726e2400eac2f7f23fb181a76cb5577396e28efb2aabc2b6bab  deposit buffer
+--- r8-strict on cft_hw_single with the status fix
+status        0x00000020
+sha256        addc31b32597fb8a0c057f77fca0c0a7c5fc92489f93d9b059ac379e7c579576  deposit buffer
+--- r8-modulo on cft_hw_single with the status fix
+status        0x00000000
+sha256        ce526ce7c9e33726e2400eac2f7f23fb181a76cb5577396e28efb2aabc2b6bab  deposit buffer
+--- r8-strict on cft_hw_quad with the status fix
+status        0x00000020
+sha256        addc31b32597fb8a0c057f77fca0c0a7c5fc92489f93d9b059ac379e7c579576  deposit buffer
+--- r8-modulo on cft_hw_quad with the status fix
+status        0x00000000
+sha256        ce526ce7c9e33726e2400eac2f7f23fb181a76cb5577396e28efb2aabc2b6bab  deposit buffer

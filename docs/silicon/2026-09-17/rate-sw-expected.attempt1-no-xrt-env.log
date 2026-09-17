@@ -1,0 +1,42 @@
+Thu Sep 17 06:49:34 AM MST 2026
+multiprocessing.pool.RemoteTraceback: 
+"""
+Traceback (most recent call last):
+  File "/usr/lib/python3.12/multiprocessing/pool.py", line 125, in worker
+    result = (True, func(*args, **kwds))
+                    ^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/multiprocessing/pool.py", line 48, in mapstar
+    return list(map(*args))
+           ^^^^^^^^^^^^^^^^
+  File "/home/logan/atlas-silicon/tools/cft-silicon-time.py", line 148, in chunk_job
+    r = Runner(libpath, device, image)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/logan/atlas-silicon/tools/cft-silicon-time.py", line 101, in __init__
+    self.lib = load(libpath)
+               ^^^^^^^^^^^^^
+  File "/home/logan/atlas-silicon/tools/cft-silicon-time.py", line 69, in load
+    lib = ctypes.CDLL(libpath)
+          ^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/ctypes/__init__.py", line 379, in __init__
+    self._handle = _dlopen(self._name, mode)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+OSError: libxrt_coreutil.so.2: cannot open shared object file: No such file or directory
+"""
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/logan/atlas-silicon/tools/cft-silicon-time.py", line 274, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/home/logan/atlas-silicon/tools/cft-silicon-time.py", line 230, in main
+    parts = pool.map(chunk_job, jobs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/multiprocessing/pool.py", line 367, in map
+    return self._map_async(func, iterable, mapstar, chunksize).get()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/multiprocessing/pool.py", line 774, in get
+    raise self._value
+OSError: libxrt_coreutil.so.2: cannot open shared object file: No such file or directory
+SW_EXIT=1
+Thu Sep 17 06:49:35 AM MST 2026

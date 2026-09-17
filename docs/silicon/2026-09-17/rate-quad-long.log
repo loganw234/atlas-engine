@@ -1,0 +1,11 @@
+=== 2026-09-17T07:33:05-07:00 long runs on quad: threebody.n65536,throughput.n65536, CFT_TIMEOUT_MS=1200000 
+ |FPGA |33 |
+ |Int Vcc |38 |
+ Power : 15.222945 Watts
+threebody.n65536               MATCH    lanes    65536  words  2029  first 215.368 s  median 215.367 s    3286.23 us/lane          304 lanes/s
+throughput.n65536              MATCH    lanes    65536  words 14801  first 1.639 s  median 1.637 s      24.98 us/lane        40030 lanes/s
+RATE_EXIT=0
+ |FPGA |28 |
+ |Int Vcc |39 |
+ Power : 20.376873 Watts
+=== 2026-09-17T07:40:27-07:00 done

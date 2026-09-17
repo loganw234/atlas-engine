@@ -1,0 +1,20 @@
+=== harness, hopf.n65536, single
+malloc(): corrupted top size
+Fatal Python error: Aborted
+
+Current thread 0x000072828c83e080 (most recent call first):
+  File "/home/logan/atlas-silicon/tools/cft-silicon-time.py", line 136 in run
+  File "/home/logan/atlas-silicon/tools/cft-silicon-time.py", line 198 in main
+  File "/home/logan/atlas-silicon/tools/cft-silicon-time.py", line 280 in <module>
+exit 134
+=== harness, hopf.n1048576, single
+Fatal Python error: Segmentation fault
+
+Current thread 0x00007813d3d26080 (most recent call first):
+  File "/home/logan/atlas-silicon/tools/cft-silicon-time.py", line 132 in run
+  File "/home/logan/atlas-silicon/tools/cft-silicon-time.py", line 198 in main
+  File "/home/logan/atlas-silicon/tools/cft-silicon-time.py", line 280 in <module>
+exit 139
+=== positive-run, hopf.n1048576, single
+exit 139
+expected 1e4d8ff4d2e69cf312477cbd17c958cccbcf003087658aa8b67fb7a51afff435

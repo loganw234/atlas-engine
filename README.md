@@ -351,10 +351,27 @@ what the two repositories are executing:
   driver computes and not a port bug; it was invisible for as long as
   it was because every other positive builds its vectors out of floats,
   where relabelling and converting are the same thing.
+- **On silicon - 2026-09-17.** `docs/CFT-SILICON.md`. The whole corpus
+  went to the card - cft-fp256's revision-6 pair on a U50 - as a
+  program set of 138 cases, each packed only once libcft, the golden
+  model, the assembler, the runner and the emitted GLSL had agreed on
+  it, and came back bit for bit on the single tile and on the quad. Nine
+  positives ran at card scale, up to a million lanes: 3.75 million lanes
+  a second for `psf`, 1.39 million for `hopf`, 23 to 124 times one host
+  core. The day found three defects on the host side, not in the tile,
+  each with a patch verified on the card: a status bit the XRT backend
+  dropped, a lane-mask buffer overrun that corrupts the heap above
+  32,768 lanes, and a runner that refused strict images. It also priced
+  the instructions: on the card a scratch access or a `SETACT` costs
+  four arithmetic instructions, and the early exit still buys 1.6 to 2
+  times on the loops. The set goes to cft-fp256 as the program-model
+  test cases its conformance profile does not yet have.
 - **What remains on this side.** Speed and size rather than reach:
   hoisting the per-run values into the bank (23,661 words), coalescing
   the loops' carried copies (1,958), depositing a result as soon as it
-  is final, and sharing a spilled value's reloads. Then the parity
+  is final, sharing a spilled value's reloads, and now spilling by what a
+  store costs on silicon rather than by words. Then the photograph on
+  the card, which needs the camera's per-sample tail and the parity
   harness: a debug variant of the emitted GLSL
   that writes `xyz`, `col` and `glow` to a buffer instead of
   depositing, so the GPU's records and the tile's are compared per

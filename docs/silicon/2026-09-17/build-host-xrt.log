@@ -1,0 +1,82 @@
+Thu Sep 17 06:37:33 AM MST 2026
+make: Entering directory '/home/logan/atlas-silicon/cft-fp256/host'
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/bigint.c -o src/bigint.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/softfloat.c -o src/softfloat.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/device.c -o src/device.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/divsqrt.c -o src/divsqrt.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/clause5.c -o src/clause5.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/chars.c -o src/chars.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/augmented.c -o src/augmented.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/mpfloat.c -o src/mpfloat.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/transcend.c -o src/transcend.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/program.c -o src/program.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/reduce.c -o src/reduce.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/formatof.c -o src/formatof.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/conformance.c -o src/conformance.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/sha256.c -o src/sha256.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -c src/backend_remote.c -o src/backend_remote.o
+g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -isystem /opt/xilinx/xrt/include -c src/backend_xrt.cpp -o src/backend_xrt.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/bigint.c -o src/bigint.lo
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/softfloat.c -o src/softfloat.lo
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/device.c -o src/device.lo
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/divsqrt.c -o src/divsqrt.lo
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/clause5.c -o src/clause5.lo
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/chars.c -o src/chars.lo
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/augmented.c -o src/augmented.lo
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/mpfloat.c -o src/mpfloat.lo
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/transcend.c -o src/transcend.lo
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/program.c -o src/program.lo
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/reduce.c -o src/reduce.lo
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/formatof.c -o src/formatof.lo
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/conformance.c -o src/conformance.lo
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/sha256.c -o src/sha256.lo
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -DCFT_ENABLE_XRT -fPIC -fvisibility=hidden  \
+	-c src/backend_remote.c -o src/backend_remote.lo
+g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -isystem /opt/xilinx/xrt/include -fPIC -fvisibility=hidden  \
+	-c src/backend_xrt.cpp -o src/backend_xrt.lo
+ar rcs libcft.a src/bigint.o src/softfloat.o src/device.o src/divsqrt.o src/clause5.o src/chars.o src/augmented.o src/mpfloat.o src/transcend.o src/program.o src/reduce.o src/formatof.o src/conformance.o src/sha256.o src/backend_remote.o src/backend_xrt.o
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude tools/cft_selftest.c libcft.a -o cft-selftest -L/opt/xilinx/xrt/lib -lxrt_coreutil -lstdc++ -lpthread -luuid
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude tools/cft_bench.c libcft.a -o cft-bench -L/opt/xilinx/xrt/lib -lxrt_coreutil -lstdc++ -lpthread -luuid
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude tools/collatz.c libcft.a -o cft-collatz -L/opt/xilinx/xrt/lib -lxrt_coreutil -lstdc++ -lpthread -luuid
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude tools/enclose.c libcft.a -o cft-enclose -L/opt/xilinx/xrt/lib -lxrt_coreutil -lstdc++ -lpthread -luuid
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude examples/vector_fma.c libcft.a -o vector-fma -L/opt/xilinx/xrt/lib -lxrt_coreutil -lstdc++ -lpthread -luuid
+g++ -std=c++17 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -isystem /opt/xilinx/xrt/include -DCFT_ENABLE_XRT tools/cft_resident.cpp libcft.a -o cft-resident -L/opt/xilinx/xrt/lib -lxrt_coreutil -lstdc++ -lpthread -luuid
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude tools/orbits.c libcft.a -o cft-orbits -L/opt/xilinx/xrt/lib -lxrt_coreutil -lstdc++ -lpthread -luuid
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude tools/zoom.c libcft.a -o cft-zoom -L/opt/xilinx/xrt/lib -lxrt_coreutil -lstdc++ -lpthread -luuid
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude tools/mersenne.c libcft.a -o cft-mersenne -L/opt/xilinx/xrt/lib -lxrt_coreutil -lstdc++ -lpthread -luuid
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude -Isrc tools/cft-serve.c tools/ws.c libcft.a -o cft-serve -L/opt/xilinx/xrt/lib -lxrt_coreutil -lstdc++ -lpthread -luuid
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude tools/cft-asm.c libcft.a -o cft-asm -L/opt/xilinx/xrt/lib -lxrt_coreutil -lstdc++ -lpthread -luuid
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude tools/positive-run.c libcft.a -o positive-run -L/opt/xilinx/xrt/lib -lxrt_coreutil -lstdc++ -lpthread -luuid
+cc -std=c99 -O2 -Wall -Wextra -Wpedantic -Wshadow -Iinclude tests/device_test.c libcft.a -o device-test -L/opt/xilinx/xrt/lib -lxrt_coreutil -lstdc++ -lpthread -luuid
+cc -shared -o libcft.so src/bigint.lo src/softfloat.lo src/device.lo src/divsqrt.lo src/clause5.lo src/chars.lo src/augmented.lo src/mpfloat.lo src/transcend.lo src/program.lo src/reduce.lo src/formatof.lo src/conformance.lo src/sha256.lo src/backend_remote.lo src/backend_xrt.lo -L/opt/xilinx/xrt/lib -lxrt_coreutil -lstdc++ -lpthread -luuid
+tools/cft_resident.cpp: In function ‘int main(int, char**)’:
+tools/cft_resident.cpp:255:46: warning: ‘uint32_t xrt::kernel::read_register(uint32_t) const’ is deprecated: It is not recommended to use read_register() with XRT managed kernels.  Please use user-managed xrt::ip for read and write register functionality [-Wdeprecated-declarations]
+  255 |                 status |= ks[u].read_register(CSR_STATUS);
+      |                           ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~
+In file included from tools/cft_resident.cpp:54:
+/opt/xilinx/xrt/include/xrt/xrt_kernel.h:867:3: note: declared here
+  867 |   read_register(uint32_t offset) const;
+      |   ^~~~~~~~~~~~~
+tools/cft_resident.cpp:256:48: warning: ‘uint32_t xrt::kernel::read_register(uint32_t) const’ is deprecated: It is not recommended to use read_register() with XRT managed kernels.  Please use user-managed xrt::ip for read and write register functionality [-Wdeprecated-declarations]
+  256 |                 flags_hw |= ks[u].read_register(CSR_FLAGS);
+      |                             ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~
+/opt/xilinx/xrt/include/xrt/xrt_kernel.h:867:3: note: declared here
+  867 |   read_register(uint32_t offset) const;
+      |   ^~~~~~~~~~~~~
+make: Leaving directory '/home/logan/atlas-silicon/cft-fp256/host'
+BUILD_EXIT=0
+Thu Sep 17 06:37:38 AM MST 2026

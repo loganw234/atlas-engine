@@ -1,0 +1,46 @@
+diff --git a/host/src/backend_xrt.cpp b/host/src/backend_xrt.cpp
+index 023a808..26d8163 100644
+--- a/host/src/backend_xrt.cpp
++++ b/host/src/backend_xrt.cpp
+@@ -279,6 +279,7 @@ constexpr uint32_t MODE_SEQ = 1u << 15;
+ constexpr uint32_t ST_BUS_BITS  = 0x7u;
+ constexpr uint32_t ST_REFUSED   = 0x8u;
+ constexpr uint32_t ST_DEPOSIT_OVERFLOW = 0x10u;
++constexpr uint32_t ST_SCRATCH_RANGE    = 0x20u;   /* CFT_STATUS_SCRATCH_RANGE, R8 */
+ 
+ /* Round `n` up to a whole 256-bit beat's worth of bytes. The masters
+  * move whole beats whatever the format, so a buffer that ends mid-beat
+@@ -1669,8 +1670,13 @@ extern "C" int cftx_program_run(void *hw, int fmt, const void *image,
+     const uint8_t *const lane_mask = io ? io->lane_mask : nullptr;
+     const size_t mask_first = 0;
+     const size_t mask_lanes = n;
+-    const size_t mask_real = lane_mask ? cft_mask_bytes(mask_lanes) : 0;
+-    const size_t mask_pad = mask_real ? beat_round(mask_real) : 32u;
++    /* The buffer covers n lanes WITH OR WITHOUT a mask: stage_mask below
++     * repacks mask_lanes bits either way - all ones when there is no
++     * mask - so a one-beat buffer (one 4 KiB page) is overrun once n
++     * passes 32,768 lanes (atlas-engine on the round-2 pair, 2026-09-17:
++     * glibc "double free or corruption" after correct deposits). */
++    const size_t mask_real = cft_mask_bytes(mask_lanes);
++    const size_t mask_pad = beat_round(mask_real);
+     if (lane_mask)
+         idx_mode |= 1u << 23;
+ 
+@@ -2023,7 +2029,7 @@ extern "C" int cftx_program_run(void *hw, int fmt, const void *image,
+             st_acc = 0;
+         }
+         if (bus)
+-            *bus = st_acc & ST_DEPOSIT_OVERFLOW;
++            *bus = st_acc & (ST_DEPOSIT_OVERFLOW | ST_SCRATCH_RANGE);
+         set_err(err + " - the compute unit may still be active, so this "
+                       "handle is finished; close and reopen it" +
+                 (st_acc ? " (STATUS 0x" + hex32(st_acc) + ")"
+@@ -2183,7 +2189,7 @@ extern "C" int cftx_program_run(void *hw, int fmt, const void *image,
+      * is the tail. Telling it the results are invalid would be a
+      * worse lie than saying nothing. */
+     if (bus)
+-        *bus = status_acc & ST_DEPOSIT_OVERFLOW;
++        *bus = status_acc & (ST_DEPOSIT_OVERFLOW | ST_SCRATCH_RANGE);
+     return ST_OK;
+ }
+ 

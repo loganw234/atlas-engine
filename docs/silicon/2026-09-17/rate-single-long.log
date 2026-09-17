@@ -1,0 +1,11 @@
+=== 2026-09-17T07:22:05-07:00 long runs on single: threebody.n65536,throughput.n65536, CFT_TIMEOUT_MS=1200000 --chunks 8
+ |FPGA |31 |
+ |Int Vcc |41 |
+ Power : 20.130100 Watts
+threebody.n65536               MATCH    lanes    65536  words  2029  first 215.364 s  median 215.364 s    3286.19 us/lane          304 lanes/s  | 8 chunks in 1 procs 217.9 s
+throughput.n65536              MATCH    lanes    65536  words 14801  first 1.639 s  median 1.637 s      24.98 us/lane        40025 lanes/s  | 8 chunks in 1 procs 2.8 s
+RATE_EXIT=0
+ |FPGA |33 |
+ |Int Vcc |38 |
+ Power : 15.222945 Watts
+=== 2026-09-17T07:33:05-07:00 done

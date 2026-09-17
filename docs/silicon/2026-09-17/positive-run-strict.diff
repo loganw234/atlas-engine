@@ -1,0 +1,11 @@
+--- /home/logan/atlas-silicon/cft-fp256/host/tools/positive-run.c	2026-09-17 06:37:33.094848781 -0700
++++ positive-run-strict.c	2026-09-17 06:42:33.606146121 -0700
+@@ -87,7 +87,7 @@
+  * written out as something no tile will load. */
+ #define FLAG_BANK_EXT   CFT_PROG_FLAG_BANK_EXT
+ #define FLAG_SCRATCH_IO CFT_PROG_FLAG_SCRATCH_IO
+-#define FLAGS_KNOWN     (FLAG_BANK_EXT | FLAG_SCRATCH_IO)
++#define FLAGS_KNOWN     (FLAG_BANK_EXT | FLAG_SCRATCH_IO | CFT_PROG_FLAG_SCRATCH_STRICT)
+ #define MAX_ESZ         32
+ /* The four control codes of docs/SEQUENCER.md's R4, read here so the
+  * tool can name what an image needs before the loader is handed it. */

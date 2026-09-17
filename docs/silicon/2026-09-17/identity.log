@@ -1,0 +1,51 @@
+=== 2026-09-17T06:53:54-07:00 identity
+Linux amd-arc-box 6.8.0-139-generic #139-Ubuntu SMP PREEMPT_DYNAMIC Sat Aug  1 03:52:05 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+XRT
+  Version              : 2.19.194
+  Branch               : 2025.1
+  Hash                 : 7d8151e6ee73c6ec2e99501a58c9c2eca6cc68ce
+  Hash Date            : 2025-05-18 05:07:43
+  xocl                 : 2.19.194, 7d8151e6ee73c6ec2e99501a58c9c2eca6cc68ce
+  xclmgmt              : 2.19.194, 7d8151e6ee73c6ec2e99501a58c9c2eca6cc68ce
+  Firmware Version     : N/A
+
+Device(s) Present
+|BDF             |Shell                           |Logic UUID                            |Device ID       |Device Ready*  |
+|----------------|--------------------------------|--------------------------------------|----------------|---------------|
+|[0000:02:00.1]  |xilinx_u50_gen3x16_xdma_base_5  |44654095-25B4-C06A-EC6D-0B479D3FEBE8  |user(inst=128)  |Yes            |
+
+cft_hw_single.xclbin: OK
+cft_hw_quad.xclbin: OK
+cft_hw_single.manifest.txt: OK
+cft_hw_quad.manifest.txt: OK
+cft-fp256 56ad0cdea133e3d9a9fe71ea0eb9808820d6cf75 0 modified
+--- stock positive-run:
+bank-path     present
+digest        cft_program_digest
+kx9           present
+scratch       present
+scratch-io    present
+run-path      cft_program_run_ex
+--- strict positive-run:
+bank-path     present
+digest        cft_program_digest
+kx9           present
+scratch       present
+scratch-io    present
+run-path      cft_program_run_ex
+--- runner diff:
+--- /home/logan/atlas-silicon/cft-fp256/host/tools/positive-run.c	2026-09-17 06:37:33.094848781 -0700
++++ positive-run-strict.c	2026-09-17 06:42:33.606146121 -0700
+@@ -87,7 +87,7 @@
+  * written out as something no tile will load. */
+ #define FLAG_BANK_EXT   CFT_PROG_FLAG_BANK_EXT
+ #define FLAG_SCRATCH_IO CFT_PROG_FLAG_SCRATCH_IO
+-#define FLAGS_KNOWN     (FLAG_BANK_EXT | FLAG_SCRATCH_IO)
++#define FLAGS_KNOWN     (FLAG_BANK_EXT | FLAG_SCRATCH_IO | CFT_PROG_FLAG_SCRATCH_STRICT)
+ #define MAX_ESZ         32
+ /* The four control codes of docs/SEQUENCER.md's R4, read here so the
+  * tool can name what an image needs before the loader is handed it. */
+--- card:
+ |FPGA |34 |
+ |Int Vcc |40 |
+ Power : 14.967604 Watts

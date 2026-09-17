@@ -1,0 +1,8 @@
+k=16384 exit=0 MATCH 
+k=20480 exit=0 MATCH 
+k=24576 exit=0 MATCH 
+k=28672 exit=0 MATCH 
+k=32768 exit=0 MATCH 
+k=40960 exit=134 MATCH double free or corruption (out)
+k=49152 exit=134 MATCH double free or corruption (out)
+k=65536 exit=134 MATCH double free or corruption (out)

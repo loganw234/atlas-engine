@@ -1,0 +1,19 @@
+[xrt trace] host mode=0x00008000 n=1024 | tile MODE=0x00008000 N=0x0000000000000400 STATUS=0x00000020 FLAGS=0x00000000
+[xrt trace]   IDX_A  = 0x0000000000007000
+[xrt trace]   IDX_B  = 0x0000000000008000
+[xrt trace]   IDX_C  = 0x0000000000009000
+[xrt trace]   IDX_SI = 0x000000000000a000
+[xrt trace]   MASK   = 0x000000000000b000
+[xrt trace]   mask bo address 0x000000000000b000, 32 bytes staged (real 0); device bytes: ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff ff
+image         set/r8-strict.cftp
+format        fp32
+instructions  8
+constants     0
+deposits      4 a lane
+elements      1024
+device        /home/logan/cardday-round2/cft_hw_single.xclbin
+counts        min 4, max 4, total 4096
+flags         0x00000000  clean
+status        0x00000000
+digest        822fba8b4c55dcc66a3d2326f1d2d680a10dc4f28444db87df2f85dd30b9ab3d  program and bank
+sha256        addc31b32597fb8a0c057f77fca0c0a7c5fc92489f93d9b059ac379e7c579576  deposit buffer

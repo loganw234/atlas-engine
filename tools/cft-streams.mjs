@@ -25,6 +25,9 @@ const opt = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] :
 const N = Number(opt("--points", "65536"));
 const OUT = resolve(opt("--out", "build/cft/silicon"));
 const SEED = opt("--levers", null);
+// --flag-loops: lower every loop exit in the selected form instead of SETACT,
+// the same program's other shape, for pricing the early exit on a device
+const FLAG_LOOPS = argv.includes("--flag-loops");
 const files = argv.filter((a, i) => a.endsWith(".pos.mjs"));
 mkdirSync(OUT, { recursive: true });
 const u8 = (a) => new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
@@ -35,10 +38,10 @@ for (const f of files) {
   const id = pos.id.replace(/_pos$/, "");
   const P = SEED === null ? null : hashedLevers(pos, Number.parseInt(SEED, 10) >>> 0);
   const t0 = Date.now();
-  const L = lowerPositive(pos, { P });
+  const L = lowerPositive(pos, { P, setactLoops: FLAG_LOOPS ? false : undefined });
   if (!L.image) { console.log(`${id}: does not load as it stands; skipped`); continue; }
   const s = frameSamples(L, N);
-  const name = `${id}${SEED === null ? "" : `.levers-${SEED}`}.n${N}`;
+  const name = `${id}${SEED === null ? "" : `.levers-${SEED}`}${FLAG_LOOPS ? ".flagloops" : ""}.n${N}`;
   const put = (suffix, bytes) => { writeFileSync(join(OUT, name + suffix), bytes); return { file: name + suffix, sha256: sha(bytes) }; };
   const rec = {
     case: name, positive: pos.id, lanes: N, format: "fp32",
