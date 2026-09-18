@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated": "2026-09-12",
+  "generated": "2026-09-18",
   "source": {
     "template": "core/detlib.glsl.template",
     "record": "core/constants.json",

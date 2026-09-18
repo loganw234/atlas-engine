@@ -1,0 +1,9 @@
+=== 2026-09-18T07:20:12-07:00 photograph on single: 1048576 samples a pass, 2 pass(es)
+digest        e7cb26faf94df43bd7e5c71e12c7da4570915ac3eebaf557e141fb0df802c9a8  program and bank
+sha256        1ede9316a92243dd9c2a254ee2499e3f6c4cb2251ece8e609027e625cecb7b0a  deposit buffer
+pass p0000: 3618 ms wall; deposits 1ede9316a92243dd9c2a254ee2499e3f6c4cb2251ece8e609027e625cecb7b0a; GPU records 1ede9316a92243dd9c2a254ee2499e3f6c4cb2251ece8e609027e625cecb7b0a; MATCH - the GPU's records, bit for bit
+digest        de4fceb5f36009c94f9c2db1844a1705376b6464fed9a55abe1a78e8de0452cb  program and bank
+sha256        5cafbac6a530eede1000bf0530429ff40355e7c5cf2c440cc29a897429f22162  deposit buffer
+pass p0001: 3632 ms wall; deposits 5cafbac6a530eede1000bf0530429ff40355e7c5cf2c440cc29a897429f22162; GPU records 5cafbac6a530eede1000bf0530429ff40355e7c5cf2c440cc29a897429f22162; MATCH - the GPU's records, bit for bit
+camera.p0000                   MATCH    lanes  1048576  words  1272  first 3.191 s  median 3.167 s       3.02 us/lane       331070 lanes/s  | 8 chunks in 1 procs 5.0 s
+=== 2026-09-18T07:20:35-07:00 done

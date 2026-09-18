@@ -130,9 +130,35 @@ contiguous blocks gives the same buffer. libcft's software executor took 150
 to 166 s a pass on this PC (one thread, beside the verification pack), and
 the GPU 7 ms for all four passes.
 
+## A second plate: a loop that exits early
+
+The same harness, the same camera, around `mand` - the plate whose walk
+iterates until the point escapes, which lowers to a `REPEAT` whose early exit
+is `SETACT`, inlined into `splat` with the rest. 512 x 512, two passes of
+1,048,576 samples, on the same GPU:
+
+| | |
+|---|---|
+| words | 1,272 (1,261 arithmetic, one loop) |
+| registers | 18 |
+| bank | 97 program constants, 19 hoisted per-pass values (240 instructions off the lane), 3 tail words |
+| folded | 33 comparisons; 24 branches taken statically |
+
+Both passes' deposit buffers on the card are the GPU's records, byte for
+byte (`1ede9316...` and `5cafbac6...`, `photo-mand-512-single.log`), the
+planes the host adds up from them are the GPU's (`adaeb2d8...`), and so is
+the print. 3.02 µs a sample on the card. The same pass as eight contiguous
+blocks gives the same buffer, and on a program with an early exit that is
+a statement about more than addresses: a block ends when its slowest lane
+leaves, so the partition moves WHEN the exit fires, and the contract says
+that changes nothing but the time.
+
+![Plate mand under the darkroom's camera: 512 x 512, two passes, every
+sample computed on the U50](photograph-on-the-card-mand.png)
+
 ## What it does not show
 
-- **One plate, one frame, one lens.** Other plates are other shape
+- **Two plates, one frame each, one lens.** Other plates are other shape
   functions under the same camera, and each is a lowering the corpus
   already verifies. A lens with an aperture is not: the iris, the
   aberrations and the rejection loop were folded away here, and a frame
@@ -154,6 +180,8 @@ the GPU 7 ms for all four passes.
 ```bash
 python tools/photo-gpu.py --plate hopf --side 512 --ppd 1048576 --passes 4
 node tools/photo-cft.mjs --dir build/cft/photo/hopf-512 --ref 4096 --lib 1048576 --pack
+python tools/photo-gpu.py --plate mand --side 512 --ppd 1048576 --passes 2
+node tools/photo-cft.mjs --dir build/cft/photo/mand-512 --ref 1024 --lib 16384 --pack
 # on the card's host, with build/cft/photo/hopf-512 copied to ~/atlas-silicon/photo/hopf-512:
 bash tools/silicon/photo.sh ~/atlas-silicon/photo/hopf-512 single
 ```

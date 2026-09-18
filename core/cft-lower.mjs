@@ -92,6 +92,19 @@ export const EXPANSIONS = {
          "half the corpus's integer levers, right only when the default happened " +
          "to be even.",
   },
+  f2u: {
+    insns: 22,
+    domain: "0 <= x < 2^32, the whole range a uint holds; below 2^23 it is f2i's " +
+            "result, which is also the reference's reading of a negative x " +
+            "(Math.trunc then >>> 0) where GLSL leaves one undefined",
+    how: "f2i for x below 2^23; at and above it x is already an integer, split " +
+         "at 2^16 - the high part by the same floor trick on x * 2^-16, an exact " +
+         "scaling, the low part x - high * 2^16, exact by Sterbenz (or x itself " +
+         "when the high part is zero) - both halves under 2^23, then high << 16 | " +
+         "low, and a select on 2^23 <= x. The camera's fixed-point deposit is " +
+         "uint(clamp(v * 4096 + 0.5, 0, 4.2e9)), which reaches 2^32 where the " +
+         "f2i form stopped at 2^23 (2026-09-18).",
+  },
   i2f: {
     insns: 2,
     domain: "|n| < 2^22",

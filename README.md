@@ -402,7 +402,8 @@ what the two repositories are executing:
   on the U50; the planes the host adds up from the card's deposits are
   the GPU's planes, and the print developed from them is the GPU's
   print, byte for byte. The camera and the plate are one 1,081-word
-  program, 1.15 µs a sample on one tile.
+  program, 1.15 µs a sample on one tile. A second plate, `mand`, whose
+  loop exits early inside the camera, matches the same way.
 - **What remains on this side.** A lens with an aperture and an open
   shutter on the card, which lower the branches this frame folded away;
   other plates under the camera; a larger frame; depositing a result as
