@@ -39,7 +39,7 @@
 // set by the caller before a call, as the camera sets uT before it
 // calls the shape function.
 
-import { parse, typecheck, CASTS, BUILTIN_TYPES, VEC, isArray, arrayLen } from "./glsl-sub.mjs";
+import { parse, typecheck, CASTS, BUILTIN_TYPES, VEC, MAT, isArray, arrayLen } from "./glsl-sub.mjs";
 
 const _b = new DataView(new ArrayBuffer(4));
 export const bits = (x) => { _b.setFloat32(0, x, true); return _b.getUint32(0, true); };
@@ -75,7 +75,9 @@ export class DetLib {
 
   names() { return [...this.byName.keys()]; }
 
-  /** Bind a unit-level global that has no initialiser - the clock. */
+  /** Bind a unit-level global that has no initialiser - the clock, or
+   *  one of the camera's uniforms. A vector is an array of components, a
+   *  matrix an array of COLUMNS, an array an array. */
   setGlobal(name, value) {
     if (!this.globalDecls.has(name)) throw new Error(`glsl-f32: no global ${name}`);
     this.globals.set(name, value);
@@ -116,7 +118,18 @@ export class DetLib {
       case "decl":
         for (const d of s.decls) env.set(d.name, d.init ? this.eval(d.init, env) : zeroOf(s.type));
         return null;
-      case "assign": env.set(s.name, this.eval(s.value, env)); return null;
+      case "assign": this.write(s.name, this.eval(s.value, env), env); return null;
+      // Some of a vector's components: a NEW array with those replaced,
+      // so a vector copied from another before the write keeps its own.
+      case "assignMember": {
+        const cur = env.has(s.name) ? env.get(s.name) : this.globals.get(s.name);
+        if (!Array.isArray(cur)) throw new Error(`glsl-f32: ${s.name}.${s.member} on a non-vector`);
+        const v = this.eval(s.value, env);
+        const next = cur.slice();
+        s.swz.forEach((ci, k) => { next[ci] = Array.isArray(v) ? v[k] : v; });
+        this.write(s.name, next, env);
+        return null;
+      }
       // One element of an array local. The array is a JavaScript array
       // of element values, so this is the assignment it looks like; the
       // index is read as GLSL reads it, and an index outside the array
@@ -150,6 +163,12 @@ export class DetLib {
     }
   }
 
+  /** A local if the function has one by that name, else the global. */
+  write(name, value, env) {
+    if (!env.has(name) && this.globalDecls.has(name)) this.globals.set(name, value);
+    else env.set(name, value);
+  }
+
   // ---- expressions
   eval(e, env) {
     switch (e.n) {
@@ -161,7 +180,10 @@ export class DetLib {
           throw new Error(`glsl-f32: the global ${e.name} was never set - call setGlobal first`);
         throw new Error(`glsl-f32: ${e.name} is not in scope`);
       }
-      case "member": return this.eval(e.obj, env)["xyzw".indexOf(e.name)];
+      case "member": {
+        const v = this.eval(e.obj, env);
+        return e.swz.length === 1 ? v[e.swz[0]] : e.swz.map(i => v[i]);
+      }
       case "index": return this.eval(e.obj, env)[this.eval(e.i, env)];
       case "un": {
         const a = this.eval(e.a, env);
@@ -187,6 +209,11 @@ export class DetLib {
     if (op === "&&") return this.eval(e.l, env) && this.eval(e.r, env);
     if (op === "||") return this.eval(e.l, env) || this.eval(e.r, env);
     const a = this.eval(e.l, env), b = this.eval(e.r, env);
+    // whole-vector equality: one bool, every component equal (GLSL 5.9)
+    if (e.vecCmp) {
+      const eq = a.every((x, i) => scalarBin("==", x, b[i], "bool", e.operandType));
+      return e.op === "==" ? eq : !eq;
+    }
     if (Array.isArray(a) || Array.isArray(b)) {
       // componentwise, a scalar broadcast against the vector
       const elem = VEC[e.type].elem;
@@ -233,37 +260,22 @@ export class DetLib {
     }
     if (BUILTIN_TYPES[name]) {
       const a = e.args.map(x => this.eval(x, env));
-      const t0 = e.args[0].type;
-      switch (name) {
-        case "uintBitsToFloat": return asF32(a[0]);
-        case "floatBitsToUint": return bits(a[0]) >>> 0;
-        case "intBitsToFloat": return asF32(a[0] >>> 0);
-        case "floatBitsToInt": return bits(a[0]) | 0;
-        case "findMSB": return a[0] === 0 ? -1 : 31 - Math.clz32(a[0]);
-        case "isnan": return Number.isNaN(a[0]);
-        case "isinf": return a[0] === Infinity || a[0] === -Infinity;
-        case "abs": return t0 === "float" ? absf(a[0]) : (t0 === "uint" ? a[0] : Math.abs(a[0]) | 0);
-        // GLSL 8.3: 1.0 if x > 0, 0.0 if x == 0, -1.0 if x < 0. A NaN
-        // is none of the three; the spec says nothing and this returns
-        // 0, which is what the lowering's two comparisons return too.
-        case "sign": return t0 === "float" ? (a[0] > 0 ? 1 : a[0] < 0 ? -1 : 0)
-                                            : (a[0] > 0 ? 1 : a[0] < 0 ? -1 : 0) | 0;
-        case "floor": return fr(Math.floor(a[0]));
-        // GLSL 8.3: 0.0 if x < edge, else 1.0
-        case "step": return a[1] < a[0] ? 0 : 1;
-        case "min": return glmin(a[0], a[1]);
-        case "max": return glmax(a[0], a[1]);
-        case "clamp": return glmin(glmax(a[0], a[1]), a[2]);
-        // Only reachable from the fused source, which is not what
-        // ships. Two roundings would be wrong and one needs the exact
-        // a*b+c, which 53 bits do not always hold - so this refuses
-        // rather than approximating an oracle.
-        case "fma": throw new Error(
-          "glsl-f32: the reference evaluates the SHIPPED text, which has " +
-          "no fma; see core/detlib-text.mjs");
+      const b = BUILTIN_TYPES[name];
+      // the relational builtins and any/all, the camera's
+      if (b.rel) {
+        const et = VEC[e.args[0].type].elem;
+        return a[0].map((x, i) => scalarBin(b.rel, x, a[1][i], "bool", et));
       }
+      if (b.reduce) return b.reduce === "||" ? a[0].some(Boolean) : a[0].every(Boolean);
+      // a genType builtin on a vector is the scalar one per component,
+      // a scalar argument after the first standing for every component
+      if (Array.isArray(a[0])) {
+        const et = VEC[e.args[0].type].elem;
+        return a[0].map((_, i) => scalarBuiltin(name, a.map(v => (Array.isArray(v) ? v[i] : v)), et));
+      }
+      return scalarBuiltin(name, a, e.args[0].type);
     }
-    const f = this.byName.get(name);
+    const f = e.fn ?? this.byName.get(name);
     if (!f) throw new Error(`glsl-f32: no function ${name}`);
     const inner = new Map();
     e.args.forEach((arg, i) => {
@@ -278,10 +290,43 @@ export class DetLib {
       const p = f.params[i];
       if (!p.out) return;
       if (arg.n !== "var") throw new Error(`glsl-f32: ${name}'s out argument is not a variable`);
-      env.set(arg.name, inner.get(p.name));
+      this.write(arg.name, inner.get(p.name), env);
     });
     return r instanceof Ret ? r.v : undefined;
   }
+}
+
+/** One scalar builtin, typed by its first argument. */
+function scalarBuiltin(name, a, t0) {
+  switch (name) {
+    case "uintBitsToFloat": return asF32(a[0]);
+    case "floatBitsToUint": return bits(a[0]) >>> 0;
+    case "intBitsToFloat": return asF32(a[0] >>> 0);
+    case "floatBitsToInt": return bits(a[0]) | 0;
+    case "findMSB": return a[0] === 0 ? -1 : 31 - Math.clz32(a[0]);
+    case "isnan": return Number.isNaN(a[0]);
+    case "isinf": return a[0] === Infinity || a[0] === -Infinity;
+    case "abs": return t0 === "float" ? absf(a[0]) : (t0 === "uint" ? a[0] : Math.abs(a[0]) | 0);
+    // GLSL 8.3: 1.0 if x > 0, 0.0 if x == 0, -1.0 if x < 0. A NaN
+    // is none of the three; the spec says nothing and this returns
+    // 0, which is what the lowering's two comparisons return too.
+    case "sign": return t0 === "float" ? (a[0] > 0 ? 1 : a[0] < 0 ? -1 : 0)
+                                        : (a[0] > 0 ? 1 : a[0] < 0 ? -1 : 0) | 0;
+    case "floor": return fr(Math.floor(a[0]));
+    // GLSL 8.3: 0.0 if x < edge, else 1.0
+    case "step": return a[1] < a[0] ? 0 : 1;
+    case "min": return glmin(a[0], a[1]);
+    case "max": return glmax(a[0], a[1]);
+    case "clamp": return glmin(glmax(a[0], a[1]), a[2]);
+    // Only reachable from the fused source, which is not what
+    // ships. Two roundings would be wrong and one needs the exact
+    // a*b+c, which 53 bits do not always hold - so this refuses
+    // rather than approximating an oracle.
+    case "fma": throw new Error(
+      "glsl-f32: the reference evaluates the SHIPPED text, which has " +
+      "no fma; see core/detlib-text.mjs");
+  }
+  throw new Error(`glsl-f32: builtin ${name}`);
 }
 
 /** One scalar binary operation, typed. `t` is the result type, `ot` the
@@ -339,7 +384,8 @@ function castScalar(v, from, to) {
 }
 
 export function zeroOf(type) {
-  if (VEC[type]) return new Array(VEC[type].n).fill(0);
+  if (VEC[type]) return new Array(VEC[type].n).fill(VEC[type].elem === "bool" ? false : 0);
+  if (MAT[type]) return new Array(MAT[type].n).fill(0).map(() => zeroOf(MAT[type].col));
   if (isArray(type)) return new Array(arrayLen(type)).fill(0);
   if (type === "bool") return false;
   return 0;

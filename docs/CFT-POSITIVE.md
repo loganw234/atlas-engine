@@ -114,7 +114,8 @@ shift - and its `uT` is `uT0 + uShutter * (u2f(h7) - 0.5)`, per sample
 when the shutter is open. Both are functions of the sample index and
 per-run uniforms, computable on the host exactly as the seed is; the
 open shutter is the one case where the clock stops being a per-run
-constant.
+constant. Since 2026-09-18 the camera itself is lowered, and both run on
+the tile with the rest of it (`docs/CFT-PHOTOGRAPH.md`).
 
 ## The bank: the program's constants, then the per-run tail
 
@@ -130,6 +131,12 @@ first-use order followed by the nine words of the tail. One image per
 positive, loaded once; the levers, the clock and the pass ride as data;
 the digest names image and bank together. A tail slot is never folded,
 because its value is not known here.
+
+Since 2026-09-18 the values a run's levers and clock decide alone sit
+between the two - the hoisted per-run values of "Priced in what a lane
+executes" below - so a bank is the program's constants, then the hoisted
+values libcft computes for that run's tail, then the tail. The tail is
+still the last nine words and `tailBase` still names `P[0]`.
 
 ## The loop
 
@@ -322,9 +329,11 @@ mode clamps it, because out of range the instruction would wrap: the
 contract reduces an index modulo the depth, and a program whose answer
 depends on the tile's scratch depth is not something this repository
 ships. `SCRATCH_STRICT` - revision 4's R8, which reports such an index
-instead - is the durable answer and is not set yet, because on
-2026-09-10 the flag exists in the golden model alone and
-`cft_program_load` refuses a header that carries it.
+instead of reducing it - is the durable answer, and since 2026-09-17
+every image that touches the scratch sets it (`core/emit-cft.mjs`); on
+2026-09-10 it existed in the golden model alone and `cft_program_load`
+refused a header that carried it. The clamp stays, so an index this
+file emits is in range whatever the flag says.
 
 A store under a condition reads the element back and selects, because
 the instruction's own mask is the lane's active bit and says nothing
@@ -421,6 +430,92 @@ programs under 3,000 instructions. On the loop programs the winner
 varies - `su-need` on `jong`, `arnold` and `stdmap`, `kills-deep` on
 `newton`, `collatz` and `bifurc` - which is the reason to try several
 rather than argue for one.
+
+## Priced in what a lane executes
+
+2026-09-18. The card day measured what an instruction costs on silicon
+(`docs/CFT-SILICON.md`): an arithmetic instruction about a nanosecond a
+lane, and every control-coded one - a scratch store or load, `SETACT` -
+about four. Until then the lowering counted words, and a store cost the
+same as an addition. Four changes follow from the measurement, each
+scored by `tools/cft-cost-model.mjs`: every instruction weighted by the
+trips of the loops around it (the slowest of 128 sampled lanes, from
+`build/cft/gaps.json`) and priced one unit for arithmetic, four for the
+rest. The model is a ranking device and the calibration it prints says
+how good a one: against today's images on the card it is 1.0 to 1.2
+nanoseconds a unit on seven of the ten timed positives, and 1.8 on `psf`,
+2.8 on `mand` and 0.5 on `nested` - `mand`'s trips are the ones the
+128-lane sample was already known to misrepresent (`docs/CFT-SILICON.md`,
+the early exit).
+
+**The spill is chosen by what it costs a lane.** A candidate's price is
+its store and its reloads, each weighted by its loop's trips; its worth is
+how much of the over-pressure it covers. The old choice counted the
+benefit once, from the first profile, and on the loop programs it spilled
+nearly every carried value in the first round. The benefit is now
+recounted after every pick (a Fenwick tree over the positions still over
+the target), an instruction reads a spilled value once however many of
+its operands name it, and a slot's consecutive reloads share one register
+where the profile allows. Together: 8.9% less executed cost over the
+corpus, and every positive that spills fits thirty-two registers.
+
+**A carried value's copy-back goes into the instruction that computes it**
+where nothing reads the old value after that instruction and nothing else
+writes the register between: the instruction writes the carried register
+directly (`coalesceCopyBacks`). 336 copies across 52 positives, 0.4% of
+executed cost - small, because the spiller had already put most of the
+heaviest carried values in the scratch.
+
+**Per-run values leave the lane** (`hoistPerRun`). An instruction that
+reads only the program's constants, the levers, the clock and other such
+instructions computes the same bits on every lane of a run and on every
+trip of any loop around it - the sine of a lever times the clock, an
+integer lever's cast - so libcft computes it once per run instead, and the
+value arrives in the bank. Only the frontier takes a slot, a per-run value
+some per-lane instruction reads; the rest is the init program, a straight
+list of the same opcodes with the same rounding attributes over constants
+and the tail, which `Machine.hoisted` (`core/cft-run.mjs`) runs through
+libcft's element operations on one lane. By the sequencer's own P1 - it
+adds no arithmetic of its own - those are the bits the lane would have
+computed. The hoisted slots sit between the program's constants and the
+nine-slot tail, so the tail is still the bank's last nine words and
+`tailBase` still names `P[0]`. A deposit, the value `SETACT` tests and a
+scratch access's operands need registers and stay on the tile, with their
+per-run inputs hoisted all the same. Over the corpus 20,854 instructions
+leave the lanes for 1,338 bank slots, and the step took 18.5% of the
+corpus's words on its own; the bank goes to 428 of 512 on `throughput`,
+the deepest.
+
+**A spilling program's schedule is chosen by what it executes.** Hoisting
+exposed it: on `threebody` two schedules with the same register peak came
+out of the spiller at 4.89 and 3.86 million executed units a block, and the
+tie had gone to the dearer one for being tried first. The four schedules
+nearest the lowest peak now each go through the whole register wall -
+spill, shared reloads, coalescing - and the one whose lane executes least
+is kept. The wall steps its target down when the allocator needs a
+register or two past the profile's peak, which `cascade` did after
+hoisting (32 profiled, 34 allocated).
+
+What the four bought, on the card: the card-day images and today's, on the
+same cases with the same streams and the same expected deposits, back to
+back on the single tile (`docs/CFT-SILICON.md`, "The lowering, priced, on
+the card"). The model column is today's modelled cost a lane over the card
+day's.
+
+| positive | words | registers | scratch slots | hoisted slots | model, a lane | card, µs a lane | card speed-up | both images' deposits |
+|---|---|---|---|---|---|---|---|---|
+| `psf` | 185 → 118 | 10 → 6 | - → - | 5 | 0.62x | 0.268 → 0.200 | **1.34x** | match (65,536 lanes) |
+| `hopf` | 638 → 526 | 16 → 14 | - → - | 6 | 0.82x | 0.721 → 0.608 | **1.19x** | match (65,536 lanes) |
+| `mand` | 1,111 → 832 | 17 → 17 | - → - | 15 | 0.76x | 3.003 → 2.592 | **1.16x** | match (65,536 lanes) |
+| `jong` | 737 → 508 | 22 → 17 | - → - | 5 | 0.93x | 3.968 → 3.697 | **1.07x** | match (65,536 lanes) |
+| `starfield` | 5,475 → 4,483 | 32 → 32 | 17 → 10 | 50 | 0.81x | 5.857 → 4.724 | **1.24x** | match (65,536 lanes) |
+| `throughput` | 14,801 → 11,356 | 32 → 32 | 186 → 201 | 145 | 0.67x | 24.98 → 15.42 | **1.62x** | match (65,536 lanes) |
+| `stdmap` | 912 → 733 | 23 → 20 | - → - | 12 | 0.85x | 95.45 → 81.35 | **1.17x** | match (65,536 lanes) |
+| `nested` | 1,401 → 1,055 | 32 → 32 | 46 → 38 | 23 | 0.89x | 171.4 → 147.2 | **1.16x** | match (65,536 lanes) |
+| `threebody` | 2,029 → 1,754 | 31 → 31 | 70 → 70 | 23 | 0.83x | 3286.3 → 2617.0 | **1.26x** | match (65,536 lanes) |
+| `rule30` | 4,720 → 3,671 | 32 → 32 | 105 → 100 | 92 | 0.58x | 9437.5 → 5103.2 | **1.85x** | match (4,096 lanes) |
+
+Over the 69 positives: 132,977 words to 105,700 (-20.5%), modelled cost -21.0%, executed scratch traffic 3.97e+6 to 2.76e+6 a block; 69 cheaper, 0 dearer, 0 unchanged.
 
 ## The corpus, measured
 
@@ -632,28 +727,22 @@ wrong.
 Nothing in the corpus is refused any more, so what is left is speed and
 size rather than reach.
 
-- **Hoisting.** A value that depends only on the levers, the clock and
-  the program's constants is the same on every lane and in every
-  iteration, and could arrive in the bank instead of being computed
-  per sample: 23,661 words across the corpus, and the register
-  pressure that drives the spilling with them
-  (`docs/CFT-GAPS.md`). It no longer decides a fit, which is why it
-  waited.
-- **Copy coalescing.** A carried value costs a copy in and a copy back
-  per iteration; the op that computes the next value could write the
-  register directly. 1,958 copies.
+- Hoisting, copy coalescing and spilling by what a lane executes were
+  here until 2026-09-18, and are "Priced in what a lane executes" above.
 - **Deposit when ready.** Deposits sit at the end, so every result
   holds a register from its computation to the last instruction.
   Issuing a `DEPOSIT` as soon as its value is final would free those
   registers and reorder the deposit schema, which the record can carry.
-- **Better spilling.** The choice is Belady's, weighted by reads, and
-  the reloads are not shared: two reads of one spilled value in the
-  same segment load it twice. Rematerialisation would beat both where
-  the value is cheaper to recompute than to store.
-- **`SCRATCH_STRICT`**, when the library carries revision 4's flag.
-  Until then an indexed access is clamped here rather than reported
-  there.
+- **Rematerialisation.** A spilled value that is cheaper to recompute
+  than to reload - four arithmetic instructions buy one load on the
+  card - is still stored and reloaded.
+- **More coalescing.** Most of the 1,958 copies are copy-ins, break
+  snapshots and values in the scratch, and some copy-backs are kept
+  only because the schedule put a read of the old value after the
+  instruction that computes the new one; a schedule that knew would
+  take them.
 - **`CALL`**, measured at 41,435 words of inlined copies across the
   corpus and asked for by nobody, because at 16,384 words it decides
   no fit.
-- **The GPU record capture** is step 5 of ATLAS.md, and remains.
+- The GPU record capture was step 5 of ATLAS.md; it is built, for the
+  darkroom's own camera, in `docs/CFT-PHOTOGRAPH.md`.

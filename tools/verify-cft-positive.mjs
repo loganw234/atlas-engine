@@ -107,7 +107,12 @@ const id = pos.id.replace(/_pos$/, "");
 // for both settings; the bank is not, and one shared name was enough.
 const WORK = LEVER_SEED === null ? id : `${id}.levers-${LEVER_SEED}`;
 const Pset = LEVER_SEED === null ? null : hashedLevers(pos, Number.parseInt(LEVER_SEED, 10) >>> 0);
-const L = lowerPositive(pos, { uT: UT, P: Pset });
+// The hoisted per-run values come from libcft before anything runs:
+// the init program on one lane, the same instructions the lane would
+// have issued (core/cft-run.mjs, Machine.hoisted).
+const HM = await Machine.open();
+const L = lowerPositive(pos, { uT: UT, P: Pset, machine: HM });
+HM.close();
 const { prog } = L;
 console.log(`${id} -> cft-fp256 sequencer program (revision 6)`);
 console.log(`  words      : ${prog.counts.total} of ${IMEM_D} (${prog.counts.alu} ALU, ` +
@@ -116,8 +121,11 @@ console.log(`  loops      : ${prog.loops.length ? prog.loops.map(l => `repeat ${
             `; ${prog.phis} carried value(s)`);
 console.log(`  registers  : ${prog.regsUsed} of ${NREG}${prog.encodable ? "" : "   DOES NOT FIT"}` +
             (prog.regsUsed > NREG_REV1 ? "   (needs REGS32)" : ""));
-console.log(`  constants  : ${prog.counts.fixedConsts} program + ${prog.tail} per-run tail ` +
-            `(P[0..7], uT) = ${prog.counts.consts}, all in the bank; needs ${prog.needs.join(", ") || "nothing beyond the ISA"}`);
+console.log(`  constants  : ${prog.counts.fixedConsts} program + ` +
+            (prog.hoist ? `${prog.hoist.count} hoisted per-run (${prog.hoist.removed} ops off the lane, ` +
+                          `${prog.hoist.ops.length} in the init program) + ` : "") +
+            `${prog.tail} per-run tail (P[0..7], uT) = ${prog.counts.consts}, all in the bank; ` +
+            `needs ${prog.needs.join(", ") || "nothing beyond the ISA"}`);
 console.log(`  inputs     : ${prog.args.map(a => `${a.stream}=${a.name}`).join("  ")}`);
 console.log(`  deposits   : ${prog.results.map((d, i) => `${i}:${d.name}`).join("  ")}`);
 console.log(`  prologue   : on the host, salt ${L.prologue.salt}u; uT = ${UT}`);

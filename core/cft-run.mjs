@@ -232,6 +232,32 @@ export class Machine {
     const deposits = prog.results.map(d => Uint32Array.from(regs[d.reg], f => this.toBits(f)));
     return { deposits, flags, insns: prog.insns.length, executed, emulated };
   }
+
+  /** A program's HOISTED per-run values (core/cft-lower.mjs,
+   *  hoistPerRun): its init program run on one lane, instruction by
+   *  instruction through libcft, over the declared tail's bit patterns
+   *  (`tailBits[0..8]` = P[0..7], uT). The same opcodes with the same
+   *  rounding attributes the tile would have issued per lane, which is
+   *  the whole of the claim that hoisting changes no bit. IMUL is the
+   *  definition run() emulates, for run()'s reason. Returns one bit
+   *  pattern per hoisted slot. */
+  hoisted(hoist, tailBits) {
+    const vals = new Array(hoist.ops.length);
+    const get = (v) => (v.c !== undefined ? this.fromBits(v.c)
+                      : v.t !== undefined ? this.fromBits(tailBits[v.t])
+                      : vals[v.h]);
+    hoist.ops.forEach((o, i) => {
+      const slot = { a: null, b: null, c: null };
+      for (const w of READS[o.op]) slot[w] = [get(o[w])];
+      if (o.op === OP.IMUL) {
+        vals[i] = this.fromBits(Math.imul(this.toBits(slot.a[0]), this.toBits(slot.b[0])) >>> 0);
+        return;
+      }
+      const ctx = this.byRnd[ROUNDS.has(o.op) ? o.rnd : RND.RNE];
+      vals[i] = ctx.map(o.op, slot.a, slot.b, slot.c)[0];
+    });
+    return Uint32Array.from(hoist.outs, h => this.toBits(vals[h]));
+  }
 }
 
 /** The control words a lowered program ends with, decoded - so a caller

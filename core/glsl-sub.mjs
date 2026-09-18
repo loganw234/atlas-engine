@@ -38,13 +38,31 @@
 
 // ------------------------------------------------------------ lexing
 
+// SINCE 2026-09-18 IT ALSO READS THE DARKROOM'S CAMERA - the
+// deterministic compute kernel's own text, which core/cft-camera.mjs
+// lowers so a photograph's samples can be computed on the tile. The
+// camera is written against the whole of GLSL rather than an emitter's
+// output, and brings what the plates never needed: mat2/mat3/mat4 (the
+// view and the projection), uvec and bvec, swizzles read and written
+// (`vpos.xy +=`, `cp.xy`), `precise` on parameters, `++i`, vector `==`
+// and `!=` (one bool, GLSL 5.9), any/all and the relational builtins,
+// componentwise abs/floor/min/max/clamp on vectors, a uniform array
+// (`uniform float uP[8]`), and OVERLOADS - the bake gives every det_*
+// function a vector form under the same name, which a lookup by name
+// alone cannot tell apart. A call is resolved by its argument types and
+// the node carries the definition it resolved to (`e.fn`). A unit with
+// one definition per name resolves exactly as it always did.
 const KEYWORDS = new Set(["void", "float", "int", "uint", "bool",
                           "vec2", "vec3", "vec4", "ivec2", "ivec3", "ivec4",
+                          "uvec2", "uvec3", "uvec4", "bvec2", "bvec3", "bvec4",
+                          "mat2", "mat3", "mat4",
                           "precise", "out", "in", "inout", "const", "uniform",
                           "if", "else", "return", "for", "break",
                           "true", "false"]);
 const TYPES = new Set(["void", "float", "int", "uint", "bool",
-                       "vec2", "vec3", "vec4", "ivec2", "ivec3", "ivec4"]);
+                       "vec2", "vec3", "vec4", "ivec2", "ivec3", "ivec4",
+                       "uvec2", "uvec3", "uvec4", "bvec2", "bvec3", "bvec4",
+                       "mat2", "mat3", "mat4"]);
 
 /** The vector types: how many components, and of what. Vectors are
  *  SCALARISED by every consumer - the interpreter holds them as arrays,
@@ -58,8 +76,33 @@ export const VEC = {
   ivec2: { n: 2, elem: "int" },
   ivec3: { n: 3, elem: "int" },
   ivec4: { n: 4, elem: "int" },
+  uvec2: { n: 2, elem: "uint" },
+  uvec3: { n: 3, elem: "uint" },
+  uvec4: { n: 4, elem: "uint" },
+  bvec2: { n: 2, elem: "bool" },
+  bvec3: { n: 3, elem: "bool" },
+  bvec4: { n: 4, elem: "bool" },
 };
 export const isVec = (t) => VEC[t] !== undefined;
+/** The vector type of `n` components of `elem`. */
+export const vecOf = (elem, n) =>
+  ({ float: "vec", int: "ivec", uint: "uvec", bool: "bvec" })[elem] + n;
+/** The matrix types: columns, each a vector. `M[i]` is column i, as GLSL
+ *  has it (5.6), and the camera only ever reads `M[i].x` and the like. */
+export const MAT = {
+  mat2: { n: 2, col: "vec2" },
+  mat3: { n: 3, col: "vec3" },
+  mat4: { n: 4, col: "vec4" },
+};
+export const isMat = (t) => MAT[t] !== undefined;
+/** A member name's components, when it is a swizzle of one letter set. */
+export function swizzleOf(name, n) {
+  for (const set of ["xyzw", "rgba", "stpq"]) {
+    const idx = [...name].map(ch => set.indexOf(ch));
+    if (idx.every(i => i >= 0 && i < n)) return idx;
+  }
+  return null;
+}
 export const isArray = (t) => typeof t === "string" && t.endsWith("]");
 export const arrayElem = (t) => t.slice(0, t.indexOf("["));
 export const arrayLen = (t) => Number(t.slice(t.indexOf("[") + 1, -1));
@@ -279,7 +322,30 @@ class Parser {
    *  expression - without its terminating `;`, so a for loop's step can
    *  use it too. */
   simple() {
+    // `++i` and `--i`, the camera's loop step
+    for (const tok of ["++", "--"]) {
+      if (this.at("op", tok)) {
+        this.next();
+        const name = this.want("id").v;
+        return { n: "assign", name,
+                 value: { n: "bin", op: tok[0], l: { n: "var", name },
+                          r: { n: "lit", type: "int", value: 1 } } };
+      }
+    }
     const e = this.expr();
+    // `v.xy = ...` and `v.x += ...`: a write to some of a vector's
+    // components, the rest kept
+    if (e.n === "member" && e.obj.n === "var") {
+      if (this.eat("op", "=")) return { n: "assignMember", name: e.obj.name, member: e.name, value: this.expr() };
+      for (const [tok, op] of Object.entries(COMPOUND)) {
+        if (this.at("op", tok)) {
+          this.next();
+          return { n: "assignMember", name: e.obj.name, member: e.name,
+                   value: { n: "bin", op, l: { n: "member", obj: { n: "var", name: e.obj.name }, name: e.name },
+                            r: this.expr() } };
+        }
+      }
+    }
     if (this.eat("op", "=")) {
       // `wts[sl] = ...`: an assignment to one element of an array
       // local. The index is an expression, so where it lands is not
@@ -368,16 +434,33 @@ class Parser {
       const type = this.want("kw").v;
       const name = this.want("id").v;
       if (!this.at("op", "(")) {
+        // `uniform float uP[8];` - an array global, the size after the name
+        let gtype = type;
+        if (this.eat("op", "[")) {
+          const len = Number.parseInt(this.want("num").v, 10);
+          this.want("op", "]");
+          gtype = `${type}[${len}]`;
+        }
         const init = this.eat("op", "=") ? this.expr() : null;
         this.want("op", ";");
-        nodes.push({ n: "global", type, name, init, qual: qual ?? (init ? "const" : "uniform") });
+        nodes.push({ n: "global", type: gtype, name, init, qual: qual ?? (init ? "const" : "uniform") });
         continue;
       }
       this.want("op", "(");
       const params = [];
       if (!this.at("op", ")")) {
         do {
-          const out = !!this.eat("kw", "out");
+          // `precise`, `in` and `const` change nothing a consumer reads
+          // here: every operation is single-rounded already, and an in
+          // parameter is a copy. `inout` would need the argument's value
+          // on the way in, which nothing reads, so it is refused.
+          let out = false;
+          for (;;) {
+            if (this.eat("kw", "precise") || this.eat("kw", "in") || this.eat("kw", "const")) continue;
+            if (this.eat("kw", "out")) { out = true; continue; }
+            if (this.at("kw", "inout")) throw new Error(`glsl-sub: line ${this.peek().line}: inout is not in the subset`);
+            break;
+          }
           let ptype = this.want("kw").v;
           const pname = this.want("id").v;
           if (this.eat("op", "[")) {
@@ -402,13 +485,27 @@ export function parse(src) {
   return new Parser(lex(src)).unit();
 }
 
-/** The functions of a unit, by name. */
+/** The functions of a unit, by name - the FIRST definition of each, which
+ *  is the only one in a unit without overloads. */
 export function index(nodes) {
+  const m = new Map();
+  for (const [name, fs] of overloadsOf(nodes)) m.set(name, fs[0]);
+  return m;
+}
+
+/** Every definition of every name, in source order. Two definitions with
+ *  the same parameter types are the error a lookup by name used to
+ *  report for any second definition. */
+export function overloadsOf(nodes) {
   const m = new Map();
   for (const f of nodes) {
     if (f.n !== "fn") continue;
-    if (m.has(f.name)) throw new Error(`glsl-sub: ${f.name} defined twice`);
-    m.set(f.name, f);
+    const sig = f.params.map(p => p.type).join(",");
+    const have = m.get(f.name) ?? [];
+    if (have.some(g => g.params.map(p => p.type).join(",") === sig))
+      throw new Error(`glsl-sub: ${f.name}(${sig}) defined twice`);
+    have.push(f);
+    m.set(f.name, have);
   }
   return m;
 }
@@ -445,11 +542,16 @@ export const BUILTIN_TYPES = {
   isinf: { args: ["float"], ret: "bool" },
   abs: { gen: 1 },
   sign: { gen: 1 },
-  floor: { args: ["float"], ret: "float" },
+  floor: { gen: 1 },
   step: { args: ["float", "float"], ret: "float" },
   min: { gen: 2 },
   max: { gen: 2 },
   clamp: { gen: 3 },
+  // the camera's: a bool vector from two vectors, and a bool from one
+  lessThan: { rel: "<" }, lessThanEqual: { rel: "<=" },
+  greaterThan: { rel: ">" }, greaterThanEqual: { rel: ">=" },
+  equal: { rel: "==" }, notEqual: { rel: "!=" },
+  any: { reduce: "||" }, all: { reduce: "&&" },
   // Present for the FUSED source only. The shipped library has no fma
   // left in it - gen-detlib rewrites all 56 - and the sequencer target
   // emits from the shipped text by default. This entry exists so the
@@ -464,7 +566,9 @@ export const CASTS = new Set(["int", "uint", "float", "bool"]);
  *  callee's return type. Returns the functions by name. */
 export function typecheck(nodes) {
   const byName = index(nodes);
+  const overloads = overloadsOf(nodes);
   const globals = globalsOf(nodes);
+  let current = null;                  // the function being checked
   const typeOf = (e, env) => {
     switch (e.n) {
       case "lit": return e.type;
@@ -477,16 +581,19 @@ export function typecheck(nodes) {
         const ot = typeOf(e.obj, env);
         const v = VEC[ot];
         if (!v) throw new Error(`glsl-sub: .${e.name} on a ${ot}`);
-        const i = "xyzw".indexOf(e.name);
-        if (e.name.length !== 1 || i < 0 || i >= v.n)
-          throw new Error(`glsl-sub: .${e.name} on a ${ot} - no swizzles in the subset`);
-        return v.elem;
+        const swz = e.name.length <= 4 ? swizzleOf(e.name, v.n) : null;
+        if (!swz) throw new Error(`glsl-sub: .${e.name} on a ${ot}`);
+        e.swz = swz;
+        return swz.length === 1 ? v.elem : vecOf(v.elem, swz.length);
       }
       case "index": {
         const ot = typeOf(e.obj, env);
-        if (!isArray(ot)) throw new Error(`glsl-sub: [] on a ${ot}`);
-        typeOf(e.i, env);
-        return arrayElem(ot);
+        const it = typeOf(e.i, env);
+        if (it !== "int" && it !== "uint") throw new Error(`glsl-sub: [${it}] - an index is an integer`);
+        if (isArray(ot)) return arrayElem(ot);
+        if (VEC[ot]) return VEC[ot].elem;
+        if (MAT[ot]) return MAT[ot].col;
+        throw new Error(`glsl-sub: [] on a ${ot}`);
       }
       case "call": {
         if (CASTS.has(e.name)) { e.args.forEach(a => typeOf(a, env)); return e.name; }
@@ -497,15 +604,36 @@ export function typecheck(nodes) {
           if (b.gen) {
             if (ts.length !== b.gen)
               throw new Error(`glsl-sub: ${e.name} takes ${b.gen} argument(s)`);
-            if (ts.some(t => t !== ts[0]))
+            // a vector with vectors of its type, or with its own scalar
+            // after the first argument (GLSL 8.3's min(genType, float))
+            if (ts.some((t, i) => t !== ts[0] && !(i > 0 && VEC[ts[0]] && t === VEC[ts[0]].elem)))
               throw new Error(`glsl-sub: ${e.name}(${ts.join(", ")}) mixes types`);
             return ts[0];
           }
+          if (b.rel) {
+            if (ts.length !== 2 || !VEC[ts[0]] || ts[1] !== ts[0])
+              throw new Error(`glsl-sub: ${e.name}(${ts.join(", ")}) wants two vectors of one type`);
+            return vecOf("bool", VEC[ts[0]].n);
+          }
+          if (b.reduce) {
+            if (ts.length !== 1 || !VEC[ts[0]] || VEC[ts[0]].elem !== "bool")
+              throw new Error(`glsl-sub: ${e.name}(${ts.join(", ")}) wants a bool vector`);
+            return "bool";
+          }
           return b.ret;
         }
-        const f = byName.get(e.name);
-        if (!f) throw new Error(`glsl-sub: no function ${e.name}`);
-        e.args.forEach(a => typeOf(a, env));
+        const fs = overloads.get(e.name);
+        if (!fs) throw new Error(`glsl-sub: no function ${e.name}`);
+        const ts = e.args.map(a => typeOf(a, env));
+        // ONE DEFINITION IS TAKEN AS IT ALWAYS WAS; SEVERAL ARE CHOSEN BY
+        // THE ARGUMENTS' TYPES, exactly - the kernel's calls all match one
+        // definition exactly, and an implicit conversion here would be a
+        // choice the driver makes by GLSL 6.1's ranking, not by this file.
+        const f = fs.length === 1 ? fs[0]
+          : fs.find(g => g.params.length === ts.length && g.params.every((p, i) => p.type === ts[i]));
+        if (!f) throw new Error(`glsl-sub: no ${e.name}(${ts.join(", ")}) among ` +
+                                fs.map(g => `(${g.params.map(p => p.type).join(", ")})`).join(" "));
+        e.fn = f;
         return f.ret;
       }
       case "un":
@@ -514,6 +642,13 @@ export function typecheck(nodes) {
       case "bin": {
         const lt = typeOf(e.l, env), rt = typeOf(e.r, env);
         if (["==", "!=", "<", ">", "<=", ">=", "&&", "||"].includes(e.op)) {
+          // vector == and != compare whole vectors and give ONE bool
+          // (GLSL 5.9); the ordering operators have no vector form
+          if ((e.op === "==" || e.op === "!=") && isVec(lt) && lt === rt) {
+            e.vecCmp = VEC[lt].n;
+            e.operandType = VEC[lt].elem;
+            return "bool";
+          }
           if (isVec(lt) || isVec(rt))
             throw new Error(`glsl-sub: ${lt} ${e.op} ${rt} - no vector comparisons`);
           e.operandType = lt === "float" || rt === "float" ? "float"
@@ -566,7 +701,21 @@ export function typecheck(nodes) {
         break;
       case "assign": if (!env.has(s.name) && !globals.has(s.name))
         throw new Error(`glsl-sub: ${s.name} not in scope`);
+        if (!env.has(s.name)) current.writesGlobals = true;
         ann(s.value, env); break;
+      case "assignMember": {
+        const vt = env.get(s.name) ?? globals.get(s.name)?.type;
+        if (vt === undefined) throw new Error(`glsl-sub: ${s.name} not in scope`);
+        if (!VEC[vt]) throw new Error(`glsl-sub: ${s.name}.${s.member} = on a ${vt}`);
+        const swz = s.member.length <= 4 ? swizzleOf(s.member, VEC[vt].n) : null;
+        if (!swz || new Set(swz).size !== swz.length)
+          throw new Error(`glsl-sub: ${s.name}.${s.member} is not a writable member of a ${vt}`);
+        s.swz = swz;
+        s.type = vt;
+        if (!env.has(s.name)) current.writesGlobals = true;
+        ann(s.value, env);
+        break;
+      }
       case "assignIndex": {
         const at = env.get(s.name) ?? globals.get(s.name);
         if (at === undefined) throw new Error(`glsl-sub: ${s.name} not in scope`);
@@ -591,6 +740,7 @@ export function typecheck(nodes) {
     if (f.n !== "fn") continue;
     const env = new Map();
     for (const p of f.params) env.set(p.name, p.type);
+    current = f;
     stmt(f.body, env);
   }
   return byName;

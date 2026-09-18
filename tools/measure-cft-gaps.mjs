@@ -246,7 +246,9 @@ const rows = [];
 for (const f of targets) {
   const pos = (await import(pathToFileURL(f).href)).default;
   let L;
-  try { L = lowerPositive(pos); } catch (e) { rows.push({ id: pos.id, refused: e.message.split("\n")[0].slice(0, 90) }); continue; }
+  // hoist: false - this study measures what hoisting WOULD take, so it
+  // reads the graph with every per-run value still on the lane
+  try { L = lowerPositive(pos, { hoist: false }); } catch (e) { rows.push({ id: pos.id, refused: e.message.split("\n")[0].slice(0, 90) }); continue; }
   const { prog } = L;
   const h = hoist(prog);
   const c = callSaving(L, h.uni);

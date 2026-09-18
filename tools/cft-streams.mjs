@@ -19,6 +19,7 @@ import { join, resolve, basename } from "node:path";
 import { createHash } from "node:crypto";
 import { lowerPositive, hashedLevers } from "../core/emit-cft.mjs";
 import { frameSamples } from "../core/cft-samples.mjs";
+import { Machine } from "../core/cft-run.mjs";
 
 const argv = process.argv.slice(2);
 const opt = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : d; };
@@ -33,12 +34,13 @@ mkdirSync(OUT, { recursive: true });
 const u8 = (a) => new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
 const sha = (b) => createHash("sha256").update(b).digest("hex");
 
+const HM = await Machine.open();           // fills the hoisted per-run slots
 for (const f of files) {
   const pos = (await import(pathToFileURL(resolve(f)).href)).default;
   const id = pos.id.replace(/_pos$/, "");
   const P = SEED === null ? null : hashedLevers(pos, Number.parseInt(SEED, 10) >>> 0);
   const t0 = Date.now();
-  const L = lowerPositive(pos, { P, setactLoops: FLAG_LOOPS ? false : undefined });
+  const L = lowerPositive(pos, { P, setactLoops: FLAG_LOOPS ? false : undefined, machine: HM });
   if (!L.image) { console.log(`${id}: does not load as it stands; skipped`); continue; }
   const s = frameSamples(L, N);
   const name = `${id}${SEED === null ? "" : `.levers-${SEED}`}${FLAG_LOOPS ? ".flagloops" : ""}.n${N}`;

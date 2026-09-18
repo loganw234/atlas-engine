@@ -217,8 +217,31 @@ export function hashedLevers(pos, seedU32) {
   return P;
 }
 
+/** Fill a hoisted program's per-run slots for the tail it was lowered
+ *  with: the init program through libcft on one lane. */
+export function fillHoisted(prog, machine) {
+  const h = prog.hoist;
+  const tailBits = prog.consts.slice(prog.tailBase, prog.tailBase + prog.tail);
+  const vals = machine.hoisted(h, tailBits);
+  vals.forEach((v, j) => { prog.consts[h.base + j] = v >>> 0; });
+  h.filled = true;
+  return prog;
+}
+
+/** The bank, the digest and the text of a lowering whose hoisted values
+ *  were not filled at lowering time. */
+export function completeBank(L, machine) {
+  if (!L.prog.hoist || L.prog.hoist.filled) return L;
+  fillHoisted(L.prog, machine);
+  L.bank = bankBytes(L.prog.consts);
+  L.digest = L.image ? digestOf(L.image, L.bank) : null;
+  if (L.prog.words) L.cfta = cftaText(L);
+  return L;
+}
+
 /** The names the record gives the bank's slots: the oracle's for a bit
- *  pattern it knows, the lever's for a tail slot. */
+ *  pattern it knows, the lever's for a tail slot, and what a hoisted
+ *  slot holds - the tag of the op that computes it. */
 export function constantNames(pos, prog) {
   const known = new Map();
   for (const n of constNames()) known.set(Number.parseInt(record(n).bits, 16) >>> 0, n);
@@ -226,8 +249,11 @@ export function constantNames(pos, prog) {
   pos.leverNames.forEach((n, i) => { tailNames[TAIL.P[i]] = `P[${i}] ${n}`; });
   for (let i = pos.leverNames.length; i < 8; i++) tailNames[TAIL.P[i]] = `P[${i}] (unused lever slot)`;
   tailNames[TAIL.uT] = "uT";
+  const h = prog.hoist;
   return prog.consts.map((bits, i) =>
-    i >= prog.tailBase ? tailNames[i - prog.tailBase] : (known.get(bits >>> 0) ?? null));
+    i >= prog.tailBase ? tailNames[i - prog.tailBase]
+    : h && i >= h.base ? `per run: ${h.tags[i - h.base] || "value"}${h.viaClock[i - h.base] ? " (clock)" : ""}`
+    : (known.get(bits >>> 0) ?? null));
 }
 
 /** SHA-256 over the image then the bank - what cft_program_digest
@@ -250,7 +276,9 @@ export function cftaText(L) {
   L2.push(`; lowered by core/cft-lower.mjs; docs/CFT-POSITIVE.md is the record.`);
   L2.push(`;   inputs   ${prog.args.map(a => `${a.stream} = ${a.name}`).join(", ")}`);
   L2.push(`;   deposits ${prog.results.map((d, i) => `${i}:${d.name}`).join(" ")}`);
-  L2.push(`;   the bank: ${prog.tailBase} program constants, then the per-run tail P[0..7], uT`);
+  L2.push(prog.hoist
+    ? `;   the bank: ${prog.hoist.base} program constants, ${prog.hoist.count} hoisted per-run values, then the per-run tail P[0..7], uT`
+    : `;   the bank: ${prog.tailBase} program constants, then the per-run tail P[0..7], uT`);
   L2.push(`;   ${prog.counts.total} words, ${prog.regsUsed} registers, ${prog.loops.length} loop(s)` +
           (prog.scratch.slots ? `, ${prog.scratch.slots} scratch slot(s)` : ""));
   L2.push("");
@@ -263,7 +291,7 @@ export function cftaText(L) {
   if (L.image && (new DataView(L.image.buffer, L.image.byteOffset, L.image.byteLength).getUint32(24, true) & 4))
     L2.push(".scratch strict");
   prog.consts.forEach((bits, i) => {
-    const tail = i >= prog.tailBase ? "   [tail]" : "";
+    const tail = i >= prog.tailBase ? "   [tail]" : prog.hoist && i >= prog.hoist.base ? "   [per run]" : "";
     L2.push(`.const    k${i}`.padEnd(22) + `; 0x${(bits >>> 0).toString(16).toUpperCase().padStart(8, "0")}` +
             (knames[i] ? ` ${knames[i]}` : "") + tail);
   });
@@ -330,7 +358,17 @@ export function lowerPositive(pos, opts = {}) {
     // false keeps every loop's exit in the selected form, SETACT nowhere -
     // the comparison run that prices the early exit on a device
     setactLoops: opts.setactLoops,
+    // the per-run values into the bank (cft-lower's hoistPerRun);
+    // false keeps every one of them on the lane, for a comparison
+    hoist: opts.hoist !== false,
   });
+  // A HOISTED PROGRAM'S BANK IS NOT KNOWN UNTIL LIBCFT HAS RUN ITS INIT
+  // PROGRAM, and this function is synchronous while libcft's module is
+  // not. So a caller that wants the bank passes an open Machine
+  // (core/cft-run.mjs) as opts.machine, or calls completeBank(L, M)
+  // after; until then L.bank and L.digest are null rather than a bank
+  // with zeros where the per-run values go.
+  if (prog.hoist && opts.machine) fillHoisted(prog, opts.machine);
   const fitsImage = prog.counts.total <= IMEM_D;
   // SCRATCH_STRICT, revision 4's R8, IS SET on every image that touches
   // the scratch. The bit says an INDEXED access at or past the depth is
@@ -352,11 +390,11 @@ export function lowerPositive(pos, opts = {}) {
                    maxDeposits: prog.results.length, precisionCode: 0, bankExt: true,
                    scratchStrict: strict })
     : null;
-  const bank = bankBytes(prog.consts);
+  const bank = !prog.hoist || prog.hoist.filled ? bankBytes(prog.consts) : null;
   const L = {
     pos, name, glsl, unit, ref, low, prologue, prog, image, bank, tailValues, uT,
     P: P ?? leverDefaults(pos),
-    digest: image ? digestOf(image, bank) : null,
+    digest: image && bank ? digestOf(image, bank) : null,
     // THE BANK IS A CAPACITY TOO. kx addresses 256 constants and the tile
     // stores KMEM_D of them; a program whose bank - its own constants and
     // the nine-slot tail - is longer does not load, whatever its registers

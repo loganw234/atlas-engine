@@ -126,9 +126,16 @@ And the rest:
   `tools/verify-cft-detlib.mjs` hold the programs to the text's bits
   through that project's libcft and golden model;
   `tools/measure-cft-gaps.mjs` measures what stops the rest of the
-  corpus, which is where the asks of `docs/CFT-GAPS.md` came from.
-  `docs/CFT-DETLIB.md`, `docs/CFT-POSITIVE.md` and `docs/CFT-GAPS.md`
-  are the records, dated.
+  corpus, which is where the asks of `docs/CFT-GAPS.md` came from;
+  `tools/cft-cost-model.mjs` prices a program in what a lane executes on
+  the card. `core/cft-camera.mjs` lowers the darkroom's own camera kernel
+  around a plate for one frame; `tools/photo-gpu.py` records a GPU's
+  samples through the darkroom, `tools/photo-cft.mjs` holds the lowered
+  camera to them and packs the card's case, `tools/photo-bin.mjs` adds a
+  run's deposits into planes and `tools/photo-develop.py` prints them;
+  `tools/silicon/` runs them on the card's host. `docs/CFT-DETLIB.md`,
+  `docs/CFT-POSITIVE.md`, `docs/CFT-GAPS.md`, `docs/CFT-SILICON.md` and
+  `docs/CFT-PHOTOGRAPH.md` are the records, dated.
 
 ![Twenty-four independent rendering stacks converging on a single
 column digest, with the one disagreeing driver drawn apart and
@@ -366,19 +373,41 @@ what the two repositories are executing:
   four arithmetic instructions, and the early exit still buys 1.6 to 2
   times on the loops. The set goes to cft-fp256 as the program-model
   test cases its conformance profile does not yet have.
-- **What remains on this side.** Speed and size rather than reach:
-  hoisting the per-run values into the bank (23,661 words), coalescing
-  the loops' carried copies (1,958), depositing a result as soon as it
-  is final, sharing a spilled value's reloads, and now spilling by what a
-  store costs on silicon rather than by words. Then the photograph on
-  the card, which needs the camera's per-sample tail and the parity
-  harness: a debug variant of the emitted GLSL
-  that writes `xyz`, `col` and `glow` to a buffer instead of
-  depositing, so the GPU's records and the tile's are compared per
-  sample and a first divergence gets named; then the records binned in
-  index order, hashed, and the tile stands as one more column in the
-  matrix above - with a deposition order that is a hardware guarantee
-  rather than a fixed-point accumulation's indifference to it.
+- **Priced in what a lane executes - 2026-09-18.**
+  `docs/CFT-POSITIVE.md`. The card day's prices - a scratch access or
+  `SETACT` four arithmetic instructions - became the lowering's own. The
+  spiller chooses by what a spill costs a lane, weighted by loop trips,
+  and recounts what each pick covers; a carried value's copy-back goes
+  into the instruction that computes it; every per-run value - whatever
+  the levers and the clock alone decide - leaves the lane for the bank,
+  computed once a run by libcft from the same instructions; and a
+  spilling program's schedule is the one whose lane executes least after
+  the spill, not the one with the lowest register peak. Over the corpus:
+  20% fewer words and 21% less modelled cost, all sixty-nine cheaper in
+  the model, and all 138 cases verified again five ways. On the
+  card, back to back with the card-day images and held to the same
+  expected deposits, every timed positive is faster and computes the
+  same bits: 1.07x (`jong`) to 1.62x (`throughput`) at 65,536 lanes, and
+  1.85x on `rule30`.
+- **A photograph on the card - 2026-09-18.** `docs/CFT-PHOTOGRAPH.md`.
+  The darkroom's own deterministic camera kernel, not a copy of it,
+  lowered around Plate I for one frame: the kernel's `splat`,
+  specialised to the bits GL held for the frame's uniforms, so a
+  pinhole's lens branches fold away and never reach the tile. The GPU's
+  side is the same kernel with every sample's deposit recorded - held to
+  the GPU's own planes before anything is compared with it. On the card,
+  every one of the 4,194,304 samples of a four-pass 512 x 512 photograph
+  is the GPU's record of that sample, bit for bit - the pixel and all
+  three fixed-point channels - through the reference, through libcft and
+  on the U50; the planes the host adds up from the card's deposits are
+  the GPU's planes, and the print developed from them is the GPU's
+  print, byte for byte. The camera and the plate are one 1,081-word
+  program, 1.15 µs a sample on one tile.
+- **What remains on this side.** A lens with an aperture and an open
+  shutter on the card, which lower the branches this frame folded away;
+  other plates under the camera; a larger frame; depositing a result as
+  soon as it is final; rematerialising a spilled value that is cheaper to
+  recompute than to reload; and `CALL`, still measured and unasked.
 
 What this asks of the darkroom is nothing new, which is the answer it
 was given before: a negative built from identical records in a fixed

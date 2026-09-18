@@ -188,6 +188,8 @@ slots with no loop around them, so its traffic is paid once a lane; a
 positive that spills inside a loop pays it every trip. And the top-level
 `SETACT` that gave the loops their early exit costs four arithmetic
 instructions a trip, which is the question the next section answers.
+Since 2026-09-18 the lowering prices its choices this way; "The lowering,
+priced, on the card" below is what that bought.
 
 ## What the early exit is worth on silicon
 
@@ -214,6 +216,36 @@ nearly every block holds a lane near the set's edge, so `mand` saves a factor
 of two. What the early exit buys is bounded by the block, and a sample of one
 block is a sample of one.
 
+## The lowering, priced, on the card
+
+2026-09-18. The spiller now chooses by what a spill costs a lane, a carried
+value's copy-back goes into the instruction that computes it, every per-run
+value leaves the lane for the bank, and a spilling program's schedule is
+the one whose lane executes least (`docs/CFT-POSITIVE.md`, "Priced in what a
+lane executes"). The card-day cases ran again with today's images - the
+same streams and the same expected deposit buffers, linked rather than
+copied, so a new image that computed a different bit would be a mismatch
+in the same run that times it - back to back with the card-day images on
+the single tile (`tools/silicon/rate-compare.sh`; `rate-compare-single.log`
+and the `cmp-*.jsonl` beside it). `rule30`, the deepest spiller in loops,
+had no card-day case: its expected deposits came from the software backend
+on the old image, and both images were held to them.
+
+| positive | words | registers | scratch slots | hoisted slots | model, a lane | card, µs a lane | card speed-up | both images' deposits |
+|---|---|---|---|---|---|---|---|---|
+| `psf` | 185 → 118 | 10 → 6 | - → - | 5 | 0.62x | 0.268 → 0.200 | **1.34x** | match (65,536 lanes) |
+| `hopf` | 638 → 526 | 16 → 14 | - → - | 6 | 0.82x | 0.721 → 0.608 | **1.19x** | match (65,536 lanes) |
+| `mand` | 1,111 → 832 | 17 → 17 | - → - | 15 | 0.76x | 3.003 → 2.592 | **1.16x** | match (65,536 lanes) |
+| `jong` | 737 → 508 | 22 → 17 | - → - | 5 | 0.93x | 3.968 → 3.697 | **1.07x** | match (65,536 lanes) |
+| `starfield` | 5,475 → 4,483 | 32 → 32 | 17 → 10 | 50 | 0.81x | 5.857 → 4.724 | **1.24x** | match (65,536 lanes) |
+| `throughput` | 14,801 → 11,356 | 32 → 32 | 186 → 201 | 145 | 0.67x | 24.98 → 15.42 | **1.62x** | match (65,536 lanes) |
+| `stdmap` | 912 → 733 | 23 → 20 | - → - | 12 | 0.85x | 95.45 → 81.35 | **1.17x** | match (65,536 lanes) |
+| `nested` | 1,401 → 1,055 | 32 → 32 | 46 → 38 | 23 | 0.89x | 171.4 → 147.2 | **1.16x** | match (65,536 lanes) |
+| `threebody` | 2,029 → 1,754 | 31 → 31 | 70 → 70 | 23 | 0.83x | 3286.3 → 2617.0 | **1.26x** | match (65,536 lanes) |
+| `rule30` | 4,720 → 3,671 | 32 → 32 | 105 → 100 | 92 | 0.58x | 9437.5 → 5103.2 | **1.85x** | match (4,096 lanes) |
+
+Over the 69 positives: 132,977 words to 105,700 (-20.5%), modelled cost -21.0%, executed scratch traffic 3.97e+6 to 2.76e+6 a block; 69 cheaper, 0 dearer, 0 unchanged.
+
 ## A photograph on the card, sized
 
 What the rates mean for the next step. A darkroom photograph at its
@@ -222,12 +254,16 @@ is a quarter of an hour for `psf` and forty minutes for `hopf`, a few hours
 for `mand`, `jong` or `starfield`, a day for `throughput`, days for
 `stdmap` and `nested`, and four months for `threebody`. A
 first photograph on the card is therefore a question of choosing the plate
-and the exposure rather than of waiting for hardware, and two pieces are
-still missing whichever plate it is. The camera's own per-sample work -
-the lens, the projection, the tint and the pixel address - is not lowered,
-so it runs on the host from each deposit. And the per-sample comparison
-against a GPU's records is not built, so the photograph would be the
-card's photograph, held to the software backend's bits, until it is.
+and the exposure rather than of waiting for hardware. The two pieces this
+section named as missing on 2026-09-17 - the camera's own per-sample work
+lowered to the tile, and the per-sample comparison against a GPU's
+records - were built on 2026-09-18, and the first photograph is in
+`docs/CFT-PHOTOGRAPH.md`:
+
+every one of the 4,194,304 samples of a four-pass 512 x 512 photograph of
+Plate I is the GPU's record of it, bit for bit, and the planes are the
+GPU's planes. The camera and the plate are one 1,081-word program there,
+1.15 µs a sample on the single tile - a pass of a million samples in 1.2 s.
 
 ## Re-running it
 
@@ -242,6 +278,9 @@ bash tools/silicon/cardday.sh identity probes set-card cost set-sw
 CFT_LIB=<patched libcft.so> bash tools/silicon/cardday.sh rate-card
 CFT_LIB=<patched libcft.so> bash tools/silicon/long-runs.sh
 RUNNER=runner/positive-run-fixed bash tools/silicon/bisect-heap.sh
+# 2026-09-18: today's images against the card day's, and the photograph
+CFT_LIB=<patched libcft.so> bash tools/silicon/rate-compare.sh single
+bash tools/silicon/photo.sh ~/atlas-silicon/photo/hopf-512 single
 ```
 
 `rate-card` and `long-runs.sh` need a libcft built with finding 2's fix:

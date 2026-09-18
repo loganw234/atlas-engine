@@ -428,21 +428,32 @@ so there is no index to reduce and the two readings agree.
 3. **The spiller - done 2026-09-11**, when Asks 1 to 3 landed. Every
    positive that lowers now fits the tile, which is what the three were
    for; the section above is what it took.
-4. **Hoisting**: the per-run frontier into the bank, computed per run
-   from the same text by the reference interpreter or by an init
-   program on libcft's software backend - either way held to the other,
-   and the digest still names image and bank together. It no longer
-   decides a fit, so it is an optimisation now rather than a
-   necessity: 23,661 words leave the programs and the spilling that
-   remains is smaller.
-5. **Copy coalescing**: the 1,958 copies into and out of the loops'
-   carried registers, most of which can be the register itself.
-6. **The array local**, the corpus's one remaining refusal: `nested`'s
-   `precise float wts[28]`, written and read under loop counters, is
-   what `STX`/`LDX` are for, and it is the only positive that needs
-   the indexed form at all.
-7. Then the parity harness - the GPU's per-sample records against the
-   tile's.
+4. **Hoisting - done 2026-09-18.** The per-run frontier into the bank,
+   computed once a run by an init program - the same instructions with
+   the same rounding attributes the lane would have issued - through
+   libcft's element operations on one lane, so it is libcft's rounding
+   and not this repository's; the digest still names image and bank
+   together, and the verifier's comparison of every deposit against the
+   reference covers the hoisted values too. The step took 24,280 words
+   out of the corpus and, once the schedule was priced as well (the
+   next item's paragraph in `docs/CFT-POSITIVE.md`), cut the modelled
+   cost of every positive (`docs/CFT-POSITIVE.md`, "Priced in what a
+   lane executes").
+5. **Copy coalescing - done 2026-09-18.** 336 copy-backs in 52
+   positives: the instruction that computes a carried value's next
+   value writes the carried register itself, where nothing reads the
+   old value after it and nothing else writes the register between.
+   The rest of the 1,958 are copy-ins, break snapshots (a `SELECT`, not
+   a copy), carried values the spiller had already put in the scratch,
+   and copy-backs whose computing instruction the schedule placed
+   before a later read of the old value.
+6. **The array local - done 2026-09-11**, with the spiller: `nested`'s
+   `precise float wts[28]` lives in the scratch under `STX`/`LDX`, and
+   nothing in the corpus is refused.
+7. **The parity harness - done 2026-09-18**, for the darkroom's own
+   camera rather than a debug variant of the emitted text:
+   `docs/CFT-PHOTOGRAPH.md`. Every sample of a four-pass photograph is
+   the GPU's record of it, bit for bit, on the card.
 
 ## Not asked, measured
 

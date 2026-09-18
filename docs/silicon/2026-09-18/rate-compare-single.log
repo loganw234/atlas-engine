@@ -1,0 +1,36 @@
+=== 2026-09-18T06:53:36-07:00 rule30: expected deposits from the software backend, old image, 32 processes
+rule30.n4096                   MATCH    lanes     4096  words  4720  | 32 chunks in 32 procs 11.4 s
+=== 2026-09-18T06:53:48-07:00 rate on single
+ |FPGA |34 |
+ |Int Vcc |39 |
+ Power : 14.930822 Watts
+psf.n65536                     MATCH    lanes    65536  words   185  first 0.019 s  median 0.018 s       0.27 us/lane      3735454 lanes/s
+hopf.n65536                    MATCH    lanes    65536  words   638  first 0.050 s  median 0.047 s       0.72 us/lane      1386545 lanes/s
+mand.n65536                    MATCH    lanes    65536  words  1111  first 0.199 s  median 0.197 s       3.00 us/lane       333045 lanes/s
+jong.n65536                    MATCH    lanes    65536  words   737  first 0.262 s  median 0.260 s       3.97 us/lane       252042 lanes/s
+starfield.n65536               MATCH    lanes    65536  words  5475  first 0.386 s  median 0.384 s       5.86 us/lane       170748 lanes/s
+throughput.n65536              MATCH    lanes    65536  words 14801  first 1.639 s  median 1.637 s      24.98 us/lane        40026 lanes/s
+stdmap.n65536                  MATCH    lanes    65536  words   912  first 6.255 s  median 6.255 s      95.45 us/lane        10477 lanes/s
+nested.n65536                  MATCH    lanes    65536  words  1401  first 11.231 s  median 11.230 s     171.36 us/lane         5836 lanes/s
+threebody.n65536               MATCH    lanes    65536  words  2029  first 215.371 s  median 215.370 s    3286.29 us/lane          304 lanes/s
+=== 2026-09-18T07:01:41-07:00 rate-new on single
+ |FPGA |33 |
+ |Int Vcc |39 |
+ Power : 15.330026 Watts
+psf.n65536                     MATCH    lanes    65536  words   118  first 0.015 s  median 0.013 s       0.20 us/lane      5007607 lanes/s
+hopf.n65536                    MATCH    lanes    65536  words   526  first 0.042 s  median 0.040 s       0.61 us/lane      1643408 lanes/s
+mand.n65536                    MATCH    lanes    65536  words   832  first 0.172 s  median 0.170 s       2.59 us/lane       385796 lanes/s
+jong.n65536                    MATCH    lanes    65536  words   508  first 0.244 s  median 0.242 s       3.70 us/lane       270497 lanes/s
+starfield.n65536               MATCH    lanes    65536  words  4483  first 0.311 s  median 0.310 s       4.72 us/lane       211689 lanes/s
+throughput.n65536              MATCH    lanes    65536  words 11356  first 1.013 s  median 1.011 s      15.42 us/lane        64832 lanes/s
+stdmap.n65536                  MATCH    lanes    65536  words   733  first 5.332 s  median 5.331 s      81.35 us/lane        12293 lanes/s
+nested.n65536                  MATCH    lanes    65536  words  1055  first 9.646 s  median 9.645 s     147.18 us/lane         6795 lanes/s
+threebody.n65536               MATCH    lanes    65536  words  1754  first 171.508 s  median 171.508 s    2617.00 us/lane          382 lanes/s
+=== 2026-09-18T07:08:01-07:00 rule30 old on single
+rule30.n4096                   MATCH    lanes     4096  words  4720  first 38.657 s  median 38.656 s    9437.55 us/lane          106 lanes/s
+=== 2026-09-18T07:09:57-07:00 rule30 new on single
+rule30.n4096                   MATCH    lanes     4096  words  3671  first 20.903 s  median 20.903 s    5103.23 us/lane          196 lanes/s
+ |FPGA |34 |
+ |Int Vcc |40 |
+ Power : 15.373471 Watts
+=== 2026-09-18T07:11:00-07:00 done

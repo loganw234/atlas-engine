@@ -29,6 +29,7 @@ import { lowerPositive, TAIL, GLOBALS_PROVENANCE, constantNames } from "../core/
 import { decode, disasm, OP_NAME, RND_NAME, NREG, NREG_REV1, KREG, KMEM_D, IMEM_D, MAXD,
          SCRATCH_D } from "../core/cft-isa.mjs";
 import { EXPANSIONS, bitsF32 } from "../core/cft-lower.mjs";
+import { Machine } from "../core/cft-run.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
@@ -52,7 +53,7 @@ function recordOf(L) {
     index: i,
     bits: hex8(bits), f32: String(bitsF32(bits)), u32: bits >>> 0,
     name: knames[i],
-    kind: i >= prog.tailBase ? "per-run tail" : "program constant",
+    kind: i >= prog.tailBase ? "per-run tail" : prog.hoist && i >= prog.hoist.base ? "per-run hoisted" : "program constant",
     addressable: i < KREG ? "operand field" : "kx",
   }));
   const kname = consts.map(c => (c.name ? `k${c.index}:${c.name.split(" ")[0]}` : `k${c.index}`));
@@ -112,6 +113,10 @@ function recordOf(L) {
     digest: L.digest,
     fits: L.fits,
     inputs: L.inputs,
+    // the per-run values hoisted off the lane: where they sit, and the
+    // init program libcft runs to fill them (core/cft-lower.mjs, hoistPerRun)
+    hoisted: prog.hoist ? { base: prog.hoist.base, slots: prog.hoist.count, opsOffTheLane: prog.hoist.removed,
+                            initOps: prog.hoist.ops.length, followTheClock: prog.hoist.viaClock.filter(Boolean).length } : null,
     tail: { base: prog.tailBase, size: prog.tail,
             layout: Object.fromEntries(knames.slice(prog.tailBase).map((n, i) => [i, n])),
             values: L.tailValues.map(hex8), uT: L.uT },
@@ -161,13 +166,15 @@ function listingOf(rec) {
   return L.join("\n") + "\n";
 }
 
+// libcft fills each program's hoisted per-run slots for the default bank
+const HM = await Machine.open();
 const rows = [];
 for (const t of targets) {
   const pos = (await import(pathToFileURL(resolve(t)).href)).default;
   const id = pos.id.replace(/_pos$/, "");
   let L;
   try {
-    L = lowerPositive(pos);
+    L = lowerPositive(pos, { machine: HM });
   } catch (e) {
     const reason = String(e.message).replace(/^(cft-lower|emit-cft|glsl-sub|glsl-f32): /, "");
     rows.push({ id, refused: reason });
@@ -189,7 +196,7 @@ for (const t of targets) {
   if (!all) {
     console.log(`${id}: ${L.prog.counts.total} words (${L.prog.counts.alu} ALU, ${L.prog.loops.length} loop(s), ` +
                 `${L.prog.phis} carried), registers ${L.prog.regsUsed} of ${NREG}, constants ` +
-                `${L.prog.counts.fixedConsts} + ${L.prog.tail} tail, needs ${L.prog.needs.join(", ") || "nothing"}; ` +
+                `${L.prog.counts.fixedConsts} + ${L.prog.hoist ? `${L.prog.hoist.count} hoisted + ` : ""}${L.prog.tail} tail, needs ${L.prog.needs.join(", ") || "nothing"}; ` +
                 `fits ${L.fits.all ? "yes" : "NO"}` +
                 (L.image ? `; image ${L.image.length} bytes, digest ${L.digest.slice(0, 16)}` : ""));
     console.log(`  build/cft/${id}.cftp  .default.bank  .cfta  .cft.json  .cft.txt`);
